@@ -1,9 +1,45 @@
+//! Procedural macros for the `dramaturge` dialogue toolkit.
+//!
+//! This crate provides derive macros that integrate with the dramaturge
+//! ecosystem. Currently two macros are available:
+//!
+//! - `DialogTag` — implements the `DialogTag` trait for an enum,
+//!   using `#[tag]` attributes on variants.
+//! - `Dramaturge` — a no-op placeholder derive macro.
+//!
+//! # `#[derive(DialogTag)]`
+//!
+//! Use the `#[tag(axis = "...", key = "...")]` attribute on enum variants
+//! to specify the axis and key for each tag. If a variant lacks the
+//! attribute, the axis or key defaults to an empty string.
+//!
+//! ```ignore
+//! use dramaturge_macros::DialogTag;
+//!
+//! #[derive(DialogTag)]
+//! enum MyTag {
+//!     #[tag(axis = "moral", key = "good")]
+//!     Good,
+//!     #[tag(axis = "moral", key = "evil")]
+//!     Evil,
+//! }
+//! ```
+
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{Data, DataEnum, DeriveInput, Fields, Meta, parse_macro_input};
 
+/// Derives the `DialogTag` trait for an enum.
+///
+/// Each variant should use the `#[tag(axis = "...", key = "...")]` attribute
+/// to specify its axis and key. Variants without the attribute default to
+/// an empty string for the missing attribute.
+///
+/// # Errors
+///
+/// Returns a compile error if the derive is applied to a non-enum type.
 #[proc_macro_derive(DialogTag, attributes(tag))]
 pub fn derive_dialog_tag(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -71,6 +107,12 @@ pub fn derive_dialog_tag(input: TokenStream) -> TokenStream {
     output.into()
 }
 
+/// Parses `#[tag(key = "...")]` from variant attributes.
+///
+/// Searches the variant's attributes for a `#[tag(...)]` list, then
+/// looks for the specified `attr_name` (e.g., `"axis"` or `"key"`)
+/// followed by `= "value"`. Returns the string value or `None` if
+/// not found.
 fn extract_tag_attribute(variant: &syn::Variant, attr_name: &str) -> Option<String> {
     for attr in &variant.attrs {
         if !attr.path().is_ident("tag") {
@@ -95,6 +137,11 @@ fn extract_tag_attribute(variant: &syn::Variant, attr_name: &str) -> Option<Stri
     None
 }
 
+/// No-op placeholder derive macro.
+///
+/// This derive macro always returns an empty token stream. It exists
+/// as a placeholder for future derive functionality that may be added
+/// to the dramaturge toolkit.
 #[proc_macro_derive(Dramaturge)]
 pub fn derive_dramaturge(_input: TokenStream) -> TokenStream {
     TokenStream::new()

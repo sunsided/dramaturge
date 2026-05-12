@@ -1,33 +1,67 @@
+//! Dialog intentions — the communicative purpose behind a dialogue option.
+//!
+//! Intentions describe what a character aims to achieve through a dialogue
+//! option. They complement [`DialogTagKind`](crate::tag::DialogTagKind)
+//! tags by capturing the *purpose* rather than the *category* of an
+//! utterance. Intentions can be explicit (set by the authoring tool) or
+//! implicit (inferred by the runtime or other systems).
+
 use std::sync::Arc;
 
 use crate::fact::FactId;
 
+/// What a character aims to achieve through a dialogue option.
+///
+/// Each variant represents a distinct communicative goal. Variants that
+/// reference facts use [`FactId`] to identify the specific fact involved.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Intention {
+    /// Attempt to learn a fact from the other party.
     Learn(FactId),
+    /// Attempt to reveal a fact to the other party.
     Reveal(FactId),
+    /// Attempt to conceal a fact from the other party.
     Hide(FactId),
+    /// Attempt to persuade the other party.
     Persuade,
+    /// Attempt to intimidate the other party.
     Intimidate,
+    /// Attempt to comfort the other party.
     Comfort,
+    /// Attempt to deceive the other party.
     Deceive,
+    /// Attempt to deflect the conversation away from a topic.
     Deflect,
+    /// Attempt to escalate the emotional intensity of the conversation.
     Escalate,
+    /// Attempt to deescalate the emotional intensity of the conversation.
     Deescalate,
+    /// Attempt to negotiate a trade or exchange.
     Trade,
+    /// Attempt to recruit the other party.
     Recruit,
+    /// Attempt to romantically engage the other party.
     Romance,
+    /// Attempt to exit the conversation.
     Exit,
+    /// User-defined custom intention with an arbitrary identifier.
     Custom(Arc<str>),
 }
 
+/// Container for explicit and implicit dialogue intentions.
+///
+/// Separates intentions that the authoring tool attached explicitly from
+/// those inferred by the runtime or other systems.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DialogIntentions {
+    /// Intentions the authoring tool explicitly attached.
     pub explicit: Vec<Intention>,
+    /// Intentions inferred by the runtime or other systems.
     pub implicit: Vec<Intention>,
 }
 
 impl DialogIntentions {
+    /// Creates empty intentions with no explicit or implicit entries.
     pub fn new() -> Self {
         Self {
             explicit: Vec::new(),
@@ -35,11 +69,13 @@ impl DialogIntentions {
         }
     }
 
+    /// Builder method — adds an explicit intention and returns self.
     pub fn with_explicit(mut self, intention: Intention) -> Self {
         self.explicit.push(intention);
         self
     }
 
+    /// Builder method — adds an implicit intention and returns self.
     pub fn with_implicit(mut self, intention: Intention) -> Self {
         self.implicit.push(intention);
         self

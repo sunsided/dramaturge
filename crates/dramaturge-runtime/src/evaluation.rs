@@ -1,21 +1,46 @@
+//! Condition evaluation and outcome application traits with default implementations.
+//!
+//! This module defines the [`ConditionEvaluator`] and [`OutcomeApplier`]
+//! traits that bridge the domain model ([`Condition`], [`Outcome`]) with
+//! the mutable world state ([`DialogWorldState`]).
+//! Default implementations ([`DefaultConditionEvaluator`], [`DefaultOutcomeApplier`])
+//! are provided for all condition and outcome variants.
+
 use dramaturge_model::{Condition, Outcome};
 
 use crate::context::DialogWorldState;
 
+/// Legacy result enum kept for backward compatibility.
+///
+/// Currently not used by the default evaluator, which returns `bool` directly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EvaluationResult {
+    /// Evaluation succeeded.
     Ok,
+    /// Evaluation failed with the given error message.
     Err(String),
 }
 
+/// Trait for evaluating conditions against world state.
 pub trait ConditionEvaluator {
+    /// Evaluates a condition against the given world state.
+    ///
+    /// Returns `true` if the condition is satisfied, `false` otherwise.
     fn evaluate(&self, condition: &Condition, context: &DialogWorldState) -> bool;
 }
 
+/// Trait for applying outcomes to world state.
 pub trait OutcomeApplier {
+    /// Applies an outcome to the given world state, mutating it.
     fn apply(&self, outcome: &Outcome, context: &mut DialogWorldState);
 }
 
+/// Reference implementation handling all 12 condition variants.
+///
+/// This evaluator provides the default semantics for each condition:
+/// `Always`/`Never` return constant booleans, `All`/`Any`/`Not` perform
+/// logical composition, fact checks query the world state, and `Custom`
+/// returns `false` (game-specific implementations should provide their own).
 #[derive(Debug, Clone, Default)]
 pub struct DefaultConditionEvaluator;
 
@@ -56,6 +81,11 @@ impl ConditionEvaluator for DefaultConditionEvaluator {
     }
 }
 
+/// Compares two [`FactValue`]s for equality, using epsilon comparison for floats.
+///
+/// This exists because `FactValue::Float(f64)` prevents `Eq` derivation
+/// on the type. Float comparison uses `(*x - *y).abs() < f64::EPSILON`
+/// to handle floating-point precision issues in game state evaluation.
 fn partial_eq_values(a: &dramaturge_model::FactValue, b: &dramaturge_model::FactValue) -> bool {
     match (a, b) {
         (dramaturge_model::FactValue::Bool(x), dramaturge_model::FactValue::Bool(y)) => x == y,
@@ -76,6 +106,12 @@ fn partial_eq_values(a: &dramaturge_model::FactValue, b: &dramaturge_model::Fact
     }
 }
 
+/// Reference implementation handling all 9 outcome variants.
+///
+/// This applier provides the default semantics for each outcome:
+/// fact operations mutate the world state directly, alignment and
+/// relationship adjustments delegate to the world state methods,
+/// quest management uses fact-based placeholders, and `Custom` is a no-op.
 #[derive(Debug, Clone, Default)]
 pub struct DefaultOutcomeApplier;
 
@@ -151,6 +187,7 @@ mod tests {
         assert!(!evaluator.evaluate(&Condition::Never, &ctx));
     }
 
+    /// Verify All returns true only when all sub-conditions pass.
     #[test]
     fn default_evaluator_all() {
         let evaluator = DefaultConditionEvaluator;
@@ -161,6 +198,7 @@ mod tests {
         assert!(!evaluator.evaluate(&cond, &ctx));
     }
 
+    /// Verify Any returns true when at least one sub-condition passes.
     #[test]
     fn default_evaluator_any() {
         let evaluator = DefaultConditionEvaluator;
@@ -171,6 +209,7 @@ mod tests {
         assert!(!evaluator.evaluate(&cond, &ctx));
     }
 
+    /// Verify Not inverts the inner condition's result.
     #[test]
     fn default_evaluator_not() {
         let evaluator = DefaultConditionEvaluator;
@@ -179,6 +218,7 @@ mod tests {
         assert!(evaluator.evaluate(&Condition::Not(Box::new(Condition::Never)), &ctx));
     }
 
+    /// Verify FactEquals compares stored vs expected values.
     #[test]
     fn default_evaluator_fact_equals() {
         let evaluator = DefaultConditionEvaluator;
@@ -198,6 +238,7 @@ mod tests {
         assert!(!evaluator.evaluate(&cond, &ctx));
     }
 
+    /// Verify FactExists checks presence in world state.
     #[test]
     fn default_evaluator_fact_exists() {
         let evaluator = DefaultConditionEvaluator;
@@ -237,6 +278,7 @@ mod tests {
         assert!(!evaluator.evaluate(&cond, &ctx));
     }
 
+    /// Verify SetFact outcome inserts a fact into world state.
     #[test]
     fn default_applier_set_fact() {
         let applier = DefaultOutcomeApplier;
@@ -250,6 +292,7 @@ mod tests {
         assert!(ctx.fact_exists(&FactScope::World, &FactId::new("met_hero")));
     }
 
+    /// Verify RemoveFact outcome deletes a fact from world state.
     #[test]
     fn default_applier_remove_fact() {
         let applier = DefaultOutcomeApplier;

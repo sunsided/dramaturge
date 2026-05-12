@@ -1,33 +1,66 @@
+//! Facts — discrete pieces of information with rich value types and scoping.
+//!
+//! Facts are the fundamental unit of knowledge in the dramaturge system.
+//! Each fact has a typed [`FactValue`] and can be scoped to different
+//! knowledge domains via [`FactScope`], enabling asymmetric knowledge
+//! scenarios where different characters believe different things.
+//!
+//! Note: [`FactValue`] contains `Float(f64)`, which prevents `Eq` and
+//! `Hash` derivation. Types transitively containing `FactValue` (i.e.,
+//! `Fact`, `ScopedFact`, `Condition`, `Outcome`, `DialogueNode`, etc.)
+//! only derive `Debug, Clone, PartialEq`. Float comparison uses epsilon
+//! (`f64::EPSILON`) in the evaluation layer.
+
 use std::sync::Arc;
 
 use crate::character::{CharacterId, EntityId};
 
+/// String-based identifier for a fact.
+///
+/// Uses `Arc<str>` internally for cheap cloning.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FactId(pub Arc<str>);
 
 impl FactId {
+    /// Creates a new fact identifier from the given string-like value.
     pub fn new(id: impl Into<Arc<str>>) -> Self {
         Self(id.into())
     }
 }
 
+/// The value stored in a fact.
+///
+/// Supports boolean, integer, floating-point, text, entity references,
+/// and nested sets. Note that `Float(f64)` prevents `Eq`/`Hash` derivation
+/// on this type and all types that contain it transitively.
+/// Float equality is handled with epsilon comparison in the evaluation layer.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FactValue {
+    /// Boolean flag.
     Bool(bool),
+    /// 64-bit signed integer.
     Int(i64),
+    /// 64-bit floating point; compared with epsilon for equality.
     Float(f64),
+    /// UTF-8 string.
     Text(String),
+    /// Reference to another entity by [`EntityId`].
     Entity(EntityId),
+    /// Ordered collection of fact values.
     Set(Vec<FactValue>),
 }
 
+/// A single named piece of information with a typed value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Fact {
+    /// Unique fact identifier.
     pub id: FactId,
+    /// The fact's current value.
     pub value: FactValue,
 }
 
 impl Fact {
+    /// Creates a boolean fact with the given ID and value.
     pub fn bool(id: impl Into<Arc<str>>, value: bool) -> Self {
         Self {
             id: FactId::new(id),
@@ -35,6 +68,7 @@ impl Fact {
         }
     }
 
+    /// Creates an integer fact with the given ID and value.
     pub fn int(id: impl Into<Arc<str>>, value: i64) -> Self {
         Self {
             id: FactId::new(id),
@@ -42,6 +76,7 @@ impl Fact {
         }
     }
 
+    /// Creates a floating-point fact with the given ID and value.
     pub fn float(id: impl Into<Arc<str>>, value: f64) -> Self {
         Self {
             id: FactId::new(id),
@@ -49,6 +84,7 @@ impl Fact {
         }
     }
 
+    /// Creates a text fact with the given ID and value.
     pub fn text(id: impl Into<Arc<str>>, value: impl Into<String>) -> Self {
         Self {
             id: FactId::new(id),
@@ -56,6 +92,7 @@ impl Fact {
         }
     }
 
+    /// Creates an entity-reference fact with the given ID and target entity.
     pub fn entity(id: impl Into<Arc<str>>, entity_id: EntityId) -> Self {
         Self {
             id: FactId::new(id),
@@ -63,6 +100,7 @@ impl Fact {
         }
     }
 
+    /// Creates a set fact with the given ID and collection of values.
     pub fn set(id: impl Into<Arc<str>>, values: Vec<FactValue>) -> Self {
         Self {
             id: FactId::new(id),
@@ -71,18 +109,34 @@ impl Fact {
     }
 }
 
+/// Where a fact is known or believed.
+///
+/// Enables asymmetric knowledge scenarios — for example, the player may
+/// know a secret that a character does not, or a faction may have
+/// information not shared with the world.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FactScope {
+    /// Fact known globally (objective truth).
     World,
+    /// Fact known to the player character.
     Player,
+    /// Fact known to a specific character.
     Character(CharacterId),
+    /// Fact known to a faction (identified by string key).
     Faction(Arc<str>),
+    /// Fact known to the current party group.
     Party,
 }
 
+/// A fact bound to a specific [`FactScope`].
+///
+/// Combines a fact with the scope in which it applies, enabling
+/// queries like "what does character X know about fact Y?"
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScopedFact {
+    /// Where this fact applies.
     pub scope: FactScope,
+    /// The fact data.
     pub fact: Fact,
 }
 
@@ -134,6 +188,7 @@ mod tests {
         assert!(matches!(f.value, FactValue::Set(_)));
     }
 
+    /// Verify all [`FactScope`] variants can be pattern-matched correctly.
     #[test]
     fn fact_scope_variants() {
         let world = FactScope::World;
@@ -146,6 +201,7 @@ mod tests {
         assert!(matches!(faction, FactScope::Faction(_)));
     }
 
+    /// Verify a fact can be bound to a scope, creating a [`ScopedFact`].
     #[test]
     fn scoped_fact_construction() {
         let fact = Fact::bool("met_hero", true);

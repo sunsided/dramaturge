@@ -1,25 +1,54 @@
+//! Authoring-time validation for dialogue graphs.
+//!
+//! This module provides the [`GraphValidator`] which runs a suite of
+//! structural checks on a [`DialogueGraph`] to catch common authoring
+//! errors before runtime. Each check produces [`ValidationIssue`]s
+//! with severity levels ([`ValidationSeverity::Info`], [`ValidationSeverity::Warning`],
+//! [`ValidationSeverity::Error`]) and optional
+//! source location (node ID, option ID).
+//!
+//! # Validation Checks
+//!
+//! 1. **Missing targets** — Options referencing non-existent node IDs
+//! 2. **Unreachable nodes** — Nodes not reachable from the entry node via BFS
+//! 3. **Dead-end nodes** — Nodes with no options or enter outcomes that are targeted by other nodes
+//! 4. **Self-loops** — Options whose target is their own parent node
+//! 5. **Cycles** — Nodes participating in cycles detected via DFS with recursion stack
+//! 6. **Always-false conditions** — Options with a `Never` condition (unreachable by definition)
+//! 7. **Orphaned fact references** — Facts referenced in conditions but never set by any outcome
+
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use dramaturge_model::{
     Condition, DialogTarget, DialogueGraph, DialogueNode, DialogueNodeId, DialogueOptionId,
 };
 
+/// Classification of issue importance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationSeverity {
+    /// Informational note — no action required.
     Info,
+    /// Potential issue worth reviewing.
     Warning,
+    /// Definite error that should be fixed.
     Error,
 }
 
+/// A problem found during graph validation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ValidationIssue {
+    /// How important this issue is.
     pub severity: ValidationSeverity,
+    /// Human-readable description of the problem.
     pub message: String,
+    /// Optional node ID where the issue was detected.
     pub node_id: Option<DialogueNodeId>,
+    /// Optional option ID where the issue was detected.
     pub option_id: Option<DialogueOptionId>,
 }
 
 impl ValidationIssue {
+    /// Creates a new issue without source location.
     pub fn new(severity: ValidationSeverity, message: impl Into<String>) -> Self {
         Self {
             severity,
@@ -29,25 +58,33 @@ impl ValidationIssue {
         }
     }
 
+    /// Builder method — attaches a node ID to the issue.
     pub fn with_node(mut self, node_id: DialogueNodeId) -> Self {
         self.node_id = Some(node_id);
         self
     }
 
+    /// Builder method — attaches an option ID to the issue.
     pub fn with_option(mut self, option_id: DialogueOptionId) -> Self {
         self.option_id = Some(option_id);
         self
     }
 }
 
+/// Validates a [`DialogueGraph`] for structural correctness.
+///
+/// Runs seven validation checks covering graph integrity, reachability,
+/// condition validity, and fact reference consistency.
 #[derive(Debug, Clone, Default)]
 pub struct GraphValidator;
 
 impl GraphValidator {
+    /// Creates a new graph validator.
     pub fn new() -> Self {
         Self
     }
 
+    /// Runs all seven validation checks and returns the list of issues found.
     pub fn validate(&self, graph: &DialogueGraph) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
 
@@ -65,6 +102,8 @@ impl GraphValidator {
         issues
     }
 
+    /// Detects options that target non-existent node IDs.
+    /// Uses set difference between all target IDs and existing node IDs.
     fn check_missing_targets(
         &self,
         graph: &DialogueGraph,
@@ -91,6 +130,7 @@ impl GraphValidator {
         }
     }
 
+    /// Detects nodes not reachable from the entry node via BFS traversal.
     fn check_unreachable_nodes(
         &self,
         graph: &DialogueGraph,
@@ -149,6 +189,8 @@ impl GraphValidator {
         }
     }
 
+    /// Detects nodes with no options and no enter outcomes that are reachable from elsewhere.
+    /// These are potential dead ends in the conversation flow.
     fn check_dead_end_nodes(
         &self,
         graph: &DialogueGraph,
@@ -186,6 +228,7 @@ impl GraphValidator {
         }
     }
 
+    /// Detects options whose target is the same node as their parent (self-loop).
     fn check_self_loops(
         &self,
         graph: &DialogueGraph,
@@ -213,6 +256,8 @@ impl GraphValidator {
         }
     }
 
+    /// Detects cycles using DFS with a recursion stack.
+    /// Nodes revisited within the same stack frame are part of a cycle.
     fn check_cycles(
         &self,
         graph: &DialogueGraph,
@@ -277,6 +322,8 @@ impl GraphValidator {
         }
     }
 
+    /// Detects options with a `Never` condition, which makes them unreachable.
+    /// Recursively searches for `Condition::Never` in option conditions.
     fn check_always_false_conditions(
         &self,
         graph: &DialogueGraph,
@@ -312,6 +359,9 @@ impl GraphValidator {
         }
     }
 
+    /// Detects fact IDs referenced in conditions but never set by any outcome.
+    /// Collects all fact IDs from conditions and outcomes via recursive traversal,
+    /// then flags those only appearing in conditions.
     fn check_orphaned_fact_references(
         &self,
         graph: &DialogueGraph,
@@ -320,6 +370,7 @@ impl GraphValidator {
         let mut all_fact_ids: HashSet<&str> = HashSet::new();
         let mut used_fact_ids: HashSet<&str> = HashSet::new();
 
+        /// Extracts fact IDs from a condition tree.
         fn collect_fact_ids_from_condition<'a>(cond: &'a Condition, set: &mut HashSet<&'a str>) {
             match cond {
                 Condition::FactEquals { fact_id, .. } | Condition::FactExists { fact_id, .. } => {
@@ -342,6 +393,7 @@ impl GraphValidator {
             }
         }
 
+        /// Extracts fact IDs from an outcome.
         fn collect_fact_ids_from_outcome<'a>(
             outcome: &'a dramaturge_model::Outcome,
             set: &mut HashSet<&'a str>,
@@ -410,6 +462,7 @@ mod tests {
         EntityId,
     };
 
+    /// Test helper — creates a minimal dialogue node with the given options.
     fn make_node(id: u64, options: Vec<DialogueOption>) -> DialogueNode {
         DialogueNode {
             id: DialogueNodeId::new(id),
@@ -421,6 +474,7 @@ mod tests {
         }
     }
 
+    /// Test helper — creates a minimal dialogue option with the given target.
     fn make_option(id: u64, target: DialogTarget) -> DialogueOption {
         DialogueOption {
             id: DialogueOptionId::new(id),
