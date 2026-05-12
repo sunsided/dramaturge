@@ -10,3 +10,6 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+
+[dev-dependencies]
+dramaturge-macros = { workspace = true }
