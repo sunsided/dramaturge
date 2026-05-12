@@ -128,33 +128,34 @@ impl Condition {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn condition_always() {
-        assert!(matches!(Condition::always(), Condition::Always));
+        check!(let Condition::Always = Condition::always());
     }
 
     #[test]
     fn condition_never() {
-        assert!(matches!(Condition::never(), Condition::Never));
+        check!(let Condition::Never = Condition::never());
     }
 
     #[test]
     fn condition_all() {
         let c = Condition::all(vec![Condition::Always, Condition::Never]);
-        assert!(matches!(c, Condition::All(_)));
+        check!(let Condition::All(_) = c);
     }
 
     #[test]
     fn condition_any() {
         let c = Condition::any(vec![Condition::Always, Condition::Never]);
-        assert!(matches!(c, Condition::Any(_)));
+        check!(let Condition::Any(_) = c);
     }
 
     #[test]
     fn condition_not() {
         let c = Condition::negate(Condition::Always);
-        assert!(matches!(c, Condition::Not(_)));
+        check!(let Condition::Not(_) = c);
     }
 
     #[test]
@@ -164,7 +165,7 @@ mod tests {
             fact_id: FactId::new("met_hero"),
             value: FactValue::Bool(true),
         };
-        assert!(matches!(c, Condition::FactEquals { .. }));
+        check!(let Condition::FactEquals { .. } = c);
     }
 
     #[test]
@@ -173,7 +174,7 @@ mod tests {
             scope: FactScope::Player,
             fact_id: FactId::new("has_sword"),
         };
-        assert!(matches!(c, Condition::FactExists { .. }));
+        check!(let Condition::FactExists { .. } = c);
     }
 
     #[test]
@@ -183,7 +184,7 @@ mod tests {
             pole: AlignmentPoleId::new("paragon"),
             value: 50,
         };
-        assert!(matches!(c, Condition::AlignmentAtLeast { .. }));
+        check!(let Condition::AlignmentAtLeast { .. } = c);
     }
 
     #[test]
@@ -194,7 +195,7 @@ mod tests {
             axis: RelationshipAxisId::new("trust"),
             value: 30,
         };
-        assert!(matches!(c, Condition::RelationshipAtLeast { .. }));
+        check!(let Condition::RelationshipAtLeast { .. } = c);
     }
 
     #[test]
@@ -203,6 +204,6 @@ mod tests {
             key: "has_achievement".to_string(),
             args: vec![],
         };
-        assert!(matches!(c, Condition::Custom { .. }));
+        check!(let Condition::Custom { .. } = c);
     }
 }

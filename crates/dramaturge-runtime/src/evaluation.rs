@@ -165,60 +165,57 @@ impl OutcomeApplier for DefaultOutcomeApplier {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
     use dramaturge_model::{Fact, FactId, FactScope, FactValue};
 
     #[test]
     fn evaluation_result_variants() {
-        assert_eq!(EvaluationResult::Ok, EvaluationResult::Ok);
-        assert_ne!(EvaluationResult::Ok, EvaluationResult::Err("oops".into()));
+        check!(EvaluationResult::Ok == EvaluationResult::Ok);
+        check!(EvaluationResult::Ok != EvaluationResult::Err("oops".into()));
     }
 
     #[test]
     fn default_evaluator_always() {
         let evaluator = DefaultConditionEvaluator;
         let ctx = DialogWorldState::new();
-        assert!(evaluator.evaluate(&Condition::Always, &ctx));
+        check!(evaluator.evaluate(&Condition::Always, &ctx));
     }
 
     #[test]
     fn default_evaluator_never() {
         let evaluator = DefaultConditionEvaluator;
         let ctx = DialogWorldState::new();
-        assert!(!evaluator.evaluate(&Condition::Never, &ctx));
+        check!(!evaluator.evaluate(&Condition::Never, &ctx));
     }
 
-    /// Verify All returns true only when all sub-conditions pass.
     #[test]
     fn default_evaluator_all() {
         let evaluator = DefaultConditionEvaluator;
         let ctx = DialogWorldState::new();
         let cond = Condition::All(vec![Condition::Always, Condition::Always]);
-        assert!(evaluator.evaluate(&cond, &ctx));
+        check!(evaluator.evaluate(&cond, &ctx));
         let cond = Condition::All(vec![Condition::Always, Condition::Never]);
-        assert!(!evaluator.evaluate(&cond, &ctx));
+        check!(!evaluator.evaluate(&cond, &ctx));
     }
 
-    /// Verify Any returns true when at least one sub-condition passes.
     #[test]
     fn default_evaluator_any() {
         let evaluator = DefaultConditionEvaluator;
         let ctx = DialogWorldState::new();
         let cond = Condition::Any(vec![Condition::Never, Condition::Always]);
-        assert!(evaluator.evaluate(&cond, &ctx));
+        check!(evaluator.evaluate(&cond, &ctx));
         let cond = Condition::Any(vec![Condition::Never, Condition::Never]);
-        assert!(!evaluator.evaluate(&cond, &ctx));
+        check!(!evaluator.evaluate(&cond, &ctx));
     }
 
-    /// Verify Not inverts the inner condition's result.
     #[test]
     fn default_evaluator_not() {
         let evaluator = DefaultConditionEvaluator;
         let ctx = DialogWorldState::new();
-        assert!(!evaluator.evaluate(&Condition::Not(Box::new(Condition::Always)), &ctx));
-        assert!(evaluator.evaluate(&Condition::Not(Box::new(Condition::Never)), &ctx));
+        check!(!evaluator.evaluate(&Condition::Not(Box::new(Condition::Always)), &ctx));
+        check!(evaluator.evaluate(&Condition::Not(Box::new(Condition::Never)), &ctx));
     }
 
-    /// Verify FactEquals compares stored vs expected values.
     #[test]
     fn default_evaluator_fact_equals() {
         let evaluator = DefaultConditionEvaluator;
@@ -229,16 +226,15 @@ mod tests {
             fact_id: FactId::new("met_hero"),
             value: FactValue::Bool(true),
         };
-        assert!(evaluator.evaluate(&cond, &ctx));
+        check!(evaluator.evaluate(&cond, &ctx));
         let cond = Condition::FactEquals {
             scope: FactScope::World,
             fact_id: FactId::new("met_hero"),
             value: FactValue::Bool(false),
         };
-        assert!(!evaluator.evaluate(&cond, &ctx));
+        check!(!evaluator.evaluate(&cond, &ctx));
     }
 
-    /// Verify FactExists checks presence in world state.
     #[test]
     fn default_evaluator_fact_exists() {
         let evaluator = DefaultConditionEvaluator;
@@ -248,12 +244,12 @@ mod tests {
             scope: FactScope::World,
             fact_id: FactId::new("met_hero"),
         };
-        assert!(evaluator.evaluate(&cond, &ctx));
+        check!(evaluator.evaluate(&cond, &ctx));
         let cond = Condition::FactExists {
             scope: FactScope::World,
             fact_id: FactId::new("unknown"),
         };
-        assert!(!evaluator.evaluate(&cond, &ctx));
+        check!(!evaluator.evaluate(&cond, &ctx));
     }
 
     #[test]
@@ -264,7 +260,7 @@ mod tests {
         let cond = Condition::HasTagAvailable {
             tag: DialogTagKind::new("moral", "paragon"),
         };
-        assert!(!evaluator.evaluate(&cond, &ctx));
+        check!(!evaluator.evaluate(&cond, &ctx));
     }
 
     #[test]
@@ -275,10 +271,9 @@ mod tests {
             key: "custom".to_string(),
             args: vec![],
         };
-        assert!(!evaluator.evaluate(&cond, &ctx));
+        check!(!evaluator.evaluate(&cond, &ctx));
     }
 
-    /// Verify SetFact outcome inserts a fact into world state.
     #[test]
     fn default_applier_set_fact() {
         let applier = DefaultOutcomeApplier;
@@ -289,10 +284,9 @@ mod tests {
             fact,
         };
         applier.apply(&outcome, &mut ctx);
-        assert!(ctx.fact_exists(&FactScope::World, &FactId::new("met_hero")));
+        check!(ctx.fact_exists(&FactScope::World, &FactId::new("met_hero")));
     }
 
-    /// Verify RemoveFact outcome deletes a fact from world state.
     #[test]
     fn default_applier_remove_fact() {
         let applier = DefaultOutcomeApplier;
@@ -303,7 +297,7 @@ mod tests {
             fact_id: FactId::new("met_hero"),
         };
         applier.apply(&outcome, &mut ctx);
-        assert!(!ctx.fact_exists(&FactScope::World, &FactId::new("met_hero")));
+        check!(!ctx.fact_exists(&FactScope::World, &FactId::new("met_hero")));
     }
 
     #[test]
@@ -315,6 +309,6 @@ mod tests {
             args: vec![],
         };
         applier.apply(&outcome, &mut ctx);
-        assert!(ctx.facts.is_empty());
+        check!(ctx.facts.is_empty());
     }
 }

@@ -123,48 +123,49 @@ impl Memory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn memory_id_construction() {
         let id = MemoryId::new(42);
-        assert_eq!(id.0, 42);
+        check!(id.0 == 42);
     }
 
     #[test]
     fn memory_id_is_copy() {
         let a = MemoryId::new(1);
         let b = a;
-        assert_eq!(a, b);
+        check!(a == b);
     }
 
     #[test]
     fn confidence_variants() {
-        assert!(matches!(Confidence::Rumor, Confidence::Rumor));
-        assert!(matches!(Confidence::Witnessed, Confidence::Witnessed));
+        check!(let Confidence::Rumor = Confidence::Rumor);
+        check!(let Confidence::Witnessed = Confidence::Witnessed);
     }
 
     #[test]
     fn memory_tag_variants() {
-        assert!(matches!(MemoryTag::HelpedMe, MemoryTag::HelpedMe));
+        check!(let MemoryTag::HelpedMe = MemoryTag::HelpedMe);
         let tag = MemoryTag::Custom(std::sync::Arc::from("test"));
-        assert!(matches!(tag, MemoryTag::Custom(..)));
+        check!(let MemoryTag::Custom(..) = tag);
     }
 
     #[test]
     fn memory_query_construction() {
         let q = MemoryQuery::new("recent interactions");
-        assert_eq!(&*q.0, "recent interactions");
+        check!(&*q.0 == "recent interactions");
     }
 
     #[test]
     fn memory_construction() {
         let m = Memory::new(MemoryId::new(1));
-        assert_eq!(m.id.0, 1);
-        assert!(m.subject.is_none());
-        assert!(m.about.is_empty());
-        assert!(m.facts.is_empty());
-        assert!(m.tags.is_empty());
-        assert_eq!(m.emotional_weight, 0);
-        assert!(matches!(m.confidence, Confidence::Believed));
+        check!(m.id.0 == 1);
+        check!(m.subject.is_none());
+        check!(m.about.is_empty());
+        check!(m.facts.is_empty());
+        check!(m.tags.is_empty());
+        check!(m.emotional_weight == 0);
+        check!(let Confidence::Believed = m.confidence);
     }
 }

@@ -465,12 +465,12 @@ impl GraphValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
     use dramaturge_model::{
         CharacterId, DialogIntentions, DialogText, DialogueGraph, DialogueNode, DialogueOption,
         EntityId, FactId, FactScope, Outcome,
     };
 
-    /// Test helper — creates a minimal dialogue node with the given options.
     fn make_node(id: u64, options: Vec<DialogueOption>) -> DialogueNode {
         DialogueNode {
             id: DialogueNodeId::new(id),
@@ -482,7 +482,6 @@ mod tests {
         }
     }
 
-    /// Test helper — creates a minimal dialogue option with the given target.
     fn make_option(id: u64, target: DialogTarget) -> DialogueOption {
         DialogueOption {
             id: DialogueOptionId::new(id),
@@ -500,7 +499,7 @@ mod tests {
         let validator = GraphValidator::new();
         let graph = DialogueGraph::default();
         let issues = validator.validate(&graph);
-        assert!(issues.is_empty());
+        check!(issues.is_empty());
     }
 
     #[test]
@@ -515,7 +514,7 @@ mod tests {
             entry_node: Some(DialogueNodeId::new(1)),
         };
         let issues = validator.validate(&graph);
-        assert!(
+        check!(
             issues
                 .iter()
                 .any(|i| i.message.contains("targets nonexistent node"))
@@ -532,7 +531,7 @@ mod tests {
             entry_node: Some(DialogueNodeId::new(1)),
         };
         let issues = validator.validate(&graph);
-        assert!(issues.iter().any(|i| i.message.contains("unreachable")));
+        check!(issues.iter().any(|i| i.message.contains("unreachable")));
     }
 
     #[test]
@@ -545,7 +544,7 @@ mod tests {
             entry_node: Some(DialogueNodeId::new(1)),
         };
         let issues = validator.validate(&graph);
-        assert!(issues.iter().any(|i| i.message.contains("self-loop")));
+        check!(issues.iter().any(|i| i.message.contains("self-loop")));
     }
 
     #[test]
@@ -566,7 +565,7 @@ mod tests {
             entry_node: Some(DialogueNodeId::new(1)),
         };
         let issues = validator.validate(&graph);
-        assert!(
+        check!(
             issues
                 .iter()
                 .any(|i| i.message.contains("always-false condition"))
@@ -591,7 +590,7 @@ mod tests {
             entry_node: Some(DialogueNodeId::new(1)),
         };
         let issues = validator.validate(&graph);
-        assert!(
+        check!(
             !issues
                 .iter()
                 .any(|i| i.message.contains("always-false condition"))
@@ -616,7 +615,7 @@ mod tests {
             entry_node: Some(DialogueNodeId::new(1)),
         };
         let issues = validator.validate(&graph);
-        assert!(
+        check!(
             !issues
                 .iter()
                 .any(|i| i.message.contains("always-false condition"))
@@ -637,13 +636,13 @@ mod tests {
             .iter()
             .filter(|i| i.message.contains("cycle"))
             .collect();
-        assert_eq!(cycle_issues.len(), 2);
-        assert!(
+        check!(cycle_issues.len() == 2);
+        check!(
             cycle_issues
                 .iter()
                 .any(|i| i.node_id == Some(DialogueNodeId::new(1)))
         );
-        assert!(
+        check!(
             cycle_issues
                 .iter()
                 .any(|i| i.node_id == Some(DialogueNodeId::new(2)))
@@ -659,7 +658,7 @@ mod tests {
             entry_node: Some(DialogueNodeId::new(1)),
         };
         let issues = validator.validate(&graph);
-        assert!(
+        check!(
             issues
                 .iter()
                 .any(|i| i.message.contains("potential dead end")
@@ -701,9 +700,9 @@ mod tests {
             .iter()
             .filter(|i| i.message.contains("referenced in conditions but never set"))
             .collect();
-        assert_eq!(orphaned.len(), 2);
-        assert!(orphaned.iter().any(|i| i.message.contains("only_removed")));
-        assert!(
+        check!(orphaned.len() == 2);
+        check!(orphaned.iter().any(|i| i.message.contains("only_removed")));
+        check!(
             orphaned
                 .iter()
                 .any(|i| i.message.contains("never_mentioned"))
@@ -720,7 +719,7 @@ mod tests {
             entry_node: Some(DialogueNodeId::new(1)),
         };
         let issues = validator.validate(&graph);
-        assert!(issues.iter().any(|i| i.message.contains("cycle")));
+        check!(issues.iter().any(|i| i.message.contains("cycle")));
     }
 
     #[test]
@@ -733,7 +732,7 @@ mod tests {
             entry_node: Some(DialogueNodeId::new(1)),
         };
         let issues = validator.validate(&graph);
-        assert!(
+        check!(
             issues
                 .iter()
                 .any(|i| i.message.contains("potential dead end"))

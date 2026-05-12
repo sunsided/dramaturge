@@ -127,11 +127,12 @@ impl Event {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn event_id_construction() {
         let id = EventId::new(1);
-        assert_eq!(id.0, 1);
+        check!(id.0 == 1);
     }
 
     #[test]
@@ -148,7 +149,7 @@ mod tests {
             tags: Vec::new(),
             intentions: DialogIntentions::new(),
         };
-        assert!(matches!(kind, EventKind::DialogOptionChosen { .. }));
+        check!(let EventKind::DialogOptionChosen { .. } = kind);
     }
 
     #[test]
@@ -157,7 +158,7 @@ mod tests {
             scope: FactScope::World,
             fact_id: FactId::new("met_hero"),
         };
-        assert!(matches!(kind, EventKind::FactLearned { .. }));
+        check!(let EventKind::FactLearned { .. } = kind);
     }
 
     #[test]
@@ -165,7 +166,7 @@ mod tests {
         let kind = EventKind::Custom {
             kind: Arc::from("custom_event"),
         };
-        assert!(matches!(kind, EventKind::Custom { .. }));
+        check!(let EventKind::Custom { .. } = kind);
     }
 
     #[test]
@@ -174,8 +175,8 @@ mod tests {
             kind: Arc::from("test"),
         };
         let event = Event::new(EventId::new(1), kind);
-        assert_eq!(event.id.0, 1);
-        assert!(event.actor.is_none());
-        assert!(event.target.is_none());
+        check!(event.id.0 == 1);
+        check!(event.actor.is_none());
+        check!(event.target.is_none());
     }
 }

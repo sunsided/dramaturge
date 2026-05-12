@@ -106,47 +106,46 @@ impl CharacterTrait {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn entity_id_construction() {
         let id = EntityId::new(42);
-        assert_eq!(id.0, 42);
+        check!(id.0 == 42);
     }
 
     #[test]
     fn character_id_construction() {
         let id = CharacterId::new(EntityId::new(1));
-        assert_eq!(id.0.0, 1);
+        check!(id.0.0 == 1);
     }
 
     #[test]
     fn character_key_construction() {
         let key = CharacterKey::new("hero");
-        assert_eq!(&*key.0, "hero");
+        check!(&*key.0 == "hero");
     }
 
     #[test]
     fn character_construction() {
         let c = Character::new(EntityId::new(1), "hero", "Elara");
-        assert_eq!(c.id.0.0, 1);
-        assert_eq!(&*c.key.0, "hero");
-        assert_eq!(&*c.display_name, "Elara");
-        assert!(c.traits.is_empty());
+        check!(c.id.0.0 == 1);
+        check!(&*c.key.0 == "hero");
+        check!(&*c.display_name == "Elara");
+        check!(c.traits.is_empty());
     }
 
     #[test]
     fn character_trait_construction() {
         let t = CharacterTrait::new("combat", "melee");
-        assert_eq!(&*t.namespace, "combat");
-        assert_eq!(&*t.key, "melee");
+        check!(&*t.namespace == "combat");
+        check!(&*t.key == "melee");
     }
 
-    /// Verify that `EntityId` implements `Copy` semantics, allowing
-    /// use after assignment without consuming the original.
     #[test]
     fn entity_id_is_copy() {
         let a = EntityId::new(1);
         let b = a;
-        assert_eq!(a, b);
+        check!(a == b);
     }
 }

@@ -96,20 +96,21 @@ pub struct AlignmentScore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn alignment_axis_construction() {
         let axis = AlignmentAxis::new("moral", "Moral Alignment");
-        assert_eq!(&*axis.id.0, "moral");
-        assert_eq!(&*axis.display_name, "Moral Alignment");
-        assert!(axis.poles.is_empty());
+        check!(&*axis.id.0 == "moral");
+        check!(&*axis.display_name == "Moral Alignment");
+        check!(axis.poles.is_empty());
     }
 
     #[test]
     fn alignment_pole_construction() {
         let pole = AlignmentPole::new("paragon", "Paragon");
-        assert_eq!(&*pole.id.0, "paragon");
-        assert_eq!(&*pole.display_name, "Paragon");
+        check!(&*pole.id.0 == "paragon");
+        check!(&*pole.display_name == "Paragon");
     }
 
     #[test]
@@ -119,6 +120,6 @@ mod tests {
             pole: AlignmentPoleId::new("paragon"),
             value: 50,
         };
-        assert_eq!(score.value, 50);
+        check!(score.value == 50);
     }
 }

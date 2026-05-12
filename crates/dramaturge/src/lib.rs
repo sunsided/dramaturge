@@ -33,6 +33,7 @@ pub use dramaturge_runtime::{
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn facade_re_exports_compile() {
@@ -42,8 +43,8 @@ mod tests {
         let _: DialogueGraph = DialogueGraph::default();
         let _: DialogWorldState = DialogWorldState::new();
         let _: EvaluationContext = DialogWorldState::new();
-        assert_eq!(EvaluationResult::Ok, EvaluationResult::Ok);
-        assert!(matches!(Condition::Always, Condition::Always));
+        check!(EvaluationResult::Ok == EvaluationResult::Ok);
+        check!(let Condition::Always = Condition::Always);
         let _: FactValue = FactValue::Bool(true);
         let _: MemoryTag = MemoryTag::HelpedMe;
         let _: DialogTagKind = DialogTagKind::new("moral", "paragon");

@@ -184,16 +184,17 @@ impl DialogWorldState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
     use dramaturge_model::{Fact, FactId, FactScope};
 
     #[test]
     fn world_state_default() {
         let state = DialogWorldState::default();
-        assert!(state.facts.is_empty());
-        assert!(state.alignments.is_empty());
-        assert!(state.relationships.is_empty());
-        assert!(state.memories.is_empty());
-        assert!(state.events.is_empty());
+        check!(state.facts.is_empty());
+        check!(state.alignments.is_empty());
+        check!(state.relationships.is_empty());
+        check!(state.memories.is_empty());
+        check!(state.events.is_empty());
     }
 
     #[test]
@@ -201,44 +202,37 @@ mod tests {
         let _: EvaluationContext = DialogWorldState::new();
     }
 
-    /// Verify that set_fact inserts a fact and get_fact retrieves the same value.
     #[test]
     fn set_and_get_fact() {
         let mut state = DialogWorldState::new();
         let fact = Fact::bool("met_hero", true);
         state.set_fact(FactScope::World, fact);
         let value = state.get_fact(&FactScope::World, &FactId::new("met_hero"));
-        assert!(matches!(
-            value,
-            Some(dramaturge_model::FactValue::Bool(true))
-        ));
+        check!(let Some(dramaturge_model::FactValue::Bool(true)) = value);
     }
 
-    /// Verify that remove_fact deletes a previously set fact.
     #[test]
     fn remove_fact() {
         let mut state = DialogWorldState::new();
         let fact = Fact::bool("met_hero", true);
         state.set_fact(FactScope::World, fact);
         state.remove_fact(&FactScope::World, &FactId::new("met_hero"));
-        assert!(
+        check!(
             state
                 .get_fact(&FactScope::World, &FactId::new("met_hero"))
                 .is_none()
         );
     }
 
-    /// Verify that fact_exists returns true for set facts and false for absent ones.
     #[test]
     fn fact_exists() {
         let mut state = DialogWorldState::new();
         let fact = Fact::bool("met_hero", true);
         state.set_fact(FactScope::World, fact);
-        assert!(state.fact_exists(&FactScope::World, &FactId::new("met_hero")));
-        assert!(!state.fact_exists(&FactScope::World, &FactId::new("unknown")));
+        check!(state.fact_exists(&FactScope::World, &FactId::new("met_hero")));
+        check!(!state.fact_exists(&FactScope::World, &FactId::new("unknown")));
     }
 
-    /// Verify add_alignment creates new scores and increments existing ones.
     #[test]
     fn alignment_manipulation() {
         let mut state = DialogWorldState::new();
@@ -248,28 +242,25 @@ mod tests {
             AlignmentPoleId::new("paragon"),
             50,
         );
-        assert_eq!(
+        check!(
             state.get_alignment(
                 &AlignmentAxisId::new("moral"),
                 &AlignmentPoleId::new("paragon")
-            ),
-            Some(50)
+            ) == Some(50)
         );
         state.add_alignment(
             AlignmentAxisId::new("moral"),
             AlignmentPoleId::new("paragon"),
             10,
         );
-        assert_eq!(
+        check!(
             state.get_alignment(
                 &AlignmentAxisId::new("moral"),
                 &AlignmentPoleId::new("paragon")
-            ),
-            Some(60)
+            ) == Some(60)
         );
     }
 
-    /// Verify add_relationship creates and increments scores.
     #[test]
     fn relationship_manipulation() {
         let mut state = DialogWorldState::new();
@@ -277,14 +268,8 @@ mod tests {
         let s = EntityId::new(1);
         let t = EntityId::new(2);
         state.add_relationship(s, t, RelationshipAxisId::new("trust"), 30);
-        assert_eq!(
-            state.get_relationship(s, t, &RelationshipAxisId::new("trust")),
-            Some(30)
-        );
+        check!(state.get_relationship(s, t, &RelationshipAxisId::new("trust")) == Some(30));
         state.add_relationship(s, t, RelationshipAxisId::new("trust"), -10);
-        assert_eq!(
-            state.get_relationship(s, t, &RelationshipAxisId::new("trust")),
-            Some(20)
-        );
+        check!(state.get_relationship(s, t, &RelationshipAxisId::new("trust")) == Some(20));
     }
 }

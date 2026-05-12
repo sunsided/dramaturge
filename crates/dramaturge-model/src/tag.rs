@@ -52,12 +52,13 @@ pub type DialogTagKind = CustomDialogTag;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn custom_dialog_tag_construction() {
         let tag = CustomDialogTag::new("faction", "rebel");
-        assert_eq!(&*tag.axis, "faction");
-        assert_eq!(&*tag.key, "rebel");
+        check!(&*tag.axis == "faction");
+        check!(&*tag.key == "rebel");
     }
 
     #[test]
@@ -65,14 +66,14 @@ mod tests {
         let a = CustomDialogTag::new("moral", "paragon");
         let b = CustomDialogTag::new("moral", "paragon");
         let c = CustomDialogTag::new("moral", "renegade");
-        assert_eq!(a, b);
-        assert_ne!(a, c);
+        check!(a == b);
+        check!(a != c);
     }
 
     #[test]
     fn dialog_tag_kind_is_custom() {
         let tag: DialogTagKind = DialogTagKind::new("axis", "key");
-        assert_eq!(&*tag.axis, "axis");
-        assert_eq!(&*tag.key, "key");
+        check!(&*tag.axis == "axis");
+        check!(&*tag.key == "key");
     }
 }

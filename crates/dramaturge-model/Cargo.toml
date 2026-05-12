@@ -13,3 +13,4 @@ categories.workspace = true
 
 [dev-dependencies]
 dramaturge-macros = { workspace = true }
+assert2 = { workspace = true }

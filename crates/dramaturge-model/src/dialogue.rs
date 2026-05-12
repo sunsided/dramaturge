@@ -201,32 +201,33 @@ impl Default for DialogueGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn dialogue_node_id_construction() {
         let id = DialogueNodeId::new(1);
-        assert_eq!(id.0, 1);
+        check!(id.0 == 1);
     }
 
     #[test]
     fn dialogue_node_id_is_copy() {
         let a = DialogueNodeId::new(1);
         let b = a;
-        assert_eq!(a, b);
+        check!(a == b);
     }
 
     #[test]
     fn dialogue_option_id_construction() {
         let id = DialogueOptionId::new(2);
-        assert_eq!(id.0, 2);
+        check!(id.0 == 2);
     }
 
     #[test]
     fn dialog_text_variants() {
         let inline = DialogText::inline("Hello");
         let localized = DialogText::localized("greeting_key");
-        assert!(matches!(inline, DialogText::Inline(_)));
-        assert!(matches!(localized, DialogText::LocalizedKey(_)));
+        check!(let DialogText::Inline(_) = inline);
+        check!(let DialogText::LocalizedKey(_) = localized);
     }
 
     #[test]
@@ -235,10 +236,10 @@ mod tests {
         let end = DialogTarget::end();
         let ret = DialogTarget::r#return();
         let custom = DialogTarget::custom("custom_target");
-        assert!(matches!(node, DialogTarget::Node(_)));
-        assert!(matches!(end, DialogTarget::End));
-        assert!(matches!(ret, DialogTarget::Return));
-        assert!(matches!(custom, DialogTarget::Custom(_)));
+        check!(let DialogTarget::Node(_) = node);
+        check!(let DialogTarget::End = end);
+        check!(let DialogTarget::Return = ret);
+        check!(let DialogTarget::Custom(_) = custom);
     }
 
     #[test]
@@ -246,27 +247,27 @@ mod tests {
         let speaker = CharacterId::new(crate::character::EntityId::new(1));
         let text = DialogText::inline("Hello, traveller.");
         let node = DialogueNode::new(1, speaker, text);
-        assert_eq!(node.id.0, 1);
-        assert!(node.conditions.is_empty());
-        assert!(node.outcomes_on_enter.is_empty());
-        assert!(node.options.is_empty());
+        check!(node.id.0 == 1);
+        check!(node.conditions.is_empty());
+        check!(node.outcomes_on_enter.is_empty());
+        check!(node.options.is_empty());
     }
 
     #[test]
     fn dialogue_option_construction() {
         let text = DialogText::inline("Yes, I'll help.");
         let option = DialogueOption::new(1, text, DialogTarget::node(2));
-        assert_eq!(option.id.0, 1);
-        assert!(option.tags.is_empty());
-        assert!(option.conditions.is_empty());
-        assert!(option.outcomes.is_empty());
-        assert!(matches!(option.target, DialogTarget::Node(_)));
+        check!(option.id.0 == 1);
+        check!(option.tags.is_empty());
+        check!(option.conditions.is_empty());
+        check!(option.outcomes.is_empty());
+        check!(let DialogTarget::Node(_) = option.target);
     }
 
     #[test]
     fn dialogue_graph_default() {
         let graph = DialogueGraph::default();
-        assert!(graph.nodes.is_empty());
-        assert!(graph.entry_node.is_none());
+        check!(graph.nodes.is_empty());
+        check!(graph.entry_node.is_none());
     }
 }

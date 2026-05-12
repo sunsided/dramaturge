@@ -143,65 +143,64 @@ pub struct ScopedFact {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn fact_id_construction() {
         let id = FactId::new("met_hero");
-        assert_eq!(&*id.0, "met_hero");
+        check!(&*id.0 == "met_hero");
     }
 
     #[test]
     fn fact_bool_construction() {
         let f = Fact::bool("met_hero", true);
-        assert_eq!(&*f.id.0, "met_hero");
-        assert_eq!(f.value, FactValue::Bool(true));
+        check!(&*f.id.0 == "met_hero");
+        check!(f.value == FactValue::Bool(true));
     }
 
     #[test]
     fn fact_int_construction() {
         let f = Fact::int("gold", 100);
-        assert_eq!(f.value, FactValue::Int(100));
+        check!(f.value == FactValue::Int(100));
     }
 
     #[test]
     fn fact_float_construction() {
         let f = Fact::float("health", 85.5);
-        assert_eq!(f.value, FactValue::Float(85.5));
+        check!(f.value == FactValue::Float(85.5));
     }
 
     #[test]
     fn fact_text_construction() {
         let f = Fact::text("name", "Elara");
-        assert_eq!(f.value, FactValue::Text("Elara".to_string()));
+        check!(f.value == FactValue::Text("Elara".to_string()));
     }
 
     #[test]
     fn fact_entity_construction() {
         let eid = EntityId::new(1);
         let f = Fact::entity("companion", eid);
-        assert_eq!(f.value, FactValue::Entity(eid));
+        check!(f.value == FactValue::Entity(eid));
     }
 
     #[test]
     fn fact_set_construction() {
         let f = Fact::set("items", vec![FactValue::Int(1), FactValue::Int(2)]);
-        assert!(matches!(f.value, FactValue::Set(_)));
+        check!(let FactValue::Set(_) = f.value);
     }
 
-    /// Verify all [`FactScope`] variants can be pattern-matched correctly.
     #[test]
     fn fact_scope_variants() {
         let world = FactScope::World;
         let player = FactScope::Player;
         let party = FactScope::Party;
         let faction = FactScope::Faction(Arc::from("rebels"));
-        assert!(matches!(world, FactScope::World));
-        assert!(matches!(player, FactScope::Player));
-        assert!(matches!(party, FactScope::Party));
-        assert!(matches!(faction, FactScope::Faction(_)));
+        check!(let FactScope::World = world);
+        check!(let FactScope::Player = player);
+        check!(let FactScope::Party = party);
+        check!(let FactScope::Faction(_) = faction);
     }
 
-    /// Verify a fact can be bound to a scope, creating a [`ScopedFact`].
     #[test]
     fn scoped_fact_construction() {
         let fact = Fact::bool("met_hero", true);
@@ -209,6 +208,6 @@ mod tests {
             scope: FactScope::World,
             fact,
         };
-        assert!(matches!(scoped.scope, FactScope::World));
+        check!(let FactScope::World = scoped.scope);
     }
 }

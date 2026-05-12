@@ -92,6 +92,7 @@ pub enum Outcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn outcome_set_fact() {
@@ -100,7 +101,7 @@ mod tests {
             scope: FactScope::World,
             fact,
         };
-        assert!(matches!(o, Outcome::SetFact { .. }));
+        check!(let Outcome::SetFact { .. } = o);
     }
 
     #[test]
@@ -109,7 +110,7 @@ mod tests {
             scope: FactScope::World,
             fact_id: FactId::new("met_hero"),
         };
-        assert!(matches!(o, Outcome::RemoveFact { .. }));
+        check!(let Outcome::RemoveFact { .. } = o);
     }
 
     #[test]
@@ -119,7 +120,7 @@ mod tests {
             pole: AlignmentPoleId::new("paragon"),
             delta: 10,
         };
-        assert!(matches!(o, Outcome::AddAlignment { .. }));
+        check!(let Outcome::AddAlignment { .. } = o);
     }
 
     #[test]
@@ -130,7 +131,7 @@ mod tests {
             axis: RelationshipAxisId::new("trust"),
             delta: 5,
         };
-        assert!(matches!(o, Outcome::AddRelationship { .. }));
+        check!(let Outcome::AddRelationship { .. } = o);
     }
 
     #[test]
@@ -140,7 +141,7 @@ mod tests {
             kind: Arc::from("test"),
         };
         let o = Outcome::EmitEvent { kind };
-        assert!(matches!(o, Outcome::EmitEvent { .. }));
+        check!(let Outcome::EmitEvent { .. } = o);
     }
 
     #[test]
@@ -148,7 +149,7 @@ mod tests {
         let o = Outcome::StartQuest {
             quest_id: "main_quest".to_string(),
         };
-        assert!(matches!(o, Outcome::StartQuest { .. }));
+        check!(let Outcome::StartQuest { .. } = o);
     }
 
     #[test]
@@ -157,7 +158,7 @@ mod tests {
             quest_id: "main_quest".to_string(),
             stage: "complete".to_string(),
         };
-        assert!(matches!(o, Outcome::AdvanceQuest { .. }));
+        check!(let Outcome::AdvanceQuest { .. } = o);
     }
 
     #[test]
@@ -166,6 +167,6 @@ mod tests {
             key: "custom_outcome".to_string(),
             args: vec![],
         };
-        assert!(matches!(o, Outcome::Custom { .. }));
+        check!(let Outcome::Custom { .. } = o);
     }
 }

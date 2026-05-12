@@ -91,6 +91,7 @@ impl DialogueRuntime for DefaultRuntime {
 mod tests {
     use super::*;
     use crate::context::DialogWorldState;
+    use assert2::check;
     use dramaturge_model::{
         CharacterId, Condition, DialogText, DialogueOption, EntityId, Fact, FactId, FactScope,
     };
@@ -98,11 +99,10 @@ mod tests {
     #[test]
     fn default_runtime_construction() {
         let rt = DefaultRuntime::new();
-        assert!(matches!(rt.evaluator, DefaultConditionEvaluator));
-        assert!(matches!(rt.applier, DefaultOutcomeApplier));
+        check!(let DefaultConditionEvaluator = rt.evaluator);
+        check!(let DefaultOutcomeApplier = rt.applier);
     }
 
-    /// Verify runtime filters options based on condition evaluation.
     #[test]
     fn available_options_filters_by_condition() {
         let rt = DefaultRuntime::new();
@@ -152,13 +152,12 @@ mod tests {
         };
 
         let available = rt.available_options(&node, &state);
-        assert_eq!(available.len(), 2);
-        assert!(available.contains(&DialogueOptionId::new(1)));
-        assert!(available.contains(&DialogueOptionId::new(2)));
-        assert!(!available.contains(&DialogueOptionId::new(3)));
+        check!(available.len() == 2);
+        check!(available.contains(&DialogueOptionId::new(1)));
+        check!(available.contains(&DialogueOptionId::new(2)));
+        check!(!available.contains(&DialogueOptionId::new(3)));
     }
 
-    /// Verify outcome application mutates state and returns the correct target.
     #[test]
     fn choose_option_applies_outcomes_and_returns_target() {
         let mut rt = DefaultRuntime::new();
@@ -178,7 +177,7 @@ mod tests {
         };
 
         let target = rt.choose_option(&option, &mut state);
-        assert!(matches!(target, DialogTarget::Node(n) if n.0 == 5));
-        assert!(state.fact_exists(&FactScope::World, &FactId::new("agreed")));
+        check!(let DialogTarget::Node(n) = target && n.0 == 5);
+        check!(state.fact_exists(&FactScope::World, &FactId::new("agreed")));
     }
 }

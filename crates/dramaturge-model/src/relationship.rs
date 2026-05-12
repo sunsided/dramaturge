@@ -39,11 +39,12 @@ pub struct RelationshipScore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn relationship_axis_construction() {
         let id = RelationshipAxisId::new("trust");
-        assert_eq!(&*id.0, "trust");
+        check!(&*id.0 == "trust");
     }
 
     #[test]
@@ -54,8 +55,8 @@ mod tests {
             axis: RelationshipAxisId::new("trust"),
             value: 50,
         };
-        assert_eq!(score.source.0, 1);
-        assert_eq!(score.target.0, 2);
-        assert_eq!(score.value, 50);
+        check!(score.source.0 == 1);
+        check!(score.target.0 == 2);
+        check!(score.value == 50);
     }
 }

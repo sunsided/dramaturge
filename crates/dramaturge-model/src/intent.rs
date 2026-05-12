@@ -91,6 +91,7 @@ impl Default for DialogIntentions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn intention_fact_variants() {
@@ -98,29 +99,29 @@ mod tests {
         let learn = Intention::Learn(id.clone());
         let reveal = Intention::Reveal(id.clone());
         let hide = Intention::Hide(id);
-        assert!(matches!(learn, Intention::Learn(_)));
-        assert!(matches!(reveal, Intention::Reveal(_)));
-        assert!(matches!(hide, Intention::Hide(_)));
+        check!(let Intention::Learn(_) = learn);
+        check!(let Intention::Reveal(_) = reveal);
+        check!(let Intention::Hide(_) = hide);
     }
 
     #[test]
     fn intention_action_variants() {
-        assert!(matches!(Intention::Persuade, Intention::Persuade));
-        assert!(matches!(Intention::Intimidate, Intention::Intimidate));
-        assert!(matches!(Intention::Exit, Intention::Exit));
+        check!(let Intention::Persuade = Intention::Persuade);
+        check!(let Intention::Intimidate = Intention::Intimidate);
+        check!(let Intention::Exit = Intention::Exit);
     }
 
     #[test]
     fn intention_custom() {
         let c = Intention::Custom(Arc::from("my_action"));
-        assert!(matches!(c, Intention::Custom(_)));
+        check!(let Intention::Custom(_) = c);
     }
 
     #[test]
     fn dialog_intentions_default() {
         let intentions = DialogIntentions::default();
-        assert!(intentions.explicit.is_empty());
-        assert!(intentions.implicit.is_empty());
+        check!(intentions.explicit.is_empty());
+        check!(intentions.implicit.is_empty());
     }
 
     #[test]
@@ -129,7 +130,7 @@ mod tests {
         let intentions = DialogIntentions::new()
             .with_explicit(Intention::Learn(id.clone()))
             .with_implicit(Intention::Hide(id));
-        assert_eq!(intentions.explicit.len(), 1);
-        assert_eq!(intentions.implicit.len(), 1);
+        check!(intentions.explicit.len() == 1);
+        check!(intentions.implicit.len() == 1);
     }
 }
