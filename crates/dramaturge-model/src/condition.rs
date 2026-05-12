@@ -52,6 +52,24 @@ pub enum Condition {
         /// The fact identifier to check.
         fact_id: FactId,
     },
+    /// Checks that a scoped fact is at least the given integer value.
+    FactAtLeast {
+        /// The scope in which to look for the fact.
+        scope: FactScope,
+        /// The fact identifier to check.
+        fact_id: FactId,
+        /// The minimum value required (returns `true` if fact value >= value).
+        value: i64,
+    },
+    /// Checks that a scoped fact is at most the given integer value.
+    FactAtMost {
+        /// The scope in which to look for the fact.
+        scope: FactScope,
+        /// The fact identifier to check.
+        fact_id: FactId,
+        /// The maximum value allowed (returns `true` if fact value <= value).
+        value: i64,
+    },
     /// Checks that an alignment score is at least the given value.
     AlignmentAtLeast {
         /// The alignment axis to check.
@@ -80,7 +98,7 @@ pub enum Condition {
         query: MemoryQuery,
     },
     /// Checks that a dialog tag is available for use.
-    /// Currently always returns `true` in the default evaluator.
+    /// Returns `true` if the tag exists in `DialogWorldState::available_tags`.
     HasTagAvailable {
         /// The tag to check availability for.
         tag: DialogTagKind,

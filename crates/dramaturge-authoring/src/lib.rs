@@ -326,6 +326,18 @@ impl GraphValidator {
             &mut cycle_nodes,
         );
 
+        for node in &graph.nodes {
+            if !visited.contains(&node.id) {
+                dfs(
+                    node.id,
+                    node_map,
+                    &mut visited,
+                    &mut Vec::new(),
+                    &mut cycle_nodes,
+                );
+            }
+        }
+
         for node_id in &cycle_nodes {
             if let Some(node) = node_map.get(node_id) {
                 issues.push(
@@ -391,31 +403,58 @@ impl GraphValidator {
 
     /// Detects fact IDs referenced in conditions but never set by any outcome.
     /// Collects fact IDs from conditions only (not outcomes), then flags those
-    /// never set by any `SetFact` outcome.
+    /// never set by any `SetFact`, `StartQuest`, or `AdvanceQuest` outcome.
     fn check_orphaned_fact_references(
         &self,
         graph: &DialogueGraph,
         issues: &mut Vec<ValidationIssue>,
     ) {
-        let mut condition_fact_ids: HashSet<&str> = HashSet::new();
-        let mut used_fact_ids: HashSet<&str> = HashSet::new();
+        struct FactRef {
+            fact_id: String,
+            node_id: DialogueNodeId,
+            option_id: Option<DialogueOptionId>,
+        }
 
-        /// Extracts fact IDs from a condition tree.
-        fn collect_fact_ids_from_condition<'a>(cond: &'a Condition, set: &mut HashSet<&'a str>) {
+        let mut condition_fact_refs: Vec<FactRef> = Vec::new();
+        let mut used_fact_ids: HashSet<String> = HashSet::new();
+
+        fn collect_fact_ids_from_condition(
+            cond: &Condition,
+            refs: &mut Vec<FactRef>,
+            node_id: DialogueNodeId,
+            option_id: Option<DialogueOptionId>,
+        ) {
             match cond {
                 Condition::FactEquals { fact_id, .. } | Condition::FactExists { fact_id, .. } => {
-                    set.insert(&fact_id.0);
+                    refs.push(FactRef {
+                        fact_id: fact_id.0.to_string(),
+                        node_id,
+                        option_id,
+                    });
+                }
+                Condition::FactAtLeast { fact_id, .. } | Condition::FactAtMost { fact_id, .. } => {
+                    refs.push(FactRef {
+                        fact_id: fact_id.0.to_string(),
+                        node_id,
+                        option_id,
+                    });
                 }
                 Condition::All(conds) | Condition::Any(conds) => {
                     for c in conds {
-                        collect_fact_ids_from_condition(c, set);
+                        collect_fact_ids_from_condition(c, refs, node_id, option_id);
                     }
                 }
-                Condition::Not(inner) => collect_fact_ids_from_condition(inner, set),
+                Condition::Not(inner) => {
+                    collect_fact_ids_from_condition(inner, refs, node_id, option_id);
+                }
                 Condition::Custom { args, .. } => {
                     for arg in args {
                         if let dramaturge_model::FactValue::Text(id) = arg {
-                            set.insert(id);
+                            refs.push(FactRef {
+                                fact_id: id.to_string(),
+                                node_id,
+                                option_id,
+                            });
                         }
                     }
                 }
@@ -425,38 +464,69 @@ impl GraphValidator {
 
         for node in &graph.nodes {
             for cond in &node.conditions {
-                collect_fact_ids_from_condition(cond, &mut condition_fact_ids);
+                collect_fact_ids_from_condition(cond, &mut condition_fact_refs, node.id, None);
             }
             for option in &node.options {
                 for cond in &option.conditions {
-                    collect_fact_ids_from_condition(cond, &mut condition_fact_ids);
+                    collect_fact_ids_from_condition(
+                        cond,
+                        &mut condition_fact_refs,
+                        node.id,
+                        Some(option.id),
+                    );
                 }
             }
         }
 
         for node in &graph.nodes {
             for outcome in &node.outcomes_on_enter {
-                if let dramaturge_model::Outcome::SetFact { fact, .. } = outcome {
-                    used_fact_ids.insert(&fact.id.0);
+                match outcome {
+                    dramaturge_model::Outcome::SetFact { fact, .. } => {
+                        used_fact_ids.insert(fact.id.0.to_string());
+                    }
+                    dramaturge_model::Outcome::StartQuest { quest_id } => {
+                        used_fact_ids.insert(format!("quest_started_{quest_id}"));
+                    }
+                    dramaturge_model::Outcome::AdvanceQuest { quest_id, .. } => {
+                        used_fact_ids.insert(format!("quest_stage_{quest_id}"));
+                    }
+                    _ => {}
                 }
             }
             for option in &node.options {
                 for outcome in &option.outcomes {
-                    if let dramaturge_model::Outcome::SetFact { fact, .. } = outcome {
-                        used_fact_ids.insert(&fact.id.0);
+                    match outcome {
+                        dramaturge_model::Outcome::SetFact { fact, .. } => {
+                            used_fact_ids.insert(fact.id.0.to_string());
+                        }
+                        dramaturge_model::Outcome::StartQuest { quest_id } => {
+                            used_fact_ids.insert(format!("quest_started_{quest_id}"));
+                        }
+                        dramaturge_model::Outcome::AdvanceQuest { quest_id, .. } => {
+                            used_fact_ids.insert(format!("quest_stage_{quest_id}"));
+                        }
+                        _ => {}
                     }
                 }
             }
         }
 
-        for fact_id in &condition_fact_ids {
-            if !used_fact_ids.contains(fact_id) {
-                issues.push(ValidationIssue::new(
+        let mut reported = HashSet::new();
+        for fact_ref in &condition_fact_refs {
+            if !used_fact_ids.contains(&fact_ref.fact_id) && !reported.contains(&fact_ref.fact_id) {
+                reported.insert(fact_ref.fact_id.clone());
+                let mut issue = ValidationIssue::new(
                     ValidationSeverity::Info,
                     format!(
-                        "Fact ID '{fact_id}' is referenced in conditions but never set by any outcome",
+                        "Fact ID '{}' is referenced in conditions but never set by any outcome",
+                        fact_ref.fact_id,
                     ),
-                ));
+                )
+                .with_node(fact_ref.node_id);
+                if let Some(option_id) = fact_ref.option_id {
+                    issue = issue.with_option(option_id);
+                }
+                issues.push(issue);
             }
         }
     }

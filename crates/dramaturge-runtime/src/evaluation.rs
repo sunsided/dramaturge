@@ -74,6 +74,22 @@ impl ConditionEvaluator for DefaultConditionEvaluator {
                 .get_relationship(*source, *target, axis)
                 .map(|v| v >= *value)
                 .unwrap_or(false),
+            Condition::FactAtLeast {
+                scope,
+                fact_id,
+                value,
+            } => context
+                .get_fact(scope, fact_id)
+                .map(|v| matches!(v, dramaturge_model::FactValue::Int(v) if *v >= *value))
+                .unwrap_or(false),
+            Condition::FactAtMost {
+                scope,
+                fact_id,
+                value,
+            } => context
+                .get_fact(scope, fact_id)
+                .map(|v| matches!(v, dramaturge_model::FactValue::Int(v) if *v <= *value))
+                .unwrap_or(false),
             Condition::HasMemory { owner, query } => context.matches_memory_query(*owner, query),
             Condition::HasTagAvailable { tag } => context.has_tag_available(tag),
             Condition::Custom { .. } => false,
@@ -140,7 +156,13 @@ impl OutcomeApplier for DefaultOutcomeApplier {
             }
             Outcome::EmitEvent { kind } => {
                 let event_id = dramaturge_model::EventId::new(
-                    context.events.iter().map(|e| e.id.0).max().unwrap_or(0) + 1,
+                    context
+                        .events
+                        .iter()
+                        .map(|e| e.id.0)
+                        .max()
+                        .unwrap_or(0)
+                        .saturating_add(1),
                 );
                 let event = dramaturge_model::Event::new(event_id, kind.clone());
                 context.add_event(event);
@@ -411,6 +433,24 @@ mod proptests {
                     .boxed()
                 })
                 .prop_flat_map(|s| s),
+            arb_fact_scope()
+                .prop_flat_map(|scope| {
+                    (".*", any::<i64>()).prop_map(move |(id, value)| Condition::FactAtLeast {
+                        scope: scope.clone(),
+                        fact_id: dramaturge_model::FactId::new(id),
+                        value,
+                    })
+                })
+                .boxed(),
+            arb_fact_scope()
+                .prop_flat_map(|scope| {
+                    (".*", any::<i64>()).prop_map(move |(id, value)| Condition::FactAtMost {
+                        scope: scope.clone(),
+                        fact_id: dramaturge_model::FactId::new(id),
+                        value,
+                    })
+                })
+                .boxed(),
             (".*", any::<i32>())
                 .prop_map(|(axis, value)| {
                     Condition::AlignmentAtLeast {

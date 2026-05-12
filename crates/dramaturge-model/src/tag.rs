@@ -21,10 +21,18 @@ use std::sync::Arc;
 /// key identifies the specific value within that category (e.g.,
 /// `"paragon"`, `"medic"`).
 pub trait DialogTag: Debug + Clone + PartialEq + Eq + Hash {
-    /// Returns the tag's axis label (e.g., `"moral"`, `"skill"`).
-    fn axis(&self) -> &'static str;
-    /// Returns the tag's specific key (e.g., `"paragon"`, `"medic"`).
-    fn key(&self) -> &'static str;
+    fn axis(&self) -> &str;
+    fn key(&self) -> &str;
+}
+
+impl DialogTag for CustomDialogTag {
+    fn axis(&self) -> &str {
+        &self.axis
+    }
+
+    fn key(&self) -> &str {
+        &self.key
+    }
 }
 
 /// User-defined tag with arbitrary axis and key.

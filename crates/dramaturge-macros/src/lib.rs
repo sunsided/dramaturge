@@ -164,13 +164,13 @@ pub fn derive_dialog_tag(input: TokenStream) -> TokenStream {
 
     let output = quote! {
         impl #crate_path::DialogTag for #name {
-            fn axis(&self) -> &'static str {
+            fn axis(&self) -> &str {
                 match self {
                     #(#axis_arms)*
                 }
             }
 
-            fn key(&self) -> &'static str {
+            fn key(&self) -> &str {
                 match self {
                     #(#key_arms)*
                 }
@@ -324,18 +324,18 @@ pub fn derive_fact_value(input: TokenStream) -> TokenStream {
         }
 
         pub fn at_least(self, scope: #crate_path::FactScope, value: i64) -> #crate_path::Condition {
-            #crate_path::Condition::FactEquals {
+            #crate_path::Condition::FactAtLeast {
                 scope,
                 fact_id: #crate_path::FactId::new(self.fact_key()),
-                value: #crate_path::FactValue::Int(value),
+                value,
             }
         }
 
         pub fn at_most(self, scope: #crate_path::FactScope, value: i64) -> #crate_path::Condition {
-            #crate_path::Condition::FactEquals {
+            #crate_path::Condition::FactAtMost {
                 scope,
                 fact_id: #crate_path::FactId::new(self.fact_key()),
-                value: #crate_path::FactValue::Int(value),
+                value,
             }
         }
     };

@@ -130,10 +130,10 @@ mod macro_tests {
         check!(let Condition::FactEquals { value: crate::FactValue::Int(100), .. } = cond);
 
         let cond = TestFacts::Reputation.at_least(FactScope::Player, 50);
-        check!(let Condition::FactEquals { value: crate::FactValue::Int(50), .. } = cond);
+        check!(let Condition::FactAtLeast { value: 50, .. } = cond);
 
         let cond = TestFacts::Gold.at_most(FactScope::World, 1000);
-        check!(let Condition::FactEquals { value: crate::FactValue::Int(1000), .. } = cond);
+        check!(let Condition::FactAtMost { value: 1000, .. } = cond);
     }
 
     #[test]

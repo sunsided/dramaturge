@@ -198,7 +198,7 @@ impl DialogWorldState {
     /// Checks if any memory owned by the given entity matches the query.
     ///
     /// The query string is matched against:
-    /// - Memory tag axis and key values
+    /// - Memory tag variant names (e.g., "HelpedMe") or custom tag strings
     /// - Memory fact IDs (as string)
     /// - Memory subject entity ID (as string)
     /// - Memory about entity IDs (as string)
