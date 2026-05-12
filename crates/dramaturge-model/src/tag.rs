@@ -5,9 +5,10 @@
 //! semantic properties. The [`DialogTag`] trait defines the contract for
 //! any tag type: it must provide `axis()` and `key()` methods.
 //!
-//! Predefined tag types include [`MoralTag`] (alignment), [`SkillTag`]
-//! (skill checks), and [`SpeechActTag`] (communication style). For
-//! arbitrary tagging, use [`CustomDialogTag`].
+//! The primary tag type is [`CustomDialogTag`], which supports arbitrary
+//! axis/key combinations via the [`DialogTag`] trait. Users can also
+//! implement the [`DialogTag`] trait on their own domain-specific enums.
+//! [`DialogTagKind`] is a type alias for [`CustomDialogTag`].
 
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -24,55 +25,6 @@ pub trait DialogTag: Debug + Clone + PartialEq + Eq + Hash {
     fn axis(&self) -> &'static str;
     /// Returns the tag's specific key (e.g., `"paragon"`, `"medic"`).
     fn key(&self) -> &'static str;
-}
-
-/// Predefined moral alignment tags.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum MoralTag {
-    /// Heroic, selfless behavior.
-    Paragon,
-    /// Ruthless, self-serving behavior.
-    Renegade,
-    /// Neutral behavior with no strong moral leaning.
-    Neutral,
-}
-
-/// Predefined skill-check tags.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum SkillTag {
-    /// Medical knowledge or first aid.
-    Medic,
-    /// Stealth, lockpicking, or theft.
-    Thief,
-    /// Mechanical or technical expertise.
-    Engineer,
-    /// Combat or military training.
-    Soldier,
-    /// Cybersecurity or digital intrusion.
-    Hacker,
-    /// Diplomacy, negotiation, or persuasion.
-    Diplomat,
-}
-
-/// Predefined speech act classification tags.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum SpeechActTag {
-    /// Asking a question or requesting information.
-    Ask,
-    /// Deliberately providing false information.
-    Lie,
-    /// Using intimidation or threats.
-    Threaten,
-    /// Romantic or flirtatious approach.
-    Flirt,
-    /// Making a joke or lightening the mood.
-    Joke,
-    /// Providing comfort or emotional support.
-    Comfort,
-    /// Making an accusation.
-    Accuse,
-    /// Attempting to negotiate or trade.
-    Bargain,
 }
 
 /// User-defined tag with arbitrary axis and key.
@@ -94,40 +46,12 @@ impl CustomDialogTag {
     }
 }
 
-/// Sum type wrapping all predefined and custom tag types.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DialogTagKind {
-    /// Moral alignment tag (Paragon, Renegade, Neutral).
-    Moral(MoralTag),
-    /// Skill-check tag (Medic, Thief, etc.).
-    Skill(SkillTag),
-    /// Speech act tag (Ask, Lie, Threaten, etc.).
-    SpeechAct(SpeechActTag),
-    /// User-defined custom tag.
-    Custom(CustomDialogTag),
-}
+/// Primary dialog tag type — an alias for [`CustomDialogTag`].
+pub type DialogTagKind = CustomDialogTag;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn moral_tag_variants() {
-        assert_eq!(MoralTag::Paragon, MoralTag::Paragon);
-        assert_ne!(MoralTag::Paragon, MoralTag::Renegade);
-    }
-
-    #[test]
-    fn skill_tag_variants() {
-        assert_eq!(SkillTag::Medic, SkillTag::Medic);
-        assert_ne!(SkillTag::Medic, SkillTag::Hacker);
-    }
-
-    #[test]
-    fn speech_act_variants() {
-        assert_eq!(SpeechActTag::Ask, SpeechActTag::Ask);
-        assert_ne!(SpeechActTag::Ask, SpeechActTag::Lie);
-    }
 
     #[test]
     fn custom_dialog_tag_construction() {
@@ -137,15 +61,18 @@ mod tests {
     }
 
     #[test]
-    fn dialog_tag_kind_variants() {
-        let moral = DialogTagKind::Moral(MoralTag::Paragon);
-        let skill = DialogTagKind::Skill(SkillTag::Medic);
-        let speech = DialogTagKind::SpeechAct(SpeechActTag::Ask);
-        let custom = DialogTagKind::Custom(CustomDialogTag::new("x", "y"));
+    fn custom_dialog_tag_equality() {
+        let a = CustomDialogTag::new("moral", "paragon");
+        let b = CustomDialogTag::new("moral", "paragon");
+        let c = CustomDialogTag::new("moral", "renegade");
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
 
-        assert!(matches!(moral, DialogTagKind::Moral(_)));
-        assert!(matches!(skill, DialogTagKind::Skill(_)));
-        assert!(matches!(speech, DialogTagKind::SpeechAct(_)));
-        assert!(matches!(custom, DialogTagKind::Custom(_)));
+    #[test]
+    fn dialog_tag_kind_is_custom() {
+        let tag: DialogTagKind = DialogTagKind::new("axis", "key");
+        assert_eq!(&*tag.axis, "axis");
+        assert_eq!(&*tag.key, "key");
     }
 }

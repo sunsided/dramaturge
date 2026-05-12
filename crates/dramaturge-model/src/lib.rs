@@ -19,7 +19,7 @@
 //! - **Memories** — [`Memory`], [`Confidence`], [`MemoryTag`]
 //! - **Events** — [`Event`], [`EventKind`]
 //! - **Intentions** — [`Intention`], [`DialogIntentions`]
-//! - **Tags** — [`DialogTag`], [`DialogTagKind`], [`MoralTag`], [`SkillTag`], [`SpeechActTag`]
+//! - **Tags** — [`DialogTag`], [`DialogTagKind`], [`CustomDialogTag`]
 //!
 //! Circular module imports between `dialogue`, `outcome`, `event`, and
 //! `condition` are intentional and compile cleanly within a single crate.
@@ -62,4 +62,4 @@ pub use outcome::Outcome;
 // Re-exports: relationships
 pub use relationship::{RelationshipAxisId, RelationshipScore};
 // Re-exports: tags
-pub use tag::{CustomDialogTag, DialogTag, DialogTagKind, MoralTag, SkillTag, SpeechActTag};
+pub use tag::{CustomDialogTag, DialogTag, DialogTagKind};

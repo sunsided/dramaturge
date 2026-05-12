@@ -260,9 +260,9 @@ mod tests {
     fn default_evaluator_has_tag_available() {
         let evaluator = DefaultConditionEvaluator;
         let ctx = DialogWorldState::new();
-        use dramaturge_model::{DialogTagKind, MoralTag};
+        use dramaturge_model::DialogTagKind;
         let cond = Condition::HasTagAvailable {
-            tag: DialogTagKind::Moral(MoralTag::Paragon),
+            tag: DialogTagKind::new("moral", "paragon"),
         };
         assert!(evaluator.evaluate(&cond, &ctx));
     }

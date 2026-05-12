@@ -22,8 +22,7 @@ pub use dramaturge_model::{
     DialogIntentions, DialogTag, DialogTagKind, DialogTarget, DialogText, DialogueGraph,
     DialogueNode, DialogueNodeId, DialogueOption, DialogueOptionId, EntityId, Event, EventContext,
     EventId, EventKind, Fact, FactId, FactScope, FactValue, Intention, Memory, MemoryId,
-    MemoryQuery, MemoryTag, MoralTag, Outcome, RelationshipAxisId, RelationshipScore, ScopedFact,
-    SkillTag, SpeechActTag,
+    MemoryQuery, MemoryTag, Outcome, RelationshipAxisId, RelationshipScore, ScopedFact,
 };
 
 pub use dramaturge_runtime::{
@@ -47,7 +46,7 @@ mod tests {
         assert!(matches!(Condition::Always, Condition::Always));
         let _: FactValue = FactValue::Bool(true);
         let _: MemoryTag = MemoryTag::HelpedMe;
-        let _: DialogTagKind = DialogTagKind::Moral(MoralTag::Paragon);
+        let _: DialogTagKind = DialogTagKind::new("moral", "paragon");
         let _: Intention = Intention::Persuade;
     }
 }
