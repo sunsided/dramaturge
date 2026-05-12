@@ -1,0 +1,13 @@
+[package]
+name = "dramaturge-runtime"
+description = "Runtime evaluation traits and engine interface for dramaturge."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+dramaturge-model = { workspace = true }

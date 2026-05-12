@@ -1,0 +1,17 @@
+[package]
+name = "dramaturge-serde"
+description = "Optional serialization integration for the dramaturge dialogue toolkit."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+serde = ["dep:serde"]
+
+[dependencies]
+dramaturge-model = { workspace = true }
+serde = { workspace = true, optional = true }

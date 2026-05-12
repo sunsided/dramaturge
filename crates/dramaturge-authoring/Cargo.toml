@@ -1,0 +1,13 @@
+[package]
+name = "dramaturge-authoring"
+description = "Authoring-time validation helpers for the dramaturge dialogue toolkit."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+dramaturge-model = { workspace = true }
