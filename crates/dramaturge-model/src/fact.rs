@@ -1,60 +1,89 @@
-//! Fact-related domain types.
+use std::sync::Arc;
 
-/// Identifies a [`Fact`] within a fact store.
+use crate::character::{CharacterId, EntityId};
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct FactKey(pub String);
+pub struct FactId(pub Arc<str>);
 
-impl FactKey {
-    /// Create a new [`FactKey`] from any string-like value.
-    pub fn new(key: impl Into<String>) -> Self {
-        Self(key.into())
+impl FactId {
+    pub fn new(id: impl Into<Arc<str>>) -> Self {
+        Self(id.into())
     }
 }
 
-/// The value associated with a [`Fact`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum FactValue {
-    /// A boolean value.
     Bool(bool),
-    /// An integer value.
     Int(i64),
-    /// A string value.
+    Float(f64),
     Text(String),
+    Entity(EntityId),
+    Set(Vec<FactValue>),
 }
 
-/// A discrete piece of information stored in the game world or character memory.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Fact {
-    /// The key identifying this fact.
-    pub key: FactKey,
-    /// The value of this fact.
+    pub id: FactId,
     pub value: FactValue,
 }
 
 impl Fact {
-    /// Create a new boolean [`Fact`].
-    pub fn bool(key: impl Into<String>, value: bool) -> Self {
+    pub fn bool(id: impl Into<Arc<str>>, value: bool) -> Self {
         Self {
-            key: FactKey::new(key),
+            id: FactId::new(id),
             value: FactValue::Bool(value),
         }
     }
 
-    /// Create a new integer [`Fact`].
-    pub fn int(key: impl Into<String>, value: i64) -> Self {
+    pub fn int(id: impl Into<Arc<str>>, value: i64) -> Self {
         Self {
-            key: FactKey::new(key),
+            id: FactId::new(id),
             value: FactValue::Int(value),
         }
     }
 
-    /// Create a new text [`Fact`].
-    pub fn text(key: impl Into<String>, value: impl Into<String>) -> Self {
+    pub fn float(id: impl Into<Arc<str>>, value: f64) -> Self {
         Self {
-            key: FactKey::new(key),
+            id: FactId::new(id),
+            value: FactValue::Float(value),
+        }
+    }
+
+    pub fn text(id: impl Into<Arc<str>>, value: impl Into<String>) -> Self {
+        Self {
+            id: FactId::new(id),
             value: FactValue::Text(value.into()),
         }
     }
+
+    pub fn entity(id: impl Into<Arc<str>>, entity_id: EntityId) -> Self {
+        Self {
+            id: FactId::new(id),
+            value: FactValue::Entity(entity_id),
+        }
+    }
+
+    pub fn set(id: impl Into<Arc<str>>, values: Vec<FactValue>) -> Self {
+        Self {
+            id: FactId::new(id),
+            value: FactValue::Set(values),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum FactScope {
+    World,
+    Player,
+    Character(CharacterId),
+    Faction(Arc<str>),
+    Party,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ScopedFact {
+    pub scope: FactScope,
+    pub fact: Fact,
 }
 
 #[cfg(test)]
@@ -62,9 +91,68 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fact_construction() {
+    fn fact_id_construction() {
+        let id = FactId::new("met_hero");
+        assert_eq!(&*id.0, "met_hero");
+    }
+
+    #[test]
+    fn fact_bool_construction() {
         let f = Fact::bool("met_hero", true);
-        assert_eq!(f.key, FactKey::new("met_hero"));
+        assert_eq!(&*f.id.0, "met_hero");
         assert_eq!(f.value, FactValue::Bool(true));
+    }
+
+    #[test]
+    fn fact_int_construction() {
+        let f = Fact::int("gold", 100);
+        assert_eq!(f.value, FactValue::Int(100));
+    }
+
+    #[test]
+    fn fact_float_construction() {
+        let f = Fact::float("health", 85.5);
+        assert_eq!(f.value, FactValue::Float(85.5));
+    }
+
+    #[test]
+    fn fact_text_construction() {
+        let f = Fact::text("name", "Elara");
+        assert_eq!(f.value, FactValue::Text("Elara".to_string()));
+    }
+
+    #[test]
+    fn fact_entity_construction() {
+        let eid = EntityId::new(1);
+        let f = Fact::entity("companion", eid);
+        assert_eq!(f.value, FactValue::Entity(eid));
+    }
+
+    #[test]
+    fn fact_set_construction() {
+        let f = Fact::set("items", vec![FactValue::Int(1), FactValue::Int(2)]);
+        assert!(matches!(f.value, FactValue::Set(_)));
+    }
+
+    #[test]
+    fn fact_scope_variants() {
+        let world = FactScope::World;
+        let player = FactScope::Player;
+        let party = FactScope::Party;
+        let faction = FactScope::Faction(Arc::from("rebels"));
+        assert!(matches!(world, FactScope::World));
+        assert!(matches!(player, FactScope::Player));
+        assert!(matches!(party, FactScope::Party));
+        assert!(matches!(faction, FactScope::Faction(_)));
+    }
+
+    #[test]
+    fn scoped_fact_construction() {
+        let fact = Fact::bool("met_hero", true);
+        let scoped = ScopedFact {
+            scope: FactScope::World,
+            fact,
+        };
+        assert!(matches!(scoped.scope, FactScope::World));
     }
 }

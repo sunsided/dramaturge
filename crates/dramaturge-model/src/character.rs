@@ -1,46 +1,64 @@
-//! Character-related domain types.
+use std::sync::Arc;
 
-/// A unique identifier for a [`Character`].
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CharacterId(pub String);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EntityId(pub u64);
 
-impl CharacterId {
-    /// Create a new [`CharacterId`] from any string-like value.
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
+impl EntityId {
+    pub fn new(id: u64) -> Self {
+        Self(id)
     }
 }
 
-/// A character participating in the narrative.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CharacterId(pub EntityId);
+
+impl CharacterId {
+    pub fn new(id: EntityId) -> Self {
+        Self(id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CharacterKey(pub Arc<str>);
+
+impl CharacterKey {
+    pub fn new(key: impl Into<Arc<str>>) -> Self {
+        Self(key.into())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Character {
-    /// Unique identifier for this character.
     pub id: CharacterId,
-    /// Display name of the character.
-    pub name: String,
+    pub key: CharacterKey,
+    pub display_name: Arc<str>,
+    pub traits: Vec<CharacterTrait>,
 }
 
 impl Character {
-    /// Create a new [`Character`] with the given id and name.
-    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+    pub fn new(id: EntityId, key: impl Into<Arc<str>>, display_name: impl Into<Arc<str>>) -> Self {
         Self {
             id: CharacterId::new(id),
-            name: name.into(),
+            key: CharacterKey::new(key),
+            display_name: display_name.into(),
+            traits: Vec::new(),
         }
     }
 }
 
-/// The moral or relational alignment of a character or faction.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Alignment {
-    /// No specific alignment.
-    Neutral,
-    /// Friendly alignment.
-    Friendly,
-    /// Hostile alignment.
-    Hostile,
-    /// A custom alignment label.
-    Custom(String),
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CharacterTrait {
+    pub namespace: Arc<str>,
+    pub key: Arc<str>,
+}
+
+impl CharacterTrait {
+    pub fn new(namespace: impl Into<Arc<str>>, key: impl Into<Arc<str>>) -> Self {
+        Self {
+            namespace: namespace.into(),
+            key: key.into(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -48,15 +66,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn character_construction() {
-        let c = Character::new("hero", "Elara");
-        assert_eq!(c.id, CharacterId::new("hero"));
-        assert_eq!(c.name, "Elara");
+    fn entity_id_construction() {
+        let id = EntityId::new(42);
+        assert_eq!(id.0, 42);
     }
 
     #[test]
-    fn alignment_debug() {
-        let a = Alignment::Custom("rebel".into());
-        assert_eq!(format!("{a:?}"), r#"Custom("rebel")"#);
+    fn character_id_construction() {
+        let id = CharacterId::new(EntityId::new(1));
+        assert_eq!(id.0.0, 1);
+    }
+
+    #[test]
+    fn character_key_construction() {
+        let key = CharacterKey::new("hero");
+        assert_eq!(&*key.0, "hero");
+    }
+
+    #[test]
+    fn character_construction() {
+        let c = Character::new(EntityId::new(1), "hero", "Elara");
+        assert_eq!(c.id.0.0, 1);
+        assert_eq!(&*c.key.0, "hero");
+        assert_eq!(&*c.display_name, "Elara");
+        assert!(c.traits.is_empty());
+    }
+
+    #[test]
+    fn character_trait_construction() {
+        let t = CharacterTrait::new("combat", "melee");
+        assert_eq!(&*t.namespace, "combat");
+        assert_eq!(&*t.key, "melee");
+    }
+
+    #[test]
+    fn entity_id_is_copy() {
+        let a = EntityId::new(1);
+        let b = a;
+        assert_eq!(a, b);
     }
 }

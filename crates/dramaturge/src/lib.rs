@@ -7,24 +7,28 @@
 //! # Example
 //!
 //! ```rust
-//! use dramaturge::{Character, CharacterId, DialogueGraph};
+//! use dramaturge::{Character, CharacterId, DialogueGraph, DialogueNodeId, EntityId};
 //!
-//! let hero = Character::new("hero", "Elara");
-//! assert_eq!(hero.name, "Elara");
+//! let hero = Character::new(EntityId::new(1), "hero", "Elara");
+//! assert_eq!(&*hero.display_name, "Elara");
 //!
 //! let graph = DialogueGraph::default();
 //! assert!(graph.nodes.is_empty());
 //! ```
 
-// Re-export the complete public model surface.
 pub use dramaturge_model::{
-    Alignment, Character, CharacterId, Condition, DialogueGraph, DialogueNode, DialogueOption,
-    Event, Fact, FactKey, FactValue, Intent, Memory, OptionTag, Outcome,
+    AlignmentAxis, AlignmentAxisId, AlignmentPole, AlignmentPoleId, AlignmentScore, Character,
+    CharacterId, CharacterKey, CharacterTrait, Condition, Confidence, CustomDialogTag,
+    DialogIntentions, DialogTag, DialogTagKind, DialogTarget, DialogText, DialogueGraph,
+    DialogueNode, DialogueNodeId, DialogueOption, DialogueOptionId, EntityId, Event, EventContext,
+    EventId, EventKind, Fact, FactId, FactScope, FactValue, Intention, Memory, MemoryId,
+    MemoryQuery, MemoryTag, MoralTag, Outcome, RelationshipAxisId, RelationshipScore, ScopedFact,
+    SkillTag, SpeechActTag,
 };
 
-// Re-export the runtime interface.
 pub use dramaturge_runtime::{
-    ConditionEvaluator, DialogueRuntime, EvaluationContext, EvaluationResult, OutcomeApplier,
+    ConditionEvaluator, DefaultConditionEvaluator, DefaultOutcomeApplier, DefaultRuntime,
+    DialogWorldState, DialogueRuntime, EvaluationContext, EvaluationResult, OutcomeApplier,
 };
 
 #[cfg(test)]
@@ -33,10 +37,17 @@ mod tests {
 
     #[test]
     fn facade_re_exports_compile() {
-        let _: CharacterId = CharacterId::new("npc");
-        let _: Character = Character::new("npc", "Guard");
+        let _: EntityId = EntityId::new(1);
+        let _: CharacterId = CharacterId::new(EntityId::new(1));
+        let _: Character = Character::new(EntityId::new(1), "npc", "Guard");
         let _: DialogueGraph = DialogueGraph::default();
-        let _: EvaluationContext = EvaluationContext::new();
+        let _: DialogWorldState = DialogWorldState::new();
+        let _: EvaluationContext = DialogWorldState::new();
         assert_eq!(EvaluationResult::Ok, EvaluationResult::Ok);
+        assert!(matches!(Condition::Always, Condition::Always));
+        let _: FactValue = FactValue::Bool(true);
+        let _: MemoryTag = MemoryTag::HelpedMe;
+        let _: DialogTagKind = DialogTagKind::Moral(MoralTag::Paragon);
+        let _: Intention = Intention::Persuade;
     }
 }

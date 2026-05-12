@@ -5,6 +5,7 @@
 //! Types are intentionally lightweight placeholders; full behaviour will be
 //! added in subsequent development iterations.
 
+pub mod alignment;
 pub mod character;
 pub mod condition;
 pub mod dialogue;
@@ -13,14 +14,22 @@ pub mod fact;
 pub mod intent;
 pub mod memory;
 pub mod outcome;
+pub mod relationship;
 pub mod tag;
 
-pub use character::{Alignment, Character, CharacterId};
+pub use alignment::{
+    AlignmentAxis, AlignmentAxisId, AlignmentPole, AlignmentPoleId, AlignmentScore,
+};
+pub use character::{Character, CharacterId, CharacterKey, CharacterTrait, EntityId};
 pub use condition::Condition;
-pub use dialogue::{DialogueGraph, DialogueNode, DialogueOption};
-pub use event::Event;
-pub use fact::{Fact, FactKey, FactValue};
-pub use intent::Intent;
-pub use memory::Memory;
+pub use dialogue::{
+    DialogTarget, DialogText, DialogueGraph, DialogueNode, DialogueNodeId, DialogueOption,
+    DialogueOptionId,
+};
+pub use event::{Event, EventContext, EventId, EventKind};
+pub use fact::{Fact, FactId, FactScope, FactValue, ScopedFact};
+pub use intent::{DialogIntentions, Intention};
+pub use memory::{Confidence, Memory, MemoryId, MemoryQuery, MemoryTag};
 pub use outcome::Outcome;
-pub use tag::OptionTag;
+pub use relationship::{RelationshipAxisId, RelationshipScore};
+pub use tag::{CustomDialogTag, DialogTag, DialogTagKind, MoralTag, SkillTag, SpeechActTag};
