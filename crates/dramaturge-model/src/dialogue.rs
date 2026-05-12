@@ -271,3 +271,121 @@ mod tests {
         check!(graph.entry_node.is_none());
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    fn arb_dialogue_node_id() -> impl Strategy<Value = DialogueNodeId> {
+        any::<u64>().prop_map(DialogueNodeId::new)
+    }
+
+    #[allow(dead_code)]
+    fn arb_dialogue_option_id() -> impl Strategy<Value = DialogueOptionId> {
+        any::<u64>().prop_map(DialogueOptionId::new)
+    }
+
+    #[allow(dead_code)]
+    fn arb_dialog_text() -> impl Strategy<Value = DialogText> {
+        prop_oneof![
+            ".*".prop_map(DialogText::inline),
+            ".*".prop_map(|s: String| DialogText::localized(s)),
+        ]
+    }
+
+    fn arb_dialog_target() -> impl Strategy<Value = DialogTarget> {
+        prop_oneof![
+            arb_dialogue_node_id().prop_map(DialogTarget::Node),
+            Just(DialogTarget::End),
+            Just(DialogTarget::Return),
+            ".*".prop_map(|s: String| DialogTarget::custom(s)),
+        ]
+    }
+
+    #[test]
+    fn prop_node_ids_unique() {
+        proptest!(|(node_ids in proptest::collection::hash_set(any::<u64>(), 1..20))| {
+            let mut seen = std::collections::HashSet::new();
+            for id in &node_ids {
+                prop_assert!(seen.insert(*id));
+            }
+        });
+    }
+
+    #[test]
+    fn prop_option_targets_valid_or_terminal() {
+        proptest!(|(target in arb_dialog_target())| {
+            match &target {
+                DialogTarget::Node(_) | DialogTarget::End | DialogTarget::Return | DialogTarget::Custom(_) => {}
+            }
+        });
+    }
+
+    #[test]
+    fn prop_dialogue_graph_default_entry_none() {
+        let graph = DialogueGraph::new();
+        assert!(graph.entry_node.is_none());
+    }
+
+    #[test]
+    fn prop_dialog_text_roundtrip() {
+        proptest!(|(text in ".*")| {
+            let dt = DialogText::inline(&text);
+            if let DialogText::Inline(s) = dt {
+                prop_assert_eq!(s, text);
+            } else {
+                prop_assert!(false, "expected Inline variant");
+            }
+        });
+    }
+
+    #[test]
+    fn prop_dialog_target_node_id_preserved() {
+        proptest!(|(id: u64)| {
+            let target = DialogTarget::node(id);
+            if let DialogTarget::Node(node_id) = target {
+                prop_assert_eq!(node_id.0, id);
+            } else {
+                prop_assert!(false, "expected Node variant");
+            }
+        });
+    }
+
+    #[test]
+    fn prop_dialogue_node_construction_preserves_fields() {
+        proptest!(|(
+            id in any::<u64>(),
+            speaker in any::<u64>(),
+            text in ".*"
+        )| {
+            let speaker = CharacterId::new(crate::character::EntityId::new(speaker));
+            let node = DialogueNode::new(id, speaker, DialogText::inline(&text));
+            prop_assert_eq!(node.id.0, id);
+            prop_assert!(node.conditions.is_empty());
+            prop_assert!(node.outcomes_on_enter.is_empty());
+            prop_assert!(node.options.is_empty());
+        });
+    }
+
+    #[test]
+    fn prop_dialogue_option_construction_preserves_fields() {
+        proptest!(|(
+            id in any::<u64>(),
+            text in ".*",
+            target_id in any::<u64>()
+        )| {
+            let option = DialogueOption::new(id, DialogText::inline(&text), DialogTarget::node(target_id));
+            prop_assert_eq!(option.id.0, id);
+            prop_assert!(option.tags.is_empty());
+            prop_assert!(option.conditions.is_empty());
+            prop_assert!(option.outcomes.is_empty());
+            if let DialogTarget::Node(n) = option.target {
+                prop_assert_eq!(n.0, target_id);
+            } else {
+                prop_assert!(false, "expected Node target");
+            }
+        });
+    }
+}

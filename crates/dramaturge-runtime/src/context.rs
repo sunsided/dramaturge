@@ -273,3 +273,178 @@ mod tests {
         check!(state.get_relationship(s, t, &RelationshipAxisId::new("trust")) == Some(20));
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use proptest::prelude::*;
+
+    use super::*;
+    use dramaturge_model::fact::{Fact, FactScope, FactValue};
+    use dramaturge_model::{
+        AlignmentAxisId, AlignmentPoleId, Event, EventKind, Memory, MemoryId, RelationshipAxisId,
+    };
+
+    fn arb_entity_id() -> impl Strategy<Value = EntityId> {
+        any::<u64>().prop_map(EntityId::new)
+    }
+
+    fn arb_fact_id() -> impl Strategy<Value = dramaturge_model::FactId> {
+        ".*".prop_map(dramaturge_model::FactId::new)
+    }
+
+    fn arb_fact_value() -> impl Strategy<Value = FactValue> {
+        prop_oneof![
+            any::<bool>().prop_map(FactValue::Bool),
+            any::<i64>().prop_map(FactValue::Int),
+            any::<f64>().prop_map(FactValue::Float),
+            ".*".prop_map(FactValue::Text),
+            arb_entity_id().prop_map(FactValue::Entity),
+        ]
+    }
+
+    fn arb_fact_scope() -> impl Strategy<Value = FactScope> {
+        use dramaturge_model::character::CharacterId;
+        prop_oneof![
+            Just(FactScope::World),
+            Just(FactScope::Player),
+            Just(FactScope::Party),
+            ".*".prop_map(|s: String| FactScope::Faction(s.into())),
+            arb_entity_id().prop_map(|e| FactScope::Character(CharacterId::new(e))),
+        ]
+    }
+
+    fn arb_fact() -> impl Strategy<Value = Fact> {
+        (arb_fact_id(), arb_fact_value()).prop_map(|(id, value)| Fact { id, value })
+    }
+
+    fn arb_scoped_fact() -> impl Strategy<Value = dramaturge_model::ScopedFact> {
+        (arb_fact_scope(), arb_fact())
+            .prop_map(|(scope, fact)| dramaturge_model::ScopedFact { scope, fact })
+    }
+
+    fn arb_alignment_axis_id() -> impl Strategy<Value = AlignmentAxisId> {
+        ".*".prop_map(AlignmentAxisId::new)
+    }
+
+    fn arb_alignment_pole_id() -> impl Strategy<Value = AlignmentPoleId> {
+        ".*".prop_map(AlignmentPoleId::new)
+    }
+
+    fn arb_relationship_axis_id() -> impl Strategy<Value = RelationshipAxisId> {
+        ".*".prop_map(RelationshipAxisId::new)
+    }
+
+    fn arb_memory() -> impl Strategy<Value = Memory> {
+        any::<u64>().prop_map(|n| Memory::new(MemoryId::new(n)))
+    }
+
+    #[allow(dead_code)]
+    fn arb_event() -> impl Strategy<Value = Event> {
+        (any::<u64>(), ".*").prop_map(|(id, kind)| {
+            let eid = dramaturge_model::EventId::new(id);
+            Event::new(eid, EventKind::Custom { kind: kind.into() })
+        })
+    }
+
+    #[test]
+    fn prop_set_get_roundtrip() {
+        proptest!(|(scoped in arb_scoped_fact())| {
+            let mut ctx = DialogWorldState::new();
+            ctx.set_fact(scoped.scope.clone(), scoped.fact.clone());
+            let got = ctx.get_fact(&scoped.scope, &scoped.fact.id);
+            prop_assert_eq!(got, Some(&scoped.fact.value));
+        });
+    }
+
+    #[test]
+    fn prop_remove_get_none() {
+        proptest!(|(scoped in arb_scoped_fact())| {
+            let mut ctx = DialogWorldState::new();
+            ctx.set_fact(scoped.scope.clone(), scoped.fact.clone());
+            ctx.remove_fact(&scoped.scope, &scoped.fact.id);
+            prop_assert!(ctx.get_fact(&scoped.scope, &scoped.fact.id).is_none());
+        });
+    }
+
+    #[test]
+    fn prop_set_twice_overwrites() {
+        proptest!(|(
+            scoped in arb_scoped_fact(),
+            new_value in arb_fact_value()
+        )| {
+            let mut ctx = DialogWorldState::new();
+            ctx.set_fact(scoped.scope.clone(), scoped.fact.clone());
+            ctx.set_fact(
+                scoped.scope.clone(),
+                Fact {
+                    id: scoped.fact.id.clone(),
+                    value: new_value.clone(),
+                },
+            );
+            let got = ctx.get_fact(&scoped.scope, &scoped.fact.id);
+            prop_assert_eq!(got, Some(&new_value));
+        });
+    }
+
+    #[test]
+    fn prop_alignment_accumulates() {
+        proptest!(|(
+            axis in arb_alignment_axis_id(),
+            pole in arb_alignment_pole_id(),
+            deltas in proptest::collection::vec(any::<i16>(), 1..10)
+        )| {
+            let mut ctx = DialogWorldState::new();
+            let expected: i32 = deltas.iter().map(|d| *d as i32).sum();
+            for delta in &deltas {
+                ctx.add_alignment(axis.clone(), pole.clone(), *delta as i32);
+            }
+            let got = ctx.get_alignment(&axis, &pole);
+            prop_assert_eq!(got, Some(expected));
+        });
+    }
+
+    #[test]
+    fn prop_relationship_directional() {
+        proptest!(|(
+            a in arb_entity_id(),
+            b in arb_entity_id(),
+            axis in arb_relationship_axis_id(),
+            delta in any::<i32>()
+        )| {
+            prop_assume!(a != b);
+            let mut ctx = DialogWorldState::new();
+            ctx.add_relationship(a, b, axis.clone(), delta);
+            let ab = ctx.get_relationship(a, b, &axis);
+            let ba = ctx.get_relationship(b, a, &axis);
+            prop_assert_eq!(ab, Some(delta));
+            prop_assert_eq!(ba, None);
+        });
+    }
+
+    #[test]
+    fn prop_event_ids_monotonic() {
+        proptest!(|(kinds in proptest::collection::vec(".*", 1..10))| {
+            let mut ctx = DialogWorldState::new();
+            let mut last_id: Option<u64> = None;
+            for (i, kind_str) in kinds.iter().enumerate() {
+                let event_id = dramaturge_model::EventId::new(i as u64 + 1);
+                let event = Event::new(event_id, EventKind::Custom { kind: kind_str.as_str().into() });
+                ctx.add_event(event.clone());
+                prop_assert!(last_id.is_none_or(|prev| event.id.0 > prev));
+                last_id = Some(event.id.0);
+            }
+            prop_assert_eq!(ctx.events.len(), kinds.len());
+        });
+    }
+
+    #[test]
+    fn prop_add_memory_visible() {
+        proptest!(|(owner in arb_entity_id(), memory in arb_memory())| {
+            let mut ctx = DialogWorldState::new();
+            ctx.add_memory(owner, memory.clone());
+            let memories = ctx.get_memories(owner);
+            prop_assert!(!memories.is_empty());
+            prop_assert!(memories.contains(&&memory));
+        });
+    }
+}

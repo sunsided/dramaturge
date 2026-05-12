@@ -312,3 +312,277 @@ mod tests {
         check!(ctx.facts.is_empty());
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    use proptest::prelude::*;
+    use proptest::strategy::Strategy;
+
+    use super::*;
+    use dramaturge_model::character::{CharacterId, EntityId};
+    use dramaturge_model::condition::Condition;
+    use dramaturge_model::fact::{FactScope, FactValue};
+    use proptest::collection::vec as prop_vec;
+
+    const MAX_SET_DEPTH: usize = 2;
+
+    fn arb_fact_value(depth: usize) -> BoxedStrategy<FactValue> {
+        let leaf: BoxedStrategy<FactValue> = prop_oneof![
+            any::<bool>().prop_map(FactValue::Bool),
+            any::<i64>().prop_map(FactValue::Int),
+            any::<f64>().prop_map(FactValue::Float),
+            ".*".prop_map(FactValue::Text),
+            any::<u64>().prop_map(|n| FactValue::Entity(EntityId::new(n))),
+        ]
+        .boxed();
+        if depth == 0 {
+            leaf
+        } else {
+            let inner_depth = depth - 1;
+            prop_oneof![
+                leaf,
+                prop_vec(arb_fact_value(inner_depth), 0..4).prop_map(FactValue::Set),
+            ]
+            .boxed()
+        }
+    }
+
+    fn arb_fact_value_shrink() -> BoxedStrategy<FactValue> {
+        arb_fact_value(MAX_SET_DEPTH)
+    }
+
+    fn arb_fact_scope() -> impl Strategy<Value = FactScope> {
+        prop_oneof![
+            Just(FactScope::World),
+            Just(FactScope::Player),
+            Just(FactScope::Party),
+            ".*".prop_map(|s: String| FactScope::Faction(s.into())),
+            any::<u64>().prop_map(|n| FactScope::Character(CharacterId::new(EntityId::new(n)))),
+        ]
+    }
+
+    fn arb_condition(depth: usize) -> BoxedStrategy<Condition> {
+        let leaf: BoxedStrategy<Condition> = prop_oneof![
+            Just(Condition::Always),
+            Just(Condition::Never),
+            arb_fact_scope()
+                .prop_flat_map(|scope| {
+                    (".*", arb_fact_value(0)).prop_map(move |(id, value)| Condition::FactEquals {
+                        scope: scope.clone(),
+                        fact_id: dramaturge_model::FactId::new(id),
+                        value,
+                    })
+                })
+                .boxed(),
+            arb_fact_scope()
+                .prop_map(|scope| {
+                    (".*".prop_map(move |id| Condition::FactExists {
+                        scope: scope.clone(),
+                        fact_id: dramaturge_model::FactId::new(id),
+                    }))
+                    .boxed()
+                })
+                .prop_flat_map(|s| s),
+            (".*", any::<i32>())
+                .prop_map(|(axis, value)| {
+                    Condition::AlignmentAtLeast {
+                        axis: dramaturge_model::AlignmentAxisId::new(axis.clone()),
+                        pole: dramaturge_model::AlignmentPoleId::new(axis),
+                        value,
+                    }
+                })
+                .boxed(),
+            (any::<u64>(), any::<u64>(), ".*", any::<i32>())
+                .prop_map(|(s, t, axis, value)| {
+                    Condition::RelationshipAtLeast {
+                        source: EntityId::new(s),
+                        target: EntityId::new(t),
+                        axis: dramaturge_model::RelationshipAxisId::new(axis.as_str()),
+                        value,
+                    }
+                })
+                .boxed(),
+            any::<u64>()
+                .prop_map(|owner| {
+                    Condition::HasMemory {
+                        owner: EntityId::new(owner),
+                        query: dramaturge_model::MemoryQuery::new("test"),
+                    }
+                })
+                .boxed(),
+            (".*", prop_vec(arb_fact_value(0), 0..2))
+                .prop_map(|(key, args)| Condition::Custom { key, args })
+                .boxed(),
+        ]
+        .boxed();
+
+        if depth == 0 {
+            leaf
+        } else {
+            let inner_depth = depth - 1;
+            prop_oneof![
+                leaf,
+                prop_vec(arb_condition(inner_depth), 0..3).prop_map(Condition::All),
+                prop_vec(arb_condition(inner_depth), 0..3).prop_map(Condition::Any),
+                arb_condition(inner_depth).prop_map(|c| Condition::Not(Box::new(c))),
+            ]
+            .boxed()
+        }
+    }
+
+    fn arb_condition_shrink() -> BoxedStrategy<Condition> {
+        arb_condition(2)
+    }
+
+    #[test]
+    fn prop_partial_eq_reflexive() {
+        proptest!(|(val in arb_fact_value_shrink())| {
+            prop_assert!(partial_eq_values(&val, &val));
+        });
+    }
+
+    #[test]
+    fn prop_partial_eq_symmetric() {
+        proptest!(|(a in arb_fact_value_shrink(), b in arb_fact_value_shrink())| {
+            prop_assert_eq!(partial_eq_values(&a, &b), partial_eq_values(&b, &a));
+        });
+    }
+
+    #[test]
+    fn prop_type_mismatch_false() {
+        let cases: Vec<(FactValue, FactValue)> = vec![
+            (FactValue::Bool(true), FactValue::Int(1)),
+            (FactValue::Int(1), FactValue::Float(1.0)),
+            (FactValue::Float(1.0), FactValue::Text("1".into())),
+            (
+                FactValue::Text("1".into()),
+                FactValue::Entity(EntityId::new(1)),
+            ),
+            (FactValue::Entity(EntityId::new(1)), FactValue::Set(vec![])),
+            (FactValue::Set(vec![]), FactValue::Bool(false)),
+        ];
+        for (a, b) in cases {
+            assert!(!partial_eq_values(&a, &b));
+        }
+    }
+
+    #[test]
+    fn prop_float_epsilon_boundary() {
+        proptest!(|(diff: f64)| {
+            let base = 0.0_f64;
+            let diff_magnitude = diff.abs();
+            prop_assume!(diff_magnitude < 1e-10);
+            prop_assume!(diff_magnitude > 0.0);
+            let same = FactValue::Float(base);
+            let off = FactValue::Float(base + diff);
+            let is_equal = partial_eq_values(&same, &off);
+            if diff_magnitude < f64::EPSILON {
+                prop_assert!(is_equal);
+            } else {
+                prop_assert!(!is_equal);
+            }
+        });
+    }
+
+    #[test]
+    fn prop_set_order_sensitive() {
+        proptest!(|
+            (v1 in arb_fact_value_shrink(),
+             v2 in arb_fact_value_shrink())
+        | {
+            let set1 = FactValue::Set(vec![v1.clone(), v2.clone()]);
+            let set2 = FactValue::Set(vec![v2.clone(), v1.clone()]);
+            let eq1 = partial_eq_values(&set1, &set2);
+            let eq2 = partial_eq_values(&set2, &set1);
+            prop_assert_eq!(eq1, eq2);
+        });
+    }
+
+    #[test]
+    fn prop_de_morgan_not_all() {
+        proptest!(|(a in arb_condition_shrink(), b in arb_condition_shrink())| {
+            let ctx = DialogWorldState::new();
+            let not_all = Condition::Not(Box::new(Condition::All(vec![a.clone(), b.clone()])));
+            let any_not = Condition::Any(vec![Condition::Not(Box::new(a)), Condition::Not(Box::new(b))]);
+            let evaluator = DefaultConditionEvaluator;
+            prop_assert_eq!(evaluator.evaluate(&not_all, &ctx), evaluator.evaluate(&any_not, &ctx));
+        });
+    }
+
+    #[test]
+    fn prop_de_morgan_not_any() {
+        proptest!(|(a in arb_condition_shrink(), b in arb_condition_shrink())| {
+            let ctx = DialogWorldState::new();
+            let not_any = Condition::Not(Box::new(Condition::Any(vec![a.clone(), b.clone()])));
+            let all_not = Condition::All(vec![Condition::Not(Box::new(a)), Condition::Not(Box::new(b))]);
+            let evaluator = DefaultConditionEvaluator;
+            prop_assert_eq!(evaluator.evaluate(&not_any, &ctx), evaluator.evaluate(&all_not, &ctx));
+        });
+    }
+
+    #[test]
+    fn prop_all_single_element() {
+        proptest!(|(c in arb_condition_shrink())| {
+            let ctx = DialogWorldState::new();
+            let wrapped = Condition::All(vec![c.clone()]);
+            let evaluator = DefaultConditionEvaluator;
+            prop_assert_eq!(evaluator.evaluate(&wrapped, &ctx), evaluator.evaluate(&c, &ctx));
+        });
+    }
+
+    #[test]
+    fn prop_any_single_element() {
+        proptest!(|(c in arb_condition_shrink())| {
+            let ctx = DialogWorldState::new();
+            let wrapped = Condition::Any(vec![c.clone()]);
+            let evaluator = DefaultConditionEvaluator;
+            prop_assert_eq!(evaluator.evaluate(&wrapped, &ctx), evaluator.evaluate(&c, &ctx));
+        });
+    }
+
+    #[test]
+    fn prop_all_empty_true() {
+        let ctx = DialogWorldState::new();
+        let evaluator = DefaultConditionEvaluator;
+        assert!(evaluator.evaluate(&Condition::All(vec![]), &ctx));
+    }
+
+    #[test]
+    fn prop_any_empty_false() {
+        let ctx = DialogWorldState::new();
+        let evaluator = DefaultConditionEvaluator;
+        assert!(!evaluator.evaluate(&Condition::Any(vec![]), &ctx));
+    }
+
+    #[test]
+    fn prop_double_negation() {
+        proptest!(|(c in arb_condition_shrink())| {
+            let ctx = DialogWorldState::new();
+            let double = Condition::Not(Box::new(Condition::Not(Box::new(c.clone()))));
+            let evaluator = DefaultConditionEvaluator;
+            prop_assert_eq!(evaluator.evaluate(&double, &ctx), evaluator.evaluate(&c, &ctx));
+        });
+    }
+
+    #[test]
+    fn prop_not_always_is_never() {
+        let ctx = DialogWorldState::new();
+        let evaluator = DefaultConditionEvaluator;
+        let not_always = Condition::Not(Box::new(Condition::Always));
+        assert_eq!(
+            evaluator.evaluate(&not_always, &ctx),
+            evaluator.evaluate(&Condition::Never, &ctx)
+        );
+    }
+
+    #[test]
+    fn prop_not_never_is_always() {
+        let ctx = DialogWorldState::new();
+        let evaluator = DefaultConditionEvaluator;
+        let not_never = Condition::Not(Box::new(Condition::Never));
+        assert_eq!(
+            evaluator.evaluate(&not_never, &ctx),
+            evaluator.evaluate(&Condition::Always, &ctx)
+        );
+    }
+}
