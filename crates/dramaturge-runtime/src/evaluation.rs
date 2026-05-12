@@ -74,8 +74,8 @@ impl ConditionEvaluator for DefaultConditionEvaluator {
                 .get_relationship(*source, *target, axis)
                 .map(|v| v >= *value)
                 .unwrap_or(false),
-            Condition::HasMemory { owner, query: _ } => !context.get_memories(*owner).is_empty(), // TODO: evaluate query when memory querying is implemented
-            Condition::HasTagAvailable { .. } => false, // TODO: implement tag tracking in world state
+            Condition::HasMemory { owner, query } => context.matches_memory_query(*owner, query),
+            Condition::HasTagAvailable { tag } => context.has_tag_available(tag),
             Condition::Custom { .. } => false,
         }
     }
@@ -255,12 +255,40 @@ mod tests {
     #[test]
     fn default_evaluator_has_tag_available() {
         let evaluator = DefaultConditionEvaluator;
-        let ctx = DialogWorldState::new();
         use dramaturge_model::DialogTagKind;
+        let mut ctx = DialogWorldState::new();
         let cond = Condition::HasTagAvailable {
             tag: DialogTagKind::new("moral", "paragon"),
         };
         check!(!evaluator.evaluate(&cond, &ctx));
+        ctx.add_available_tag(DialogTagKind::new("moral", "paragon"));
+        check!(evaluator.evaluate(&cond, &ctx));
+    }
+
+    #[test]
+    fn default_evaluator_has_memory_with_query() {
+        let evaluator = DefaultConditionEvaluator;
+        use dramaturge_model::{Memory, MemoryId, MemoryTag};
+        let owner = dramaturge_model::character::EntityId::new(1);
+        let mut ctx = DialogWorldState::new();
+
+        let cond = Condition::HasMemory {
+            owner,
+            query: dramaturge_model::MemoryQuery::new("HelpedMe"),
+        };
+        check!(!evaluator.evaluate(&cond, &ctx));
+
+        let mut memory = Memory::new(MemoryId::new(1));
+        memory.tags.push(MemoryTag::HelpedMe);
+        ctx.add_memory(owner, memory);
+
+        check!(evaluator.evaluate(&cond, &ctx));
+
+        let cond2 = Condition::HasMemory {
+            owner,
+            query: dramaturge_model::MemoryQuery::new("BetrayedMe"),
+        };
+        check!(!evaluator.evaluate(&cond2, &ctx));
     }
 
     #[test]

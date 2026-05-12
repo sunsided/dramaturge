@@ -6,7 +6,10 @@
 //! and queried by [`ConditionEvaluator`](crate::ConditionEvaluator)
 //! implementations during dialogue evaluation.
 
-use dramaturge_model::{AlignmentScore, EntityId, Event, Memory, RelationshipScore, ScopedFact};
+use dramaturge_model::tag::DialogTagKind;
+use dramaturge_model::{
+    AlignmentScore, EntityId, Event, Memory, MemoryQuery, RelationshipScore, ScopedFact,
+};
 
 /// Complete snapshot of the narrative world state.
 ///
@@ -25,6 +28,8 @@ pub struct DialogWorldState {
     pub memories: Vec<(EntityId, Memory)>,
     /// Timeline of recorded narrative events.
     pub events: Vec<Event>,
+    /// Tags currently available in the world.
+    pub available_tags: Vec<DialogTagKind>,
 }
 
 /// Type alias for backward compatibility with earlier versions.
@@ -178,6 +183,54 @@ impl DialogWorldState {
     /// Appends an event to the timeline.
     pub fn add_event(&mut self, event: Event) {
         self.events.push(event);
+    }
+
+    /// Adds a tag to the set of available tags.
+    pub fn add_available_tag(&mut self, tag: DialogTagKind) {
+        self.available_tags.push(tag);
+    }
+
+    /// Checks if a specific tag is available.
+    pub fn has_tag_available(&self, tag: &DialogTagKind) -> bool {
+        self.available_tags.contains(tag)
+    }
+
+    /// Checks if any memory owned by the given entity matches the query.
+    ///
+    /// The query string is matched against:
+    /// - Memory tag axis and key values
+    /// - Memory fact IDs (as string)
+    /// - Memory subject entity ID (as string)
+    /// - Memory about entity IDs (as string)
+    pub fn matches_memory_query(&self, owner: EntityId, query: &MemoryQuery) -> bool {
+        let query_str = &query.0;
+        self.get_memories(owner).iter().any(|memory| {
+            memory.tags.iter().any(|tag| {
+                let tag_str: &str = match tag {
+                    dramaturge_model::memory::MemoryTag::HelpedMe => "HelpedMe",
+                    dramaturge_model::memory::MemoryTag::BetrayedMe => "BetrayedMe",
+                    dramaturge_model::memory::MemoryTag::LiedToMe => "LiedToMe",
+                    dramaturge_model::memory::MemoryTag::SavedLife => "SavedLife",
+                    dramaturge_model::memory::MemoryTag::ThreatenedMe => "ThreatenedMe",
+                    dramaturge_model::memory::MemoryTag::ShowedMercy => "ShowedMercy",
+                    dramaturge_model::memory::MemoryTag::KilledSomeone => "KilledSomeone",
+                    dramaturge_model::memory::MemoryTag::RevealedSecret => "RevealedSecret",
+                    dramaturge_model::memory::MemoryTag::Custom(tag_str) => tag_str.as_ref(),
+                };
+                query_str.as_ref() == tag_str
+            }) || memory
+                .facts
+                .iter()
+                .any(|fact_id| fact_id.0.as_ref().contains(query_str.as_ref()))
+                || memory.subject.is_some_and(|subject| {
+                    let subject_str = format!("{}", subject.0);
+                    subject_str.contains(query_str.as_ref())
+                })
+                || memory.about.iter().any(|entity| {
+                    let entity_str = format!("{}", entity.0);
+                    entity_str.contains(query_str.as_ref())
+                })
+        })
     }
 }
 
