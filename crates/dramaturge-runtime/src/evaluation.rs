@@ -74,8 +74,8 @@ impl ConditionEvaluator for DefaultConditionEvaluator {
                 .get_relationship(*source, *target, axis)
                 .map(|v| v >= *value)
                 .unwrap_or(false),
-            Condition::HasMemory { owner, query: _ } => !context.get_memories(*owner).is_empty(),
-            Condition::HasTagAvailable { .. } => true,
+            Condition::HasMemory { owner, query: _ } => !context.get_memories(*owner).is_empty(), // TODO: evaluate query when memory querying is implemented
+            Condition::HasTagAvailable { .. } => false, // TODO: implement tag tracking in world state
             Condition::Custom { .. } => false,
         }
     }
@@ -264,7 +264,7 @@ mod tests {
         let cond = Condition::HasTagAvailable {
             tag: DialogTagKind::new("moral", "paragon"),
         };
-        assert!(evaluator.evaluate(&cond, &ctx));
+        assert!(!evaluator.evaluate(&cond, &ctx));
     }
 
     #[test]

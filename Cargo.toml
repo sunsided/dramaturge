@@ -24,6 +24,7 @@ dramaturge-macros = { path = "crates/dramaturge-macros", version = "0.1.0" }
 dramaturge-model = { path = "crates/dramaturge-model", version = "0.1.0" }
 dramaturge-runtime = { path = "crates/dramaturge-runtime", version = "0.1.0" }
 dramaturge-serde = { path = "crates/dramaturge-serde", version = "0.1.0" }
+proc-macro-crate = "3"
 proc-macro2 = "1"
 quote = "1"
 serde = { version = "1", features = ["derive"] }

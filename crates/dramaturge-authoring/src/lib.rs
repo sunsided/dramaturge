@@ -11,10 +11,10 @@
 //!
 //! 1. **Missing targets** — Options referencing non-existent node IDs
 //! 2. **Unreachable nodes** — Nodes not reachable from the entry node via BFS
-//! 3. **Dead-end nodes** — Nodes with no options or enter outcomes that are targeted by other nodes
+//! 3. **Dead-end nodes** — Reachable nodes with no options or enter outcomes
 //! 4. **Self-loops** — Options whose target is their own parent node
-//! 5. **Cycles** — Nodes participating in cycles detected via DFS with recursion stack
-//! 6. **Always-false conditions** — Options with a `Never` condition (unreachable by definition)
+//! 5. **Cycles** — Nodes participating in cycles, reporting all cycle members
+//! 6. **Always-false conditions** — Options with conditions that evaluate to always false via constant folding
 //! 7. **Orphaned fact references** — Facts referenced in conditions but never set by any outcome
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -189,30 +189,46 @@ impl GraphValidator {
         }
     }
 
-    /// Detects nodes with no options and no enter outcomes that are reachable from elsewhere.
-    /// These are potential dead ends in the conversation flow.
+    /// Detects nodes with no options and no enter outcomes that are reachable
+    /// from the entry node. These are potential dead ends in the conversation flow.
     fn check_dead_end_nodes(
         &self,
         graph: &DialogueGraph,
         node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
-        for node in &graph.nodes {
-            let has_options = !node.options.is_empty();
-            let has_enter_outcomes = !node.outcomes_on_enter.is_empty();
+        let Some(entry_id) = graph.entry_node else {
+            return;
+        };
 
-            if !has_options && !has_enter_outcomes {
-                let has_reachable_target = node_map.values().any(|n| {
-                    n.options.iter().any(|opt| {
-                        if let DialogTarget::Node(target_id) = &opt.target {
-                            *target_id == node.id
-                        } else {
-                            false
-                        }
-                    })
-                });
+        if !node_map.contains_key(&entry_id) {
+            return;
+        }
 
-                if has_reachable_target {
+        let mut visited = HashSet::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(entry_id);
+        visited.insert(entry_id);
+
+        while let Some(current_id) = queue.pop_front() {
+            if let Some(node) = node_map.get(&current_id) {
+                for option in &node.options {
+                    if let DialogTarget::Node(target_id) = &option.target
+                        && !visited.contains(target_id)
+                    {
+                        visited.insert(*target_id);
+                        queue.push_back(*target_id);
+                    }
+                }
+            }
+        }
+
+        for node_id in &visited {
+            if let Some(node) = node_map.get(node_id) {
+                let has_options = !node.options.is_empty();
+                let has_enter_outcomes = !node.outcomes_on_enter.is_empty();
+
+                if !has_options && !has_enter_outcomes {
                     issues.push(
                         ValidationIssue::new(
                             ValidationSeverity::Info,
@@ -256,8 +272,8 @@ impl GraphValidator {
         }
     }
 
-    /// Detects cycles using DFS with a recursion stack.
-    /// Nodes revisited within the same stack frame are part of a cycle.
+    /// Detects cycles using DFS with a recursion stack that tracks path order.
+    /// When a back-edge is found, all nodes in the cycle are reported.
     fn check_cycles(
         &self,
         graph: &DialogueGraph,
@@ -268,7 +284,6 @@ impl GraphValidator {
             return;
         };
 
-        let mut in_stack = HashSet::new();
         let mut visited = HashSet::new();
         let mut cycle_nodes = HashSet::new();
 
@@ -276,11 +291,13 @@ impl GraphValidator {
             current: DialogueNodeId,
             node_map: &HashMap<DialogueNodeId, &DialogueNode>,
             visited: &mut HashSet<DialogueNodeId>,
-            in_stack: &mut HashSet<DialogueNodeId>,
+            stack: &mut Vec<DialogueNodeId>,
             cycle_nodes: &mut HashSet<DialogueNodeId>,
         ) {
-            if in_stack.contains(&current) {
-                cycle_nodes.insert(current);
+            if let Some(pos) = stack.iter().position(|&n| n == current) {
+                for &node_id in &stack[pos..] {
+                    cycle_nodes.insert(node_id);
+                }
                 return;
             }
             if visited.contains(&current) {
@@ -288,24 +305,24 @@ impl GraphValidator {
             }
 
             visited.insert(current);
-            in_stack.insert(current);
+            stack.push(current);
 
             if let Some(node) = node_map.get(&current) {
                 for option in &node.options {
                     if let DialogTarget::Node(target_id) = &option.target {
-                        dfs(*target_id, node_map, visited, in_stack, cycle_nodes);
+                        dfs(*target_id, node_map, visited, stack, cycle_nodes);
                     }
                 }
             }
 
-            in_stack.remove(&current);
+            stack.pop();
         }
 
         dfs(
             entry_id,
             node_map,
             &mut visited,
-            &mut in_stack,
+            &mut Vec::new(),
             &mut cycle_nodes,
         );
 
@@ -322,32 +339,45 @@ impl GraphValidator {
         }
     }
 
-    /// Detects options with a `Never` condition, which makes them unreachable.
-    /// Recursively searches for `Condition::Never` in option conditions.
+    /// Detects options with conditions that are always false.
+    /// Uses constant folding to properly evaluate composite conditions:
+    /// `Any([Never, Always])` is satisfiable, `Not(Never)` is always true.
     fn check_always_false_conditions(
         &self,
         graph: &DialogueGraph,
         _node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
-        fn has_never(cond: &Condition) -> bool {
+        fn is_always_false(cond: &Condition) -> bool {
             match cond {
                 Condition::Never => true,
-                Condition::All(conds) => conds.iter().any(has_never),
-                Condition::Any(conds) => conds.iter().any(has_never),
-                Condition::Not(inner) => has_never(inner),
+                Condition::Always => false,
+                Condition::All(conds) => conds.iter().any(is_always_false),
+                Condition::Any(conds) => conds.iter().all(is_always_false),
+                Condition::Not(inner) => is_always_true(inner),
+                _ => false,
+            }
+        }
+
+        fn is_always_true(cond: &Condition) -> bool {
+            match cond {
+                Condition::Always => true,
+                Condition::Never => false,
+                Condition::All(conds) => conds.iter().all(is_always_true),
+                Condition::Any(conds) => conds.iter().any(is_always_true),
+                Condition::Not(inner) => is_always_false(inner),
                 _ => false,
             }
         }
 
         for node in &graph.nodes {
             for option in &node.options {
-                if option.conditions.iter().any(has_never) {
+                if option.conditions.iter().any(is_always_false) {
                     issues.push(
                         ValidationIssue::new(
                             ValidationSeverity::Warning,
                             format!(
-                                "Option {} in node {} has a Never condition (unreachable option)",
+                                "Option {} in node {} has an always-false condition (unreachable option)",
                                 option.id.0, node.id.0
                             ),
                         )
@@ -360,14 +390,14 @@ impl GraphValidator {
     }
 
     /// Detects fact IDs referenced in conditions but never set by any outcome.
-    /// Collects all fact IDs from conditions and outcomes via recursive traversal,
-    /// then flags those only appearing in conditions.
+    /// Collects fact IDs from conditions only (not outcomes), then flags those
+    /// never set by any `SetFact` outcome.
     fn check_orphaned_fact_references(
         &self,
         graph: &DialogueGraph,
         issues: &mut Vec<ValidationIssue>,
     ) {
-        let mut all_fact_ids: HashSet<&str> = HashSet::new();
+        let mut condition_fact_ids: HashSet<&str> = HashSet::new();
         let mut used_fact_ids: HashSet<&str> = HashSet::new();
 
         /// Extracts fact IDs from a condition tree.
@@ -393,35 +423,13 @@ impl GraphValidator {
             }
         }
 
-        /// Extracts fact IDs from an outcome.
-        fn collect_fact_ids_from_outcome<'a>(
-            outcome: &'a dramaturge_model::Outcome,
-            set: &mut HashSet<&'a str>,
-        ) {
-            match outcome {
-                dramaturge_model::Outcome::SetFact { fact, .. } => {
-                    set.insert(&fact.id.0);
-                }
-                dramaturge_model::Outcome::RemoveFact { fact_id, .. } => {
-                    set.insert(&fact_id.0);
-                }
-                _ => {}
-            }
-        }
-
         for node in &graph.nodes {
             for cond in &node.conditions {
-                collect_fact_ids_from_condition(cond, &mut all_fact_ids);
-            }
-            for outcome in &node.outcomes_on_enter {
-                collect_fact_ids_from_outcome(outcome, &mut all_fact_ids);
+                collect_fact_ids_from_condition(cond, &mut condition_fact_ids);
             }
             for option in &node.options {
                 for cond in &option.conditions {
-                    collect_fact_ids_from_condition(cond, &mut all_fact_ids);
-                }
-                for outcome in &option.outcomes {
-                    collect_fact_ids_from_outcome(outcome, &mut all_fact_ids);
+                    collect_fact_ids_from_condition(cond, &mut condition_fact_ids);
                 }
             }
         }
@@ -441,7 +449,7 @@ impl GraphValidator {
             }
         }
 
-        for fact_id in &all_fact_ids {
+        for fact_id in &condition_fact_ids {
             if !used_fact_ids.contains(fact_id) {
                 issues.push(ValidationIssue::new(
                     ValidationSeverity::Info,
@@ -459,7 +467,7 @@ mod tests {
     use super::*;
     use dramaturge_model::{
         CharacterId, DialogIntentions, DialogText, DialogueGraph, DialogueNode, DialogueOption,
-        EntityId,
+        EntityId, FactId, FactScope, Outcome,
     };
 
     /// Test helper — creates a minimal dialogue node with the given options.
@@ -558,7 +566,148 @@ mod tests {
             entry_node: Some(DialogueNodeId::new(1)),
         };
         let issues = validator.validate(&graph);
-        assert!(issues.iter().any(|i| i.message.contains("Never condition")));
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.message.contains("always-false condition"))
+        );
+    }
+
+    #[test]
+    fn any_with_never_and_always_not_flagged() {
+        let validator = GraphValidator::new();
+        let option = DialogueOption {
+            id: DialogueOptionId::new(1),
+            text: DialogText::inline("opt"),
+            tags: vec![],
+            intentions: DialogIntentions::new(),
+            conditions: vec![Condition::Any(vec![Condition::Never, Condition::Always])],
+            outcomes: vec![],
+            target: DialogTarget::node(2),
+        };
+        let node = make_node(1, vec![option]);
+        let graph = DialogueGraph {
+            nodes: vec![node],
+            entry_node: Some(DialogueNodeId::new(1)),
+        };
+        let issues = validator.validate(&graph);
+        assert!(
+            !issues
+                .iter()
+                .any(|i| i.message.contains("always-false condition"))
+        );
+    }
+
+    #[test]
+    fn not_never_not_flagged() {
+        let validator = GraphValidator::new();
+        let option = DialogueOption {
+            id: DialogueOptionId::new(1),
+            text: DialogText::inline("opt"),
+            tags: vec![],
+            intentions: DialogIntentions::new(),
+            conditions: vec![Condition::Not(Box::new(Condition::Never))],
+            outcomes: vec![],
+            target: DialogTarget::node(2),
+        };
+        let node = make_node(1, vec![option]);
+        let graph = DialogueGraph {
+            nodes: vec![node],
+            entry_node: Some(DialogueNodeId::new(1)),
+        };
+        let issues = validator.validate(&graph);
+        assert!(
+            !issues
+                .iter()
+                .any(|i| i.message.contains("always-false condition"))
+        );
+    }
+
+    #[test]
+    fn detects_cycle_reports_all_members() {
+        let validator = GraphValidator::new();
+        let node1 = make_node(1, vec![make_option(1, DialogTarget::node(2))]);
+        let node2 = make_node(2, vec![make_option(2, DialogTarget::node(1))]);
+        let graph = DialogueGraph {
+            nodes: vec![node1, node2],
+            entry_node: Some(DialogueNodeId::new(1)),
+        };
+        let issues = validator.validate(&graph);
+        let cycle_issues: Vec<_> = issues
+            .iter()
+            .filter(|i| i.message.contains("cycle"))
+            .collect();
+        assert_eq!(cycle_issues.len(), 2);
+        assert!(
+            cycle_issues
+                .iter()
+                .any(|i| i.node_id == Some(DialogueNodeId::new(1)))
+        );
+        assert!(
+            cycle_issues
+                .iter()
+                .any(|i| i.node_id == Some(DialogueNodeId::new(2)))
+        );
+    }
+
+    #[test]
+    fn detects_dead_end_entry_node() {
+        let validator = GraphValidator::new();
+        let node1 = make_node(1, vec![]);
+        let graph = DialogueGraph {
+            nodes: vec![node1],
+            entry_node: Some(DialogueNodeId::new(1)),
+        };
+        let issues = validator.validate(&graph);
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.message.contains("potential dead end")
+                    && i.node_id == Some(DialogueNodeId::new(1)))
+        );
+    }
+
+    #[test]
+    fn orphaned_facts_only_from_conditions() {
+        let validator = GraphValidator::new();
+        let option = DialogueOption {
+            id: DialogueOptionId::new(1),
+            text: DialogText::inline("opt"),
+            tags: vec![],
+            intentions: DialogIntentions::new(),
+            conditions: vec![
+                Condition::FactExists {
+                    scope: FactScope::World,
+                    fact_id: FactId::new("only_removed"),
+                },
+                Condition::FactExists {
+                    scope: FactScope::World,
+                    fact_id: FactId::new("never_mentioned"),
+                },
+            ],
+            outcomes: vec![Outcome::RemoveFact {
+                scope: FactScope::World,
+                fact_id: FactId::new("only_removed"),
+            }],
+            target: DialogTarget::node(2),
+        };
+        let node = make_node(1, vec![option]);
+        let graph = DialogueGraph {
+            nodes: vec![node],
+            entry_node: Some(DialogueNodeId::new(1)),
+        };
+        let issues = validator.validate(&graph);
+        let orphaned: Vec<_> = issues
+            .iter()
+            .filter(|i| i.message.contains("referenced in conditions but never set"))
+            .collect();
+        assert_eq!(orphaned.len(), 2);
+        assert!(orphaned.iter().any(|i| i.message.contains("only_removed")));
+        assert!(
+            orphaned
+                .iter()
+                .any(|i| i.message.contains("never_mentioned"))
+        );
     }
 
     #[test]

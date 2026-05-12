@@ -28,8 +28,12 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
+use proc_macro_crate::FoundCrate;
 use quote::quote;
-use syn::{Data, DataEnum, DeriveInput, Fields, Meta, parse_macro_input};
+use syn::{
+    Data, DataEnum, DeriveInput, Fields, Meta, MetaNameValue, Token, parse_macro_input,
+    punctuated::Punctuated,
+};
 
 /// Derives the `DialogTag` trait for an enum.
 ///
@@ -53,6 +57,8 @@ pub fn derive_dialog_tag(input: TokenStream) -> TokenStream {
                 .into();
         }
     };
+
+    let crate_path = resolve_dramaturge_model_path();
 
     let axis_arms = variants.iter().map(|variant| {
         let variant_name = &variant.ident;
@@ -89,7 +95,7 @@ pub fn derive_dialog_tag(input: TokenStream) -> TokenStream {
     });
 
     let output = quote! {
-        impl ::dramaturge_model::DialogTag for #name {
+        impl #crate_path::DialogTag for #name {
             fn axis(&self) -> &'static str {
                 match self {
                     #(#axis_arms)*
@@ -107,12 +113,25 @@ pub fn derive_dialog_tag(input: TokenStream) -> TokenStream {
     output.into()
 }
 
-/// Parses `#[tag(key = "...")]` from variant attributes.
+/// Resolves the path to the `dramaturge-model` crate using `proc_macro_crate`.
+/// Falls back to `::dramaturge_model` if resolution fails.
+fn resolve_dramaturge_model_path() -> syn::Path {
+    match proc_macro_crate::crate_name("dramaturge-model") {
+        Ok(FoundCrate::Itself) => syn::parse_quote! { crate },
+        Ok(FoundCrate::Name(name)) => {
+            let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
+            syn::parse_quote! { ::#ident }
+        }
+        Err(_) => syn::parse_quote! { ::dramaturge_model },
+    }
+}
+
+/// Parses `#[tag(key = "...")]` from variant attributes using `syn`'s proper parsing.
 ///
 /// Searches the variant's attributes for a `#[tag(...)]` list, then
-/// looks for the specified `attr_name` (e.g., `"axis"` or `"key"`)
-/// followed by `= "value"`. Returns the string value or `None` if
-/// not found.
+/// parses it as a `Punctuated<MetaNameValue, Token![,]>` to extract
+/// the specified `attr_name` (e.g., `"axis"` or `"key"`). Returns the
+/// properly unescaped string value or `None` if not found.
 fn extract_tag_attribute(variant: &syn::Variant, attr_name: &str) -> Option<String> {
     for attr in &variant.attrs {
         if !attr.path().is_ident("tag") {
@@ -120,16 +139,16 @@ fn extract_tag_attribute(variant: &syn::Variant, attr_name: &str) -> Option<Stri
         }
 
         if let Meta::List(meta_list) = &attr.meta {
-            let tokens = meta_list.tokens.clone();
-            let mut iter = tokens.into_iter();
-            while let Some(token) = iter.next() {
-                if let proc_macro2::TokenTree::Ident(ident) = &token
-                    && *ident == attr_name
-                    && let Some(proc_macro2::TokenTree::Punct(_)) = iter.next()
-                    && let Some(proc_macro2::TokenTree::Literal(lit)) = iter.next()
-                {
-                    let lit_str = lit.to_string();
-                    return Some(lit_str.trim_matches('"').to_string());
+            let args =
+                meta_list.parse_args_with(Punctuated::<MetaNameValue, Token![,]>::parse_terminated);
+            if let Ok(args) = args {
+                for meta in args {
+                    if meta.path.is_ident(attr_name)
+                        && let syn::Expr::Lit(expr_lit) = &meta.value
+                        && let syn::Lit::Str(lit_str) = &expr_lit.lit
+                    {
+                        return Some(lit_str.value());
+                    }
                 }
             }
         }
