@@ -59,13 +59,14 @@ impl GameState {
         let mut world = DialogWorldState::new();
 
         // Initialize player skills based on character configuration
+        // Skills are stored as facts in the Player scope with key pattern "skill:{name}"
         if has_medic {
-            world.add_skill("medic");
+            world.set_fact(FactScope::Player, Fact::bool("skill:medic", true));
         }
-        world.add_skill("investigator");
-        world.add_skill("streetwise");
+        world.set_fact(FactScope::Player, Fact::bool("skill:investigator", true));
+        world.set_fact(FactScope::Player, Fact::bool("skill:streetwise", true));
         if has_intimidation {
-            world.add_skill("intimidation");
+            world.set_fact(FactScope::Player, Fact::bool("skill:intimidation", true));
         }
 
         // Initialize relationships
@@ -134,10 +135,15 @@ impl GameState {
                     .all(|c| evaluator.evaluate(c, &self.world));
 
                 // Check skill requirements from tags
+                // Skills are stored as facts with key pattern "skill:{name}"
                 let skill_requirements_pass = opt.tags.iter().all(|tag| {
                     if tag.requires_trait {
-                        // Check if player has the required skill
-                        self.world.has_skill(&tag.key)
+                        // Check if player has the required skill via fact lookup
+                        let skill_fact_id = FactId::new(format!("skill:{}", tag.key));
+                        matches!(
+                            self.world.get_fact(&FactScope::Player, &skill_fact_id),
+                            Some(FactValue::Bool(true))
+                        )
                     } else {
                         true
                     }
@@ -264,6 +270,18 @@ impl GameState {
             .fact_exists(&FactScope::World, &FactId::new("PlayerLiedToOrren"))
         {
             println!("  ✗ You lied to Orren");
+        }
+        if self.world.fact_exists(
+            &FactScope::World,
+            &FactId::new("PlayerGaveHalfTruthToOrren"),
+        ) {
+            println!("  ~ You gave Orren a half-truth");
+        }
+        if self
+            .world
+            .fact_exists(&FactScope::World, &FactId::new("PlayerBluffedOrren"))
+        {
+            println!("  ✗ You bluffed Orren (and failed)");
         }
         if self
             .world

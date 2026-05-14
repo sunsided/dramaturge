@@ -176,12 +176,6 @@ pub enum YamlCondition {
         /// Expected value.
         value: YamlValue,
     },
-    /// Check if player has a skill.
-    #[serde(rename = "has_skill")]
-    HasSkill {
-        /// Skill identifier.
-        skill: String,
-    },
 }
 
 fn default_fact_scope() -> String {
@@ -310,12 +304,9 @@ impl YamlDialogueGraph {
                         .requires_trait
                         .unwrap_or_else(|| yaml_tag.axis.as_str() == "skill");
 
-                    // If this tag requires a trait, add a HasSkill condition to the option
-                    if tag.requires_trait {
-                        option
-                            .conditions
-                            .push(model::Condition::has_skill(&*tag.key));
-                    }
+                    // Note: Previously, if tag.requires_trait was true, a HasSkill condition
+                    // was automatically added. This has been removed - users should now
+                    // explicitly add fact-based conditions if they want to gate options.
 
                     option.tags.push(tag);
                 }
@@ -390,9 +381,6 @@ impl YamlCondition {
                     value: fact_value,
                 })
             }
-            YamlCondition::HasSkill { skill } => Ok(Condition::HasSkill {
-                skill: skill.clone(),
-            }),
         }
     }
 }
@@ -539,7 +527,7 @@ nodes:
     }
 
     #[test]
-    fn test_skill_tag_adds_has_skill_condition() {
+    fn test_skill_tag_sets_requires_trait_but_no_auto_condition() {
         let yaml = r#"
 version: "1.0"
 entry_node: 1
@@ -563,16 +551,13 @@ nodes:
         let model_graph = graph.to_model().expect("Should convert");
         let option = &model_graph.nodes[0].options[0];
 
-        // Check that the tag has requires_trait set
+        // Check that the tag has requires_trait set (by convention for skill axis)
         assert_eq!(option.tags.len(), 1);
         assert!(option.tags[0].requires_trait);
 
-        // Check that a HasSkill condition was added
-        assert_eq!(option.conditions.len(), 1);
-        assert!(matches!(
-            option.conditions[0],
-            model::Condition::HasSkill { ref skill } if skill == "medic"
-        ));
+        // Check that NO HasSkill condition was automatically added
+        // (Users must now explicitly add fact-based conditions)
+        assert!(option.conditions.is_empty());
     }
 
     #[test]

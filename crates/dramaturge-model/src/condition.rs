@@ -124,12 +124,6 @@ pub enum Condition {
         /// The tag to check availability for.
         tag: DialogTagKind,
     },
-    /// Checks that the player has a specific skill trait.
-    /// Returns `true` if the player has the skill stored in world state.
-    HasSkill {
-        /// The skill identifier to check.
-        skill: String,
-    },
     /// User-defined custom condition with arbitrary key and arguments.
     /// Always returns `false` in the default evaluator.
     Custom {
@@ -167,13 +161,6 @@ impl Condition {
     /// clippy's `should_implement_trait` lint.
     pub fn negate(condition: Condition) -> Self {
         Self::Not(Box::new(condition))
-    }
-
-    /// Creates a condition that checks if the player has a specific skill.
-    pub fn has_skill(skill: impl Into<String>) -> Self {
-        Self::HasSkill {
-            skill: skill.into(),
-        }
     }
 }
 
@@ -278,15 +265,5 @@ mod tests {
             args: vec![],
         };
         check!(let Condition::Custom { .. } = c);
-    }
-
-    #[test]
-    fn condition_has_skill() {
-        let c = Condition::has_skill("medic");
-        if let Condition::HasSkill { skill } = &c {
-            check!(skill == "medic");
-        } else {
-            panic!("Expected HasSkill variant");
-        }
     }
 }
