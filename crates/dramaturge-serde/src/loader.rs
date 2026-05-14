@@ -1,0 +1,373 @@
+//! YAML loader for dialogue graphs.
+//!
+//! This module provides functionality to load dialogue graphs from YAML files.
+//! It uses serde-friendly wrapper types that can be converted to the core model types.
+
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
+use dramaturge_model as model;
+
+/// A dialogue graph loaded from YAML.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YamlDialogueGraph {
+    /// Schema version for compatibility.
+    pub version: String,
+    /// Named characters referenced in the dialogue.
+    pub characters: HashMap<String, YamlCharacter>,
+    /// All nodes in the graph.
+    pub nodes: Vec<YamlNode>,
+    /// Entry point node ID.
+    pub entry_node: u64,
+}
+
+/// A character definition.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YamlCharacter {
+    /// Character ID (numeric).
+    pub id: u64,
+    /// Character name for display.
+    pub name: String,
+}
+
+/// A dialogue node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YamlNode {
+    /// Unique node ID.
+    pub id: u64,
+    /// Character key who speaks.
+    pub speaker: String,
+    /// Dialogue text.
+    pub text: String,
+    /// Outcomes applied when node is entered.
+    #[serde(default)]
+    pub outcomes: Vec<YamlOutcome>,
+    /// Dialogue options.
+    #[serde(default)]
+    pub options: Vec<YamlOption>,
+}
+
+/// A dialogue option.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YamlOption {
+    /// Unique option ID.
+    pub id: u64,
+    /// Option text.
+    pub text: String,
+    /// Tags categorizing this option.
+    #[serde(default)]
+    pub tags: Vec<YamlTag>,
+    /// Explicit intentions.
+    #[serde(default)]
+    pub intentions_explicit: Vec<String>,
+    /// Implicit intentions.
+    #[serde(default)]
+    pub intentions_implicit: Vec<String>,
+    /// Conditions for availability.
+    #[serde(default)]
+    pub conditions: Vec<YamlCondition>,
+    /// Outcomes when chosen.
+    #[serde(default)]
+    pub outcomes: Vec<YamlOutcome>,
+    /// Target node ID or special value "end".
+    pub target: String,
+}
+
+/// A tag.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YamlTag {
+    /// Tag axis/category.
+    pub axis: String,
+    /// Tag key/value.
+    pub key: String,
+}
+
+/// A condition.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum YamlCondition {
+    /// Always true.
+    #[serde(rename = "always")]
+    Always,
+    /// Check if a fact exists.
+    #[serde(rename = "fact_exists")]
+    FactExists {
+        /// Fact scope (world, player, etc).
+        #[serde(default = "default_fact_scope")]
+        scope: String,
+        /// Fact ID.
+        fact: String,
+    },
+    /// Check if a fact equals a value.
+    #[serde(rename = "fact_equals")]
+    FactEquals {
+        /// Fact scope.
+        #[serde(default = "default_fact_scope")]
+        scope: String,
+        /// Fact ID.
+        fact: String,
+        /// Expected value.
+        value: YamlValue,
+    },
+}
+
+fn default_fact_scope() -> String {
+    "world".to_string()
+}
+
+/// A value in a condition or outcome.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum YamlValue {
+    /// Boolean value.
+    Bool(bool),
+    /// Integer value.
+    Int(i64),
+    /// String value.
+    String(String),
+}
+
+/// An outcome.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum YamlOutcome {
+    /// Set a fact.
+    #[serde(rename = "set_fact")]
+    SetFact {
+        /// Fact scope.
+        #[serde(default = "default_fact_scope")]
+        scope: String,
+        /// Fact ID.
+        fact: String,
+        /// Fact value.
+        value: YamlValue,
+    },
+    /// Add to a relationship.
+    #[serde(rename = "add_relationship")]
+    AddRelationship {
+        /// Source entity ID.
+        source: u64,
+        /// Target entity ID.
+        target: u64,
+        /// Relationship axis.
+        axis: String,
+        /// Amount to add.
+        delta: i32,
+    },
+}
+
+impl YamlDialogueGraph {
+    /// Load a dialogue graph from a YAML string.
+    pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {
+        serde_yaml::from_str(yaml)
+    }
+
+    /// Convert to a model DialogueGraph.
+    pub fn to_model(&self) -> Result<model::DialogueGraph, String> {
+        use model::*;
+
+        let mut graph = DialogueGraph::new();
+        graph.entry_node = Some(DialogueNodeId::new(self.entry_node));
+
+        // Build character lookup
+        let mut character_ids: HashMap<String, CharacterId> = HashMap::new();
+        for (key, character) in &self.characters {
+            let entity_id = EntityId::new(character.id);
+            character_ids.insert(key.clone(), CharacterId::new(entity_id));
+        }
+
+        // Convert nodes
+        for yaml_node in &self.nodes {
+            let speaker = character_ids
+                .get(&yaml_node.speaker)
+                .copied()
+                .ok_or_else(|| format!("Unknown speaker: {}", yaml_node.speaker))?;
+
+            let mut node =
+                DialogueNode::new(yaml_node.id, speaker, DialogText::inline(&yaml_node.text));
+
+            // Convert options
+            for yaml_option in &yaml_node.options {
+                let target = if yaml_option.target == "end" {
+                    DialogTarget::End
+                } else {
+                    let target_id: u64 = yaml_option
+                        .target
+                        .parse()
+                        .map_err(|_| format!("Invalid target: {}", yaml_option.target))?;
+                    DialogTarget::Node(DialogueNodeId::new(target_id))
+                };
+
+                let mut option = DialogueOption::new(
+                    yaml_option.id,
+                    DialogText::inline(&yaml_option.text),
+                    target,
+                    DialogueNodeId::new(yaml_node.id),
+                );
+
+                // Convert tags
+                for yaml_tag in &yaml_option.tags {
+                    option.tags.push(model::CustomDialogTag::new(
+                        yaml_tag.axis.as_str(),
+                        yaml_tag.key.as_str(),
+                    ));
+                }
+
+                // Convert intentions
+                for intention in &yaml_option.intentions_explicit {
+                    option.intentions.explicit.push(model::Intention::Custom(
+                        std::sync::Arc::from(intention.as_str()),
+                    ));
+                }
+                for intention in &yaml_option.intentions_implicit {
+                    option.intentions.implicit.push(model::Intention::Custom(
+                        std::sync::Arc::from(intention.as_str()),
+                    ));
+                }
+
+                // Convert conditions
+                for yaml_condition in &yaml_option.conditions {
+                    option
+                        .conditions
+                        .push(yaml_condition.to_model(&character_ids)?);
+                }
+
+                // Convert outcomes
+                for yaml_outcome in &yaml_option.outcomes {
+                    option.outcomes.push(yaml_outcome.to_model(&character_ids)?);
+                }
+
+                node.options.push(option);
+            }
+
+            // Convert outcomes_on_enter
+            for yaml_outcome in &yaml_node.outcomes {
+                node.outcomes_on_enter
+                    .push(yaml_outcome.to_model(&character_ids)?);
+            }
+
+            graph.nodes.push(node);
+        }
+
+        Ok(graph)
+    }
+}
+
+impl YamlCondition {
+    /// Convert to a model Condition.
+    fn to_model(
+        &self,
+        _character_ids: &HashMap<String, model::CharacterId>,
+    ) -> Result<model::Condition, String> {
+        use model::*;
+
+        match self {
+            YamlCondition::Always => Ok(Condition::Always),
+            YamlCondition::FactExists { scope, fact } => {
+                let fact_scope = parse_fact_scope(scope)?;
+                Ok(Condition::FactExists {
+                    scope: fact_scope,
+                    fact_id: FactId::new(fact.as_str()),
+                })
+            }
+            YamlCondition::FactEquals { scope, fact, value } => {
+                let fact_scope = parse_fact_scope(scope)?;
+                let fact_value = match value {
+                    YamlValue::Bool(b) => FactValue::Bool(*b),
+                    YamlValue::Int(i) => FactValue::Int(*i),
+                    YamlValue::String(s) => FactValue::Text(s.clone()),
+                };
+                Ok(Condition::FactEquals {
+                    scope: fact_scope,
+                    fact_id: FactId::new(fact.as_str()),
+                    value: fact_value,
+                })
+            }
+        }
+    }
+}
+
+impl YamlOutcome {
+    /// Convert to a model Outcome.
+    fn to_model(
+        &self,
+        _character_ids: &HashMap<String, model::CharacterId>,
+    ) -> Result<model::Outcome, String> {
+        use model::*;
+
+        match self {
+            YamlOutcome::SetFact { scope, fact, value } => {
+                let fact_scope = parse_fact_scope(scope)?;
+                let fact_value = match value {
+                    YamlValue::Bool(b) => FactValue::Bool(*b),
+                    YamlValue::Int(i) => FactValue::Int(*i),
+                    YamlValue::String(s) => FactValue::Text(s.clone()),
+                };
+
+                Ok(Outcome::SetFact {
+                    scope: fact_scope,
+                    fact: Fact {
+                        id: FactId::new(fact.as_str()),
+                        value: fact_value,
+                    },
+                })
+            }
+            YamlOutcome::AddRelationship {
+                source,
+                target,
+                axis,
+                delta,
+            } => Ok(Outcome::AddRelationship {
+                source: EntityId::new(*source),
+                target: EntityId::new(*target),
+                axis: RelationshipAxisId::new(axis.as_str()),
+                delta: *delta,
+            }),
+        }
+    }
+}
+
+/// Parse a fact scope string.
+fn parse_fact_scope(scope: &str) -> Result<model::FactScope, String> {
+    match scope {
+        "world" => Ok(model::FactScope::World),
+        "player" => Ok(model::FactScope::Player),
+        _ => Err(format!("Unknown fact scope: {}", scope)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_simple_yaml() {
+        let yaml = r#"
+version: "1.0"
+entry_node: 1
+characters:
+  mara:
+    id: 2
+    name: "Mara Vey"
+nodes:
+  - id: 1
+    speaker: mara
+    text: "Hello, traveler."
+    options:
+      - id: 1
+        text: "Tell me about the shipment."
+        target: "end"
+"#;
+
+        let graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
+        assert_eq!(graph.version, "1.0");
+        assert_eq!(graph.entry_node, 1);
+        assert_eq!(graph.nodes.len(), 1);
+
+        // Test conversion to model
+        let model_graph = graph.to_model().expect("Should convert");
+        assert_eq!(model_graph.nodes.len(), 1);
+        assert!(model_graph.entry_node.is_some());
+    }
+}

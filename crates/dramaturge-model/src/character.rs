@@ -12,6 +12,7 @@ use std::sync::Arc;
 /// This is a newtype over `u64` that provides type safety, preventing
 /// accidental mixing of entity IDs with other numeric identifiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EntityId(pub u64);
 
 impl EntityId {
@@ -24,6 +25,7 @@ impl EntityId {
 /// Wraps an [`EntityId`] to distinguish characters from generic entities
 /// at compile time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CharacterId(pub EntityId);
 
 impl CharacterId {
@@ -39,6 +41,7 @@ impl CharacterId {
 /// for use in authoring tools and scripting environments where the same
 /// key may be referenced many times.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CharacterKey(pub Arc<str>);
 
 impl CharacterKey {
@@ -55,6 +58,7 @@ impl CharacterKey {
 /// numeric identity, a stable string key for authoring, a display name
 /// for UI, and a set of arbitrary traits.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Character {
     /// Unique numeric identifier for this character.
     pub id: CharacterId,
@@ -86,6 +90,7 @@ impl Character {
 /// `namespace: "species"` with `key: "pokemon"` or `namespace: "role"`
 /// with `key: "doctor"`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CharacterTrait {
     /// Trait category (e.g., `"species"`, `"role"`).
     pub namespace: Arc<str>,

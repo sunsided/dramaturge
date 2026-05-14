@@ -16,6 +16,7 @@ use crate::tag::DialogTagKind;
 
 /// Unique numeric identifier for a dialogue node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueNodeId(pub u64);
 
 impl DialogueNodeId {
@@ -27,6 +28,7 @@ impl DialogueNodeId {
 
 /// Unique numeric identifier for a dialogue option.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueOptionId(pub u64);
 
 impl DialogueOptionId {
@@ -38,6 +40,7 @@ impl DialogueOptionId {
 
 /// Text content that can be inline or localized.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DialogText {
     /// Direct string text.
     Inline(String),
@@ -59,6 +62,7 @@ impl DialogText {
 
 /// Where a dialogue option leads.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DialogTarget {
     /// Transitions to another dialogue node.
     Node(DialogueNodeId),
@@ -99,6 +103,7 @@ impl DialogTarget {
 /// Nodes can have conditions that gate their entry and outcomes that
 /// apply when the node is entered.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueNode {
     /// Unique identifier for this node.
     pub id: DialogueNodeId,
@@ -136,6 +141,7 @@ impl DialogueNode {
 /// responses or actions available to the player. Each option can have
 /// tags, intentions, conditions, and outcomes.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueOption {
     /// Unique identifier for this option.
     pub id: DialogueOptionId,
@@ -183,6 +189,7 @@ impl DialogueOption {
 /// Holds all nodes and optionally designates an entry point for
 /// traversal.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueGraph {
     /// All nodes in the graph.
     pub nodes: Vec<DialogueNode>,

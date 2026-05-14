@@ -37,6 +37,7 @@ impl DialogTag for CustomDialogTag {
 
 /// User-defined tag with arbitrary axis and key.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CustomDialogTag {
     /// Custom axis identifier.
     pub axis: Arc<str>,

@@ -10,6 +10,7 @@ use crate::character::EntityId;
 
 /// Identifier for a relationship axis (e.g., `"trust"`, `"romance"`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RelationshipAxisId(pub Arc<str>);
 
 impl RelationshipAxisId {
@@ -24,6 +25,7 @@ impl RelationshipAxisId {
 /// An axis represents a dimension along which relationships are measured,
 /// such as trust, romance, or rivalry.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RelationshipAxis {
     /// The unique identifier for this axis.
     pub id: RelationshipAxisId,
@@ -47,6 +49,7 @@ impl RelationshipAxis {
 /// relationship toward `target`. A positive value indicates a favorable
 /// attitude, while a negative value indicates an unfavorable one.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RelationshipScore {
     /// Entity initiating or holding the relationship.
     pub source: EntityId,
