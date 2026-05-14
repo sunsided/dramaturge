@@ -8,19 +8,15 @@
 //! # Features
 //!
 //! - `serde` — activates [`serde`](https://docs.rs/serde) as a dependency.
+//! - `yaml` — enables YAML loader support (implies `serde`).
 
 #[cfg(feature = "serde")]
 pub use serde;
+
+#[cfg(feature = "yaml")]
+pub mod loader;
 
 use dramaturge_model as model;
 
 /// Re-export the model crate for downstream convenience.
 pub use model::*;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn placeholder() {
-        // Verify that the crate compiles and the workspace is wired correctly.
-    }
-}

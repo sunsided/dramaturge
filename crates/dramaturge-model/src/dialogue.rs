@@ -16,6 +16,7 @@ use crate::tag::DialogTagKind;
 
 /// Unique numeric identifier for a dialogue node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueNodeId(pub u64);
 
 impl DialogueNodeId {
@@ -27,6 +28,7 @@ impl DialogueNodeId {
 
 /// Unique numeric identifier for a dialogue option.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueOptionId(pub u64);
 
 impl DialogueOptionId {
@@ -38,6 +40,7 @@ impl DialogueOptionId {
 
 /// Text content that can be inline or localized.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DialogText {
     /// Direct string text.
     Inline(String),
@@ -59,6 +62,7 @@ impl DialogText {
 
 /// Where a dialogue option leads.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DialogTarget {
     /// Transitions to another dialogue node.
     Node(DialogueNodeId),
@@ -68,6 +72,54 @@ pub enum DialogTarget {
     Return,
     /// Game-specific custom target.
     Custom(Arc<str>),
+}
+
+/// Navigation hint for dialogue options.
+///
+/// Provides typed navigation cues that can be rendered as UI hints
+/// (e.g., "[Continue]", "[Leave]", "[End]"). These replace hardcoded
+/// prefixes in dialogue text with semantic, localizable navigation markers.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum NavigationHint {
+    /// Continue to the next node (→ Continue / [Continue]).
+    Continue,
+    /// Leave the current conversation (← Leave / [Leave]).
+    Leave,
+    /// Go to a specific character or location (→ Go to {name} / [Go to {name}]).
+    GoTo(String),
+    /// End the conversation (✓ End / [End]).
+    End,
+    /// Return to a previous menu or caller (↩ Return / [Return]).
+    Return,
+    /// Custom navigation label.
+    Custom(String),
+}
+
+impl NavigationHint {
+    /// Returns the default display text for this navigation hint.
+    pub fn default_text(&self) -> String {
+        match self {
+            NavigationHint::Continue => "Continue...".to_string(),
+            NavigationHint::Leave => "Leave...".to_string(),
+            NavigationHint::GoTo(target) => format!("Go to {target}"),
+            NavigationHint::End => "End conversation".to_string(),
+            NavigationHint::Return => "Return...".to_string(),
+            NavigationHint::Custom(label) => label.clone(),
+        }
+    }
+
+    /// Returns the display prefix for this navigation hint (e.g., "[Continue]").
+    pub fn display_prefix(&self) -> String {
+        match self {
+            NavigationHint::Continue => "[Continue]".to_string(),
+            NavigationHint::Leave => "[Leave]".to_string(),
+            NavigationHint::GoTo(target) => format!("[Go to {target}]"),
+            NavigationHint::End => "[End]".to_string(),
+            NavigationHint::Return => "[Return]".to_string(),
+            NavigationHint::Custom(label) => format!("[{label}]"),
+        }
+    }
 }
 
 impl DialogTarget {
@@ -99,6 +151,7 @@ impl DialogTarget {
 /// Nodes can have conditions that gate their entry and outcomes that
 /// apply when the node is entered.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueNode {
     /// Unique identifier for this node.
     pub id: DialogueNodeId,
@@ -136,6 +189,7 @@ impl DialogueNode {
 /// responses or actions available to the player. Each option can have
 /// tags, intentions, conditions, and outcomes.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueOption {
     /// Unique identifier for this option.
     pub id: DialogueOptionId,
@@ -153,12 +207,15 @@ pub struct DialogueOption {
     pub target: DialogTarget,
     /// The node this option belongs to.
     pub source_node_id: DialogueNodeId,
+    /// Optional navigation hint (e.g., Continue, Leave, End).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub navigation_hint: Option<NavigationHint>,
 }
 
 impl DialogueOption {
     /// Creates an option with the given ID, text, target, and source node.
     ///
-    /// Tags, intentions, conditions, and outcomes all start empty.
+    /// Tags, intentions, conditions, outcomes, and navigation hint all start empty.
     pub fn new(
         id: u64,
         text: DialogText,
@@ -174,7 +231,14 @@ impl DialogueOption {
             outcomes: Vec::new(),
             target,
             source_node_id,
+            navigation_hint: None,
         }
+    }
+
+    /// Sets the navigation hint for this option.
+    pub fn with_navigation_hint(mut self, hint: NavigationHint) -> Self {
+        self.navigation_hint = Some(hint);
+        self
     }
 }
 
@@ -183,6 +247,7 @@ impl DialogueOption {
 /// Holds all nodes and optionally designates an entry point for
 /// traversal.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueGraph {
     /// All nodes in the graph.
     pub nodes: Vec<DialogueNode>,

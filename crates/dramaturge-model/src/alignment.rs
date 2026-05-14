@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 /// Identifier for an alignment axis (e.g., `"moral"`, `"reputation"`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AlignmentAxisId(pub Arc<str>);
 
 impl AlignmentAxisId {
@@ -24,6 +25,7 @@ impl AlignmentAxisId {
 /// such as morality or faction reputation. Poles are added separately
 /// and start empty on construction.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AlignmentAxis {
     /// The unique identifier for this axis.
     pub id: AlignmentAxisId,
@@ -59,6 +61,7 @@ impl AlignmentAxis {
 
 /// Identifier for a specific pole on an alignment axis.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AlignmentPoleId(pub Arc<str>);
 
 impl AlignmentPoleId {
@@ -73,6 +76,7 @@ impl AlignmentPoleId {
 /// Poles represent the named positions along an axis. For example, on
 /// a "moral" axis, poles might be "Paragon" and "Renegade".
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AlignmentPole {
     /// Unique identifier for this pole.
     pub id: AlignmentPoleId,
@@ -94,6 +98,7 @@ impl AlignmentPole {
 ///
 /// Positive values favor the pole, negative values oppose it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AlignmentScore {
     /// Which axis this score belongs to.
     pub axis: AlignmentAxisId,

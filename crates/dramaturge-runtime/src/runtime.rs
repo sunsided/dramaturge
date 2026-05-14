@@ -184,6 +184,7 @@ mod tests {
                     outcomes: vec![],
                     target: DialogTarget::node(2),
                     source_node_id: dramaturge_model::DialogueNodeId::new(1),
+                    navigation_hint: None,
                 },
                 DialogueOption {
                     id: DialogueOptionId::new(2),
@@ -198,6 +199,7 @@ mod tests {
                     outcomes: vec![],
                     target: DialogTarget::node(3),
                     source_node_id: dramaturge_model::DialogueNodeId::new(1),
+                    navigation_hint: None,
                 },
                 DialogueOption {
                     id: DialogueOptionId::new(3),
@@ -208,6 +210,7 @@ mod tests {
                     outcomes: vec![],
                     target: DialogTarget::node(4),
                     source_node_id: dramaturge_model::DialogueNodeId::new(1),
+                    navigation_hint: None,
                 },
             ],
         };
@@ -236,6 +239,7 @@ mod tests {
             }],
             target: DialogTarget::node(5),
             source_node_id: dramaturge_model::DialogueNodeId::new(1),
+            navigation_hint: None,
         };
 
         let target = rt.choose_option(&option, &mut state);

@@ -12,6 +12,11 @@ categories.workspace = true
 [dependencies]
 dramaturge-model = { workspace = true }
 dramaturge-runtime = { workspace = true }
+dramaturge-serde = { workspace = true, features = ["yaml"] }
 
 [dev-dependencies]
 assert2 = { workspace = true }
+
+[[example]]
+name = "the_broken_seal"
+path = "examples/the_broken_seal.rs"

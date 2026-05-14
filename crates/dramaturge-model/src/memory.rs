@@ -14,6 +14,7 @@ use crate::fact::FactId;
 
 /// Unique numeric identifier for a memory entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MemoryId(pub u64);
 
 impl MemoryId {
@@ -29,6 +30,7 @@ impl MemoryId {
 /// `Rumor` < `Suspected` < `Believed` < `Known` < `Witnessed`.
 /// The default confidence level for new memories is [`Confidence::Believed`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Confidence {
     /// Heard from others; lowest certainty.
     Rumor,
@@ -44,6 +46,7 @@ pub enum Confidence {
 
 /// Categorical tags describing the emotional/narrative significance of a memory.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum MemoryTag {
     /// This entity helped the character.
     HelpedMe,
@@ -69,6 +72,7 @@ pub enum MemoryTag {
 ///
 /// Multiple filters use **AND** semantics — all specified filters must match.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MemoryQuery {
     /// Match memories that have this exact tag.
     pub tag: Option<MemoryTag>,
@@ -151,6 +155,7 @@ impl MemoryQuery {
 /// emotional weight, and categorical tags. They are distinct from
 /// facts, which represent scoped knowledge in the world state.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Memory {
     /// Unique identifier for this memory.
     pub id: MemoryId,

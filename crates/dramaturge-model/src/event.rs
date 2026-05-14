@@ -17,6 +17,7 @@ use crate::tag::DialogTagKind;
 
 /// Unique numeric identifier for an event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EventId(pub u64);
 
 impl EventId {
@@ -32,6 +33,7 @@ impl EventId {
 /// for additional context information that may be attached to events
 /// in future iterations.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EventContext;
 
 /// Classification of what kind of narrative event occurred.
@@ -39,6 +41,7 @@ pub struct EventContext;
 /// Each variant captures a different type of narrative occurrence,
 /// from player choices to state mutations.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum EventKind {
     /// A dialogue option was chosen by the player.
     DialogOptionChosen {
@@ -113,6 +116,7 @@ impl EventKind {
 /// Events are immutable records of what occurred. They are appended to
 /// the world state's event log as the dialogue progresses.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Event {
     /// Unique identifier for this event.
     pub id: EventId,

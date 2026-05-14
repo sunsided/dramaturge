@@ -15,6 +15,7 @@ use crate::fact::FactId;
 /// Each variant represents a distinct communicative goal. Variants that
 /// reference facts use [`FactId`] to identify the specific fact involved.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Intention {
     /// Attempt to learn a fact from the other party.
     Learn(FactId),
@@ -53,6 +54,7 @@ pub enum Intention {
 /// Separates intentions that the authoring tool attached explicitly from
 /// those inferred by the runtime or other systems.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogIntentions {
     /// Intentions the authoring tool explicitly attached.
     pub explicit: Vec<Intention>,

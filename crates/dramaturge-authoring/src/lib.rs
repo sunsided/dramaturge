@@ -566,6 +566,7 @@ mod tests {
             outcomes: vec![],
             target,
             source_node_id,
+            navigation_hint: None,
         }
     }
 
@@ -642,6 +643,7 @@ mod tests {
             outcomes: vec![],
             target: DialogTarget::node(2),
             source_node_id: DialogueNodeId::new(1),
+            navigation_hint: None,
         };
         let node = make_node(1, vec![option]);
         let graph = DialogueGraph {
@@ -668,6 +670,7 @@ mod tests {
             outcomes: vec![],
             target: DialogTarget::node(2),
             source_node_id: DialogueNodeId::new(1),
+            navigation_hint: None,
         };
         let node = make_node(1, vec![option]);
         let graph = DialogueGraph {
@@ -694,6 +697,7 @@ mod tests {
             outcomes: vec![],
             target: DialogTarget::node(2),
             source_node_id: DialogueNodeId::new(1),
+            navigation_hint: None,
         };
         let node = make_node(1, vec![option]);
         let graph = DialogueGraph {
@@ -790,6 +794,7 @@ mod tests {
             }],
             target: DialogTarget::node(2),
             source_node_id: DialogueNodeId::new(1),
+            navigation_hint: None,
         };
         let node = make_node(1, vec![option]);
         let graph = DialogueGraph {
