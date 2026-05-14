@@ -215,7 +215,7 @@ mod macro_tests {
     fn condition_builder_has_memory() {
         use crate::MemoryQuery;
         let owner = EntityId::new(1);
-        let cond = BuilderFacts::has_memory(owner, MemoryQuery::new("test"));
+        let cond = BuilderFacts::has_memory(owner, MemoryQuery::new());
         check!(let Condition::HasMemory { .. } = cond);
     }
 

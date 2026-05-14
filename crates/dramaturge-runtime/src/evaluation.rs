@@ -169,6 +169,9 @@ impl OutcomeApplier for DefaultOutcomeApplier {
             Outcome::AddMemory { owner, memory } => {
                 context.add_memory(*owner, memory.clone());
             }
+            Outcome::RemoveMemory { owner, memory_id } => {
+                context.remove_memory(*owner, *memory_id);
+            }
             Outcome::EmitEvent { kind } => {
                 context.emit_event(kind.clone());
             }
@@ -308,7 +311,7 @@ mod tests {
 
         let cond = Condition::HasMemory {
             owner,
-            query: dramaturge_model::MemoryQuery::new("HelpedMe"),
+            query: dramaturge_model::MemoryQuery::by_tag(MemoryTag::HelpedMe),
         };
         check!(!evaluator.evaluate(&cond, &ctx));
 
@@ -320,7 +323,7 @@ mod tests {
 
         let cond2 = Condition::HasMemory {
             owner,
-            query: dramaturge_model::MemoryQuery::new("BetrayedMe"),
+            query: dramaturge_model::MemoryQuery::by_tag(MemoryTag::BetrayedMe),
         };
         check!(!evaluator.evaluate(&cond2, &ctx));
     }
@@ -372,6 +375,22 @@ mod tests {
         };
         applier.apply(&outcome, &mut ctx);
         check!(ctx.facts.is_empty());
+    }
+
+    #[test]
+    fn default_applier_remove_memory() {
+        use dramaturge_model::{Memory, MemoryId, MemoryTag};
+        let applier = DefaultOutcomeApplier;
+        let mut ctx = DialogWorldState::new();
+        let owner = EntityId::new(1);
+        let memory_id = MemoryId::new(42);
+        let memory = Memory::new(memory_id).with_tag(MemoryTag::HelpedMe);
+        ctx.add_memory(owner, memory);
+        check!(ctx.get_memories(owner).len() == 1);
+
+        let outcome = Outcome::RemoveMemory { owner, memory_id };
+        applier.apply(&outcome, &mut ctx);
+        check!(ctx.get_memories(owner).is_empty());
     }
 
     #[test]
@@ -528,7 +547,7 @@ mod proptests {
                 .prop_map(|owner| {
                     Condition::HasMemory {
                         owner: EntityId::new(owner),
-                        query: dramaturge_model::MemoryQuery::new("test"),
+                        query: dramaturge_model::MemoryQuery::new(),
                     }
                 })
                 .boxed(),
