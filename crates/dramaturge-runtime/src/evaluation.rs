@@ -32,7 +32,7 @@ pub trait ConditionEvaluator {
 /// Trait for applying outcomes to world state.
 pub trait OutcomeApplier {
     /// Applies an outcome to the given world state, mutating it.
-    fn apply(&self, outcome: &Outcome, context: &mut DialogWorldState);
+    fn apply(&mut self, outcome: &Outcome, state: &mut DialogWorldState);
 }
 
 /// Reference implementation handling all 14 condition variants.
@@ -145,21 +145,21 @@ fn partial_eq_values(a: &dramaturge_model::FactValue, b: &dramaturge_model::Fact
 pub struct DefaultOutcomeApplier;
 
 impl OutcomeApplier for DefaultOutcomeApplier {
-    fn apply(&self, outcome: &Outcome, context: &mut DialogWorldState) {
+    fn apply(&mut self, outcome: &Outcome, state: &mut DialogWorldState) {
         match outcome {
             Outcome::SetFact { scope, fact } => {
-                context.set_fact(scope.clone(), fact.clone());
-                context.emit_event(dramaturge_model::EventKind::FactLearned {
+                state.set_fact(scope.clone(), fact.clone());
+                state.emit_event(dramaturge_model::EventKind::FactLearned {
                     scope: scope.clone(),
                     fact_id: fact.id.clone(),
                 });
             }
             Outcome::RemoveFact { scope, fact_id } => {
-                context.remove_fact(scope, fact_id);
+                state.remove_fact(scope, fact_id);
             }
             Outcome::AddAlignment { axis, pole, delta } => {
-                context.add_alignment(axis.clone(), pole.clone(), *delta);
-                context.emit_event(dramaturge_model::EventKind::AlignmentChanged {
+                state.add_alignment(axis.clone(), pole.clone(), *delta);
+                state.emit_event(dramaturge_model::EventKind::AlignmentChanged {
                     axis: axis.clone(),
                     pole: pole.clone(),
                     delta: *delta,
@@ -171,8 +171,8 @@ impl OutcomeApplier for DefaultOutcomeApplier {
                 axis,
                 delta,
             } => {
-                context.add_relationship(*source, *target, axis.clone(), *delta);
-                context.emit_event(dramaturge_model::EventKind::RelationshipChanged {
+                state.add_relationship(*source, *target, axis.clone(), *delta);
+                state.emit_event(dramaturge_model::EventKind::RelationshipChanged {
                     a: *source,
                     b: *target,
                     axis: axis.clone(),
@@ -180,29 +180,29 @@ impl OutcomeApplier for DefaultOutcomeApplier {
                 });
             }
             Outcome::AddMemory { owner, memory } => {
-                context.add_memory(*owner, memory.clone());
+                state.add_memory(*owner, memory.clone());
             }
             Outcome::RemoveMemory { owner, memory_id } => {
-                context.remove_memory(*owner, *memory_id);
+                state.remove_memory(*owner, *memory_id);
             }
             Outcome::EmitEvent { kind } => {
-                context.emit_event(kind.clone());
+                state.emit_event(kind.clone());
             }
             Outcome::StartQuest { quest_id } => {
-                context.set_fact(
+                state.set_fact(
                     dramaturge_model::FactScope::World,
                     dramaturge_model::Fact::bool(format!("quest_started_{quest_id}"), true),
                 );
-                context.emit_event(dramaturge_model::EventKind::Custom {
+                state.emit_event(dramaturge_model::EventKind::Custom {
                     kind: format!("quest_started_{quest_id}").into(),
                 });
             }
             Outcome::AdvanceQuest { quest_id, stage } => {
-                context.set_fact(
+                state.set_fact(
                     dramaturge_model::FactScope::World,
                     dramaturge_model::Fact::text(format!("quest_stage_{quest_id}"), stage.as_str()),
                 );
-                context.emit_event(dramaturge_model::EventKind::Custom {
+                state.emit_event(dramaturge_model::EventKind::Custom {
                     kind: format!("quest_advanced_{quest_id}_{stage}").into(),
                 });
             }
@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn default_applier_set_fact() {
-        let applier = DefaultOutcomeApplier;
+        let mut applier = DefaultOutcomeApplier;
         let mut ctx = DialogWorldState::new();
         let fact = Fact::bool("met_hero", true);
         let outcome = Outcome::SetFact {
@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn default_applier_remove_fact() {
-        let applier = DefaultOutcomeApplier;
+        let mut applier = DefaultOutcomeApplier;
         let mut ctx = DialogWorldState::new();
         ctx.set_fact(FactScope::World, Fact::bool("met_hero", true));
         let outcome = Outcome::RemoveFact {
@@ -381,7 +381,7 @@ mod tests {
 
     #[test]
     fn default_applier_custom_noop() {
-        let applier = DefaultOutcomeApplier;
+        let mut applier = DefaultOutcomeApplier;
         let mut ctx = DialogWorldState::new();
         let outcome = Outcome::Custom {
             key: "custom".to_string(),
@@ -394,7 +394,7 @@ mod tests {
     #[test]
     fn default_applier_remove_memory() {
         use dramaturge_model::{Memory, MemoryId, MemoryTag};
-        let applier = DefaultOutcomeApplier;
+        let mut applier = DefaultOutcomeApplier;
         let mut ctx = DialogWorldState::new();
         let owner = EntityId::new(1);
         let memory_id = MemoryId::new(42);
@@ -569,7 +569,7 @@ mod tests {
 
     #[test]
     fn default_applier_add_relationship() {
-        let applier = DefaultOutcomeApplier;
+        let mut applier = DefaultOutcomeApplier;
         let mut ctx = DialogWorldState::new();
         let source = EntityId::new(1);
         let target = EntityId::new(2);
