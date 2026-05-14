@@ -60,7 +60,7 @@ pub use memory::{Confidence, Memory, MemoryId, MemoryQuery, MemoryTag};
 // Re-exports: outcomes
 pub use outcome::Outcome;
 // Re-exports: relationships
-pub use relationship::{RelationshipAxisId, RelationshipScore};
+pub use relationship::{RelationshipAxis, RelationshipAxisId, RelationshipScore};
 // Re-exports: tags
 pub use tag::{CustomDialogTag, DialogTag, DialogTagKind};
 

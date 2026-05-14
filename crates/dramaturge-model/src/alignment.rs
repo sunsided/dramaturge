@@ -45,6 +45,16 @@ impl AlignmentAxis {
             poles: Vec::new(),
         }
     }
+
+    /// Adds a pole to this axis.
+    pub fn add_pole(&mut self, pole: AlignmentPole) {
+        self.poles.push(pole);
+    }
+
+    /// Finds a pole by its ID.
+    pub fn find_pole(&self, id: &AlignmentPoleId) -> Option<&AlignmentPole> {
+        self.poles.iter().find(|pole| pole.id == *id)
+    }
 }
 
 /// Identifier for a specific pole on an alignment axis.
@@ -93,6 +103,27 @@ pub struct AlignmentScore {
     pub value: i32,
 }
 
+impl AlignmentScore {
+    /// Creates a new alignment score.
+    pub fn new(axis: impl Into<Arc<str>>, pole: impl Into<Arc<str>>, value: i32) -> Self {
+        Self {
+            axis: AlignmentAxisId::new(axis),
+            pole: AlignmentPoleId::new(pole),
+            value,
+        }
+    }
+
+    /// Creates a positive alignment score (absolute value is taken).
+    pub fn positive(axis: impl Into<Arc<str>>, pole: impl Into<Arc<str>>, value: i32) -> Self {
+        Self::new(axis, pole, value.saturating_abs())
+    }
+
+    /// Creates a negative alignment score (absolute value is taken and negated).
+    pub fn negative(axis: impl Into<Arc<str>>, pole: impl Into<Arc<str>>, value: i32) -> Self {
+        Self::new(axis, pole, -(value.saturating_abs()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,5 +152,69 @@ mod tests {
             value: 50,
         };
         check!(score.value == 50);
+    }
+
+    #[test]
+    fn alignment_axis_add_pole() {
+        let mut axis = AlignmentAxis::new("moral", "Moral Alignment");
+        check!(axis.poles.is_empty());
+        axis.add_pole(AlignmentPole::new("paragon", "Paragon"));
+        axis.add_pole(AlignmentPole::new("renegade", "Renegade"));
+        check!(axis.poles.len() == 2);
+        check!(&*axis.poles[0].id.0 == "paragon");
+        check!(&*axis.poles[1].id.0 == "renegade");
+    }
+
+    #[test]
+    fn alignment_axis_find_pole() {
+        let mut axis = AlignmentAxis::new("moral", "Moral Alignment");
+        axis.add_pole(AlignmentPole::new("paragon", "Paragon"));
+        axis.add_pole(AlignmentPole::new("renegade", "Renegade"));
+        let found = axis.find_pole(&AlignmentPoleId::new("paragon"));
+        check!(found.is_some());
+        check!(&*found.unwrap().display_name == "Paragon");
+    }
+
+    #[test]
+    fn alignment_axis_find_pole_not_found() {
+        let axis = AlignmentAxis::new("moral", "Moral Alignment");
+        let found = axis.find_pole(&AlignmentPoleId::new("nonexistent"));
+        check!(found.is_none());
+    }
+
+    #[test]
+    fn alignment_score_new() {
+        let score = AlignmentScore::new("moral", "paragon", 50);
+        check!(&*score.axis.0 == "moral");
+        check!(&*score.pole.0 == "paragon");
+        check!(score.value == 50);
+    }
+
+    #[test]
+    fn alignment_score_positive() {
+        let score = AlignmentScore::positive("moral", "paragon", 50);
+        check!(score.value == 50);
+        let score = AlignmentScore::positive("moral", "paragon", -50);
+        check!(score.value == 50);
+    }
+
+    #[test]
+    fn alignment_score_negative() {
+        let score = AlignmentScore::negative("moral", "paragon", 50);
+        check!(score.value == -50);
+        let score = AlignmentScore::negative("moral", "paragon", -50);
+        check!(score.value == -50);
+    }
+
+    #[test]
+    fn alignment_score_positive_i32_min() {
+        let score = AlignmentScore::positive("moral", "paragon", i32::MIN);
+        check!(score.value == i32::MAX);
+    }
+
+    #[test]
+    fn alignment_score_negative_i32_min() {
+        let score = AlignmentScore::negative("moral", "paragon", i32::MIN);
+        check!(score.value == i32::MIN + 1);
     }
 }
