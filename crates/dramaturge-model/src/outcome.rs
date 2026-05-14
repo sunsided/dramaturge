@@ -10,6 +10,7 @@ use crate::character::EntityId;
 use crate::event::EventKind;
 use crate::fact::{Fact, FactId, FactScope, FactValue};
 use crate::memory::Memory;
+use crate::memory::MemoryId;
 use crate::relationship::RelationshipAxisId;
 
 /// Effect applied to the dialogue world state when triggered.
@@ -60,6 +61,13 @@ pub enum Outcome {
         /// The memory to add.
         memory: Memory,
     },
+    /// Removes a memory from an entity's memory bank.
+    RemoveMemory {
+        /// The entity that owns the memory.
+        owner: EntityId,
+        /// The identifier of the memory to remove.
+        memory_id: MemoryId,
+    },
     /// Emits a narrative event into the world state's event log.
     EmitEvent {
         /// The event kind to emit.
@@ -92,6 +100,7 @@ pub enum Outcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MemoryTag;
     use assert2::check;
 
     #[test]
@@ -124,14 +133,22 @@ mod tests {
     }
 
     #[test]
-    fn outcome_add_relationship() {
-        let o = Outcome::AddRelationship {
-            source: EntityId::new(1),
-            target: EntityId::new(2),
-            axis: RelationshipAxisId::new("trust"),
-            delta: 5,
+    fn outcome_add_memory() {
+        let memory = Memory::new(MemoryId::new(1)).with_tag(MemoryTag::HelpedMe);
+        let o = Outcome::AddMemory {
+            owner: EntityId::new(1),
+            memory,
         };
-        check!(let Outcome::AddRelationship { .. } = o);
+        check!(let Outcome::AddMemory { owner, memory: m } = o && owner.0 == 1 && m.id.0 == 1);
+    }
+
+    #[test]
+    fn outcome_remove_memory() {
+        let o = Outcome::RemoveMemory {
+            owner: EntityId::new(1),
+            memory_id: MemoryId::new(42),
+        };
+        check!(let Outcome::RemoveMemory { owner, memory_id } = o && owner.0 == 1 && memory_id.0 == 42);
     }
 
     #[test]

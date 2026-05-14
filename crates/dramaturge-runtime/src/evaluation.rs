@@ -169,6 +169,9 @@ impl OutcomeApplier for DefaultOutcomeApplier {
             Outcome::AddMemory { owner, memory } => {
                 context.add_memory(*owner, memory.clone());
             }
+            Outcome::RemoveMemory { owner, memory_id } => {
+                context.remove_memory(*owner, *memory_id);
+            }
             Outcome::EmitEvent { kind } => {
                 context.emit_event(kind.clone());
             }
@@ -308,7 +311,7 @@ mod tests {
 
         let cond = Condition::HasMemory {
             owner,
-            query: dramaturge_model::MemoryQuery::new("HelpedMe"),
+            query: dramaturge_model::MemoryQuery::by_tag(MemoryTag::HelpedMe),
         };
         check!(!evaluator.evaluate(&cond, &ctx));
 
@@ -320,7 +323,7 @@ mod tests {
 
         let cond2 = Condition::HasMemory {
             owner,
-            query: dramaturge_model::MemoryQuery::new("BetrayedMe"),
+            query: dramaturge_model::MemoryQuery::by_tag(MemoryTag::BetrayedMe),
         };
         check!(!evaluator.evaluate(&cond2, &ctx));
     }
@@ -528,7 +531,7 @@ mod proptests {
                 .prop_map(|owner| {
                     Condition::HasMemory {
                         owner: EntityId::new(owner),
-                        query: dramaturge_model::MemoryQuery::new("test"),
+                        query: dramaturge_model::MemoryQuery::new(),
                     }
                 })
                 .boxed(),

@@ -8,8 +8,8 @@
 
 use dramaturge_model::tag::DialogTagKind;
 use dramaturge_model::{
-    AlignmentScore, EntityId, Event, EventId, EventKind, Memory, MemoryQuery, RelationshipScore,
-    ScopedFact,
+    AlignmentScore, EntityId, Event, EventId, EventKind, Memory, MemoryId, MemoryQuery,
+    RelationshipScore, ScopedFact,
 };
 
 /// Complete snapshot of the narrative world state.
@@ -181,6 +181,15 @@ impl DialogWorldState {
         self.memories.push((owner, memory));
     }
 
+    /// Removes a memory by ID from the given owner entity.
+    /// Returns `true` if a memory was found and removed.
+    pub fn remove_memory(&mut self, owner: EntityId, memory_id: MemoryId) -> bool {
+        let before = self.memories.len();
+        self.memories
+            .retain(|(o, m)| !(*o == owner && m.id == memory_id));
+        self.memories.len() < before
+    }
+
     /// Appends an event to the timeline.
     pub fn add_event(&mut self, event: Event) {
         self.events.push(event);
@@ -257,41 +266,8 @@ impl DialogWorldState {
     }
 
     /// Checks if any memory owned by the given entity matches the query.
-    ///
-    /// The query string is matched against:
-    /// - Memory tag variant names (e.g., "HelpedMe") or custom tag strings
-    /// - Memory fact IDs (as string)
-    /// - Memory subject entity ID (as string)
-    /// - Memory about entity IDs (as string)
     pub fn matches_memory_query(&self, owner: EntityId, query: &MemoryQuery) -> bool {
-        let query_str = &query.0;
-        self.get_memories(owner).iter().any(|memory| {
-            memory.tags.iter().any(|tag| {
-                let tag_str: &str = match tag {
-                    dramaturge_model::memory::MemoryTag::HelpedMe => "HelpedMe",
-                    dramaturge_model::memory::MemoryTag::BetrayedMe => "BetrayedMe",
-                    dramaturge_model::memory::MemoryTag::LiedToMe => "LiedToMe",
-                    dramaturge_model::memory::MemoryTag::SavedLife => "SavedLife",
-                    dramaturge_model::memory::MemoryTag::ThreatenedMe => "ThreatenedMe",
-                    dramaturge_model::memory::MemoryTag::ShowedMercy => "ShowedMercy",
-                    dramaturge_model::memory::MemoryTag::KilledSomeone => "KilledSomeone",
-                    dramaturge_model::memory::MemoryTag::RevealedSecret => "RevealedSecret",
-                    dramaturge_model::memory::MemoryTag::Custom(tag_str) => tag_str.as_ref(),
-                };
-                query_str.as_ref() == tag_str
-            }) || memory
-                .facts
-                .iter()
-                .any(|fact_id| fact_id.0.as_ref().contains(query_str.as_ref()))
-                || memory.subject.is_some_and(|subject| {
-                    let subject_str = format!("{}", subject.0);
-                    subject_str.contains(query_str.as_ref())
-                })
-                || memory.about.iter().any(|entity| {
-                    let entity_str = format!("{}", entity.0);
-                    entity_str.contains(query_str.as_ref())
-                })
-        })
+        self.get_memories(owner).iter().any(|m| query.matches(m))
     }
 }
 
@@ -454,6 +430,97 @@ mod tests {
         let found = state.find_events(|e| matches!(&e.kind, EventKind::RelationshipChanged { .. }));
         check!(found.len() == 1);
         check!(found[0].id.0 == 3);
+    }
+
+    #[test]
+    fn remove_memory_success() {
+        use dramaturge_model::{Memory, MemoryId};
+        let owner = EntityId::new(1);
+        let mut state = DialogWorldState::new();
+        let memory = Memory::new(MemoryId::new(1));
+        state.add_memory(owner, memory);
+        check!(state.get_memories(owner).len() == 1);
+        let removed = state.remove_memory(owner, MemoryId::new(1));
+        check!(removed);
+        check!(state.get_memories(owner).is_empty());
+    }
+
+    #[test]
+    fn remove_memory_nonexistent() {
+        use dramaturge_model::{Memory, MemoryId};
+        let owner = EntityId::new(1);
+        let mut state = DialogWorldState::new();
+        let memory = Memory::new(MemoryId::new(1));
+        state.add_memory(owner, memory);
+        let removed = state.remove_memory(owner, MemoryId::new(999));
+        check!(!removed);
+        check!(state.get_memories(owner).len() == 1);
+    }
+
+    #[test]
+    fn remove_memory_only_affects_matching_owner() {
+        use dramaturge_model::{Memory, MemoryId};
+        let owner_a = EntityId::new(1);
+        let owner_b = EntityId::new(2);
+        let mut state = DialogWorldState::new();
+        state.add_memory(owner_a, Memory::new(MemoryId::new(1)));
+        state.add_memory(owner_b, Memory::new(MemoryId::new(1)));
+        let removed = state.remove_memory(owner_a, MemoryId::new(1));
+        check!(removed);
+        check!(state.get_memories(owner_a).is_empty());
+        check!(state.get_memories(owner_b).len() == 1);
+    }
+
+    #[test]
+    fn matches_memory_query_with_structured_query() {
+        use dramaturge_model::{Confidence, Memory, MemoryId, MemoryQuery, MemoryTag};
+        let owner = EntityId::new(1);
+        let mut state = DialogWorldState::new();
+        let memory = Memory::new(MemoryId::new(1))
+            .with_tag(MemoryTag::HelpedMe)
+            .with_confidence(Confidence::Known)
+            .with_emotional_weight(50)
+            .with_subject(EntityId::new(42));
+        state.add_memory(owner, memory);
+
+        let q_tag = MemoryQuery::by_tag(MemoryTag::HelpedMe);
+        check!(state.matches_memory_query(owner, &q_tag));
+
+        let q_wrong_tag = MemoryQuery::by_tag(MemoryTag::BetrayedMe);
+        check!(!state.matches_memory_query(owner, &q_wrong_tag));
+
+        let q_confidence = MemoryQuery {
+            min_confidence: Some(Confidence::Known),
+            ..MemoryQuery::new()
+        };
+        check!(state.matches_memory_query(owner, &q_confidence));
+
+        let q_high_confidence = MemoryQuery {
+            min_confidence: Some(Confidence::Witnessed),
+            ..MemoryQuery::new()
+        };
+        check!(!state.matches_memory_query(owner, &q_high_confidence));
+
+        let q_weight = MemoryQuery {
+            min_emotional_weight: Some(50),
+            ..MemoryQuery::new()
+        };
+        check!(state.matches_memory_query(owner, &q_weight));
+
+        let q_high_weight = MemoryQuery {
+            min_emotional_weight: Some(100),
+            ..MemoryQuery::new()
+        };
+        check!(!state.matches_memory_query(owner, &q_high_weight));
+
+        let q_subject = MemoryQuery::by_subject(EntityId::new(42));
+        check!(state.matches_memory_query(owner, &q_subject));
+
+        let q_wrong_subject = MemoryQuery::by_subject(EntityId::new(99));
+        check!(!state.matches_memory_query(owner, &q_wrong_subject));
+
+        let q_all = MemoryQuery::new();
+        check!(state.matches_memory_query(owner, &q_all));
     }
 }
 
