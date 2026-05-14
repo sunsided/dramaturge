@@ -19,6 +19,28 @@ impl RelationshipAxisId {
     }
 }
 
+/// Definition of a relationship axis.
+///
+/// An axis represents a dimension along which relationships are measured,
+/// such as trust, romance, or rivalry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelationshipAxis {
+    /// The unique identifier for this axis.
+    pub id: RelationshipAxisId,
+    /// Human-facing axis name (e.g., "Trust").
+    pub display_name: Arc<str>,
+}
+
+impl RelationshipAxis {
+    /// Creates a new relationship axis with the given ID and display name.
+    pub fn new(id: impl Into<Arc<str>>, display_name: impl Into<Arc<str>>) -> Self {
+        Self {
+            id: RelationshipAxisId::new(id),
+            display_name: display_name.into(),
+        }
+    }
+}
+
 /// Numeric score between two entities on a specific relationship axis.
 ///
 /// Relationships are directional: `source` is the entity holding the
@@ -58,5 +80,12 @@ mod tests {
         check!(score.source.0 == 1);
         check!(score.target.0 == 2);
         check!(score.value == 50);
+    }
+
+    #[test]
+    fn relationship_axis_full_construction() {
+        let axis = RelationshipAxis::new("trust", "Trust");
+        check!(&*axis.id.0 == "trust");
+        check!(&*axis.display_name == "Trust");
     }
 }
