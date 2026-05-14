@@ -18,5 +18,5 @@ dramaturge-serde = { workspace = true, features = ["serde"] }
 assert2 = { workspace = true }
 
 [[example]]
-name = "overheard_truth_lie"
-path = "examples/overheard_truth_lie.rs"
+name = "the_broken_seal"
+path = "examples/the_broken_seal.rs"

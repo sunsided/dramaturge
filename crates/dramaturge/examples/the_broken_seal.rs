@@ -55,14 +55,18 @@ struct GameState {
 }
 
 impl GameState {
-    fn new(graph: DialogueGraph) -> Self {
+    fn new(graph: DialogueGraph, has_medic: bool, has_intimidation: bool) -> Self {
         let mut world = DialogWorldState::new();
 
-        // Initialize player skills
-        world.add_skill("medic");
+        // Initialize player skills based on character configuration
+        if has_medic {
+            world.add_skill("medic");
+        }
         world.add_skill("investigator");
         world.add_skill("streetwise");
-        // Note: player does NOT have intimidation skill - that option should be unavailable
+        if has_intimidation {
+            world.add_skill("intimidation");
+        }
 
         // Initialize relationships
         world.add_relationship(
@@ -300,35 +304,6 @@ fn clear_screen() {
     io::stdout().flush().unwrap();
 }
 
-/// Collects inferred prefixes from tags based on their axis.
-fn collect_inferred_prefixes(opt: &DialogueOption) -> Vec<String> {
-    use dramaturge::DialogTag;
-
-    let mut prefixes = Vec::new();
-
-    for tag in &opt.tags {
-        // Skip if tag has explicit display_prefix (already handled separately)
-        if tag.display_prefix().is_some() {
-            continue;
-        }
-
-        // Infer prefix based on axis
-        let prefix = match tag.axis() {
-            "skill" => Some(format!("[{}]", capitalize_first(tag.key()))),
-            "moral" => Some(format!("[{}]", capitalize_first(tag.key()))),
-            "speech" => Some(format!("[{}]", capitalize_first(tag.key()))),
-            "social" => Some(format!("[{}]", capitalize_first(tag.key()))),
-            _ => None,
-        };
-
-        if let Some(p) = prefix {
-            prefixes.push(p);
-        }
-    }
-
-    prefixes
-}
-
 /// Capitalizes the first character of a string.
 fn capitalize_first(s: &str) -> String {
     let mut chars = s.chars();
@@ -338,37 +313,49 @@ fn capitalize_first(s: &str) -> String {
     }
 }
 
-/// Renders option text with navigation hints and display prefixes from tags.
-fn format_option_text(opt: &DialogueOption) -> String {
-    let mut all_prefixes: Vec<String> = Vec::new();
+/// Returns just the option text without any prefixes.
+fn format_option_text_only(opt: &DialogueOption) -> String {
+    match &opt.text {
+        DialogText::Inline(s) => s.clone(),
+        DialogText::LocalizedKey(key) => key.to_string(), // Use key as fallback
+    }
+}
 
-    // 1. Navigation hint prefix (highest priority)
+/// Formats the tags for display underneath an option.
+/// Shows: navigation hint + explicit prefixes + inferred prefixes.
+fn format_option_tags(opt: &DialogueOption) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+
+    // 1. Navigation hint
     if let Some(hint) = &opt.navigation_hint {
-        all_prefixes.push(hint.display_prefix());
+        parts.push(hint.display_prefix());
     }
 
-    // 2. Explicit display prefixes from tags
+    // 2. All tags (explicit and inferred)
+    use dramaturge::DialogTag;
     for tag in &opt.tags {
+        // Explicit display prefix takes priority
         if let Some(prefix) = tag.display_prefix() {
-            all_prefixes.push(prefix.to_string());
+            parts.push(prefix.to_string());
+        } else {
+            // Infer prefix based on axis
+            let inferred = match tag.axis() {
+                "skill" => Some(format!("[{}]", capitalize_first(tag.key()))),
+                "moral" => Some(format!("[{}]", capitalize_first(tag.key()))),
+                "speech" => Some(format!("[{}]", capitalize_first(tag.key()))),
+                "social" => Some(format!("[{}]", capitalize_first(tag.key()))),
+                _ => None,
+            };
+            if let Some(p) = inferred {
+                parts.push(p);
+            }
         }
     }
 
-    // 3. Inferred prefixes from tag axes (only for tags without explicit prefix)
-    let inferred = collect_inferred_prefixes(opt);
-    all_prefixes.extend(inferred);
-
-    let prefix_str = all_prefixes.join(" ");
-
-    let text = match &opt.text {
-        DialogText::Inline(s) => s.as_str(),
-        DialogText::LocalizedKey(key) => key.as_ref(), // Use key as fallback
-    };
-
-    if prefix_str.is_empty() {
-        text.to_string()
+    if parts.is_empty() {
+        None
     } else {
-        format!("{} {}", prefix_str, text)
+        Some(parts.join(" "))
     }
 }
 
@@ -406,13 +393,26 @@ fn render_scene(state: &GameState) {
         println!("║  No available options.                                           ║");
     } else {
         for (i, opt) in options.iter().enumerate() {
-            let formatted_text = format_option_text(opt);
-            let lines = word_wrap(&formatted_text, 60);
+            // Show option text first (without prefixes)
+            let text_only = format_option_text_only(opt);
+            let lines = word_wrap(&text_only, 60);
             for (j, line) in lines.iter().enumerate() {
                 if j == 0 {
                     println!("║  {}. {:<60} ║", i + 1, line);
                 } else {
                     println!("║     {:<60} ║", line);
+                }
+            }
+
+            // Show tags underneath
+            if let Some(tags_str) = format_option_tags(opt) {
+                let tag_lines = word_wrap(&tags_str, 58);
+                for (j, line) in tag_lines.iter().enumerate() {
+                    if j == 0 {
+                        println!("║      → {:<58}║", line);
+                    } else {
+                        println!("║        {:<58}║", line);
+                    }
                 }
             }
         }
@@ -521,6 +521,84 @@ fn handle_input(state: &mut GameState, input: &str) -> bool {
 }
 
 // =============================================================================
+// INTRO / CHARACTER CONFIGURATION
+// =============================================================================
+
+/// Shows the intro screen and lets the player configure their character.
+/// Returns the configured skills (medic, intimidation).
+fn show_intro_and_configure() -> (bool, bool) {
+    clear_screen();
+    println!("╔══════════════════════════════════════════════════════════════════╗");
+    println!("║                                                                  ║");
+    println!("║                 THE BROKEN SEAL - Dramaturge Demo                ║");
+    println!("║                                                                  ║");
+    println!("╠══════════════════════════════════════════════════════════════════╣");
+    println!("║                                                                  ║");
+    println!("║  Greyford. A city of stone walls, trade routes, and secrets.     ║");
+    println!("║                                                                  ║");
+    println!("║  You are a freelance investigator, hired to look into the        ║");
+    println!("║  disappearance of medical supplies from the Free Clinic.         ║");
+    println!("║  The trail has led you to Mara Vey, a clinic clerk, and          ║");
+    println!("║  Captain Orren Vale, the administrator who wants answers.        ║");
+    println!("║                                                                  ║");
+    println!("║  But first - who are you?                                        ║");
+    println!("║                                                                  ║");
+    println!("╠══════════════════════════════════════════════════════════════════╣");
+    println!("║                                                                  ║");
+    println!("║  Choose your background (determines available dialogue options): ║");
+    println!("║                                                                  ║");
+    println!("║    1. Street Medic - You have medical training                   ║");
+    println!("║                      (Medic skill: ✓  Intimidation: ✗)           ║");
+    println!("║                                                                  ║");
+    println!("║    2. Enforcer     - You know how to apply pressure              ║");
+    println!("║                      (Medic skill: ✗  Intimidation: ✓)           ║");
+    println!("║                                                                  ║");
+    println!("║    3. Negotiator   - Training in both healing and persuasion     ║");
+    println!("║                      (Medic skill: ✓  Intimidation: ✓)           ║");
+    println!("║                                                                  ║");
+    println!("║    4. Investigator - Sharp eyes and sharper instincts            ║");
+    println!("║                      (Medic skill: ✗  Intimidation: ✗)           ║");
+    println!("║                                                                  ║");
+    println!("╚══════════════════════════════════════════════════════════════════╝");
+    print!("\nSelect background (1-4): ");
+    io::stdout().flush().unwrap();
+
+    loop {
+        let input = read_line();
+        match input.as_str() {
+            "1" => {
+                println!("\nYou chose: Street Medic");
+                println!("Press Enter to begin...");
+                read_line();
+                return (true, false);
+            }
+            "2" => {
+                println!("\nYou chose: Enforcer");
+                println!("Press Enter to begin...");
+                read_line();
+                return (false, true);
+            }
+            "3" => {
+                println!("\nYou chose: Negotiator");
+                println!("Press Enter to begin...");
+                read_line();
+                return (true, true);
+            }
+            "4" => {
+                println!("\nYou chose: Investigator");
+                println!("Press Enter to begin...");
+                read_line();
+                return (false, false);
+            }
+            _ => {
+                print!("Invalid choice. Please enter 1, 2, 3, or 4: ");
+                io::stdout().flush().unwrap();
+            }
+        }
+    }
+}
+
+// =============================================================================
 // MAIN
 // =============================================================================
 
@@ -543,11 +621,11 @@ fn main() {
         }
     };
 
-    println!("Loaded dialogue graph with {} nodes", graph.nodes.len());
-    println!("Press Enter to begin...");
-    read_line();
+    // Show intro and configure character
+    let (has_medic, has_intimidation) = show_intro_and_configure();
 
-    let mut state = GameState::new(graph);
+    // Create game state with configured skills
+    let mut state = GameState::new(graph, has_medic, has_intimidation);
 
     loop {
         render_scene(&state);
