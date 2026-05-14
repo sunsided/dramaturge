@@ -552,7 +552,11 @@ mod tests {
         }
     }
 
-    fn make_option(id: u64, target: DialogTarget) -> DialogueOption {
+    fn make_option(
+        id: u64,
+        target: DialogTarget,
+        source_node_id: DialogueNodeId,
+    ) -> DialogueOption {
         DialogueOption {
             id: DialogueOptionId::new(id),
             text: DialogText::inline("opt"),
@@ -561,6 +565,7 @@ mod tests {
             conditions: vec![],
             outcomes: vec![],
             target,
+            source_node_id,
         }
     }
 
@@ -577,7 +582,11 @@ mod tests {
         let validator = GraphValidator::new();
         let node = make_node(
             1,
-            vec![make_option(1, DialogTarget::Node(DialogueNodeId::new(999)))],
+            vec![make_option(
+                1,
+                DialogTarget::Node(DialogueNodeId::new(999)),
+                DialogueNodeId::new(1),
+            )],
         );
         let graph = DialogueGraph {
             nodes: vec![node],
@@ -607,7 +616,11 @@ mod tests {
     #[test]
     fn detects_self_loops() {
         let validator = GraphValidator::new();
-        let option = make_option(1, DialogTarget::Node(DialogueNodeId::new(1)));
+        let option = make_option(
+            1,
+            DialogTarget::Node(DialogueNodeId::new(1)),
+            DialogueNodeId::new(1),
+        );
         let node = make_node(1, vec![option]);
         let graph = DialogueGraph {
             nodes: vec![node],
@@ -628,6 +641,7 @@ mod tests {
             conditions: vec![Condition::Never],
             outcomes: vec![],
             target: DialogTarget::node(2),
+            source_node_id: DialogueNodeId::new(1),
         };
         let node = make_node(1, vec![option]);
         let graph = DialogueGraph {
@@ -653,6 +667,7 @@ mod tests {
             conditions: vec![Condition::Any(vec![Condition::Never, Condition::Always])],
             outcomes: vec![],
             target: DialogTarget::node(2),
+            source_node_id: DialogueNodeId::new(1),
         };
         let node = make_node(1, vec![option]);
         let graph = DialogueGraph {
@@ -678,6 +693,7 @@ mod tests {
             conditions: vec![Condition::Not(Box::new(Condition::Never))],
             outcomes: vec![],
             target: DialogTarget::node(2),
+            source_node_id: DialogueNodeId::new(1),
         };
         let node = make_node(1, vec![option]);
         let graph = DialogueGraph {
@@ -695,8 +711,22 @@ mod tests {
     #[test]
     fn detects_cycle_reports_all_members() {
         let validator = GraphValidator::new();
-        let node1 = make_node(1, vec![make_option(1, DialogTarget::node(2))]);
-        let node2 = make_node(2, vec![make_option(2, DialogTarget::node(1))]);
+        let node1 = make_node(
+            1,
+            vec![make_option(
+                1,
+                DialogTarget::node(2),
+                DialogueNodeId::new(1),
+            )],
+        );
+        let node2 = make_node(
+            2,
+            vec![make_option(
+                2,
+                DialogTarget::node(1),
+                DialogueNodeId::new(2),
+            )],
+        );
         let graph = DialogueGraph {
             nodes: vec![node1, node2],
             entry_node: Some(DialogueNodeId::new(1)),
@@ -759,6 +789,7 @@ mod tests {
                 fact_id: FactId::new("only_removed"),
             }],
             target: DialogTarget::node(2),
+            source_node_id: DialogueNodeId::new(1),
         };
         let node = make_node(1, vec![option]);
         let graph = DialogueGraph {
@@ -782,8 +813,22 @@ mod tests {
     #[test]
     fn detects_cycles() {
         let validator = GraphValidator::new();
-        let node1 = make_node(1, vec![make_option(1, DialogTarget::node(2))]);
-        let node2 = make_node(2, vec![make_option(2, DialogTarget::node(1))]);
+        let node1 = make_node(
+            1,
+            vec![make_option(
+                1,
+                DialogTarget::node(2),
+                DialogueNodeId::new(1),
+            )],
+        );
+        let node2 = make_node(
+            2,
+            vec![make_option(
+                2,
+                DialogTarget::node(1),
+                DialogueNodeId::new(2),
+            )],
+        );
         let graph = DialogueGraph {
             nodes: vec![node1, node2],
             entry_node: Some(DialogueNodeId::new(1)),
@@ -795,7 +840,14 @@ mod tests {
     #[test]
     fn detects_dead_end_nodes() {
         let validator = GraphValidator::new();
-        let node1 = make_node(1, vec![make_option(1, DialogTarget::node(2))]);
+        let node1 = make_node(
+            1,
+            vec![make_option(
+                1,
+                DialogTarget::node(2),
+                DialogueNodeId::new(1),
+            )],
+        );
         let node2 = make_node(2, vec![]);
         let graph = DialogueGraph {
             nodes: vec![node1, node2],

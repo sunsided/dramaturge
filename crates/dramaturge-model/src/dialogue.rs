@@ -151,13 +151,20 @@ pub struct DialogueOption {
     pub outcomes: Vec<Outcome>,
     /// Where this option leads when chosen.
     pub target: DialogTarget,
+    /// The node this option belongs to.
+    pub source_node_id: DialogueNodeId,
 }
 
 impl DialogueOption {
-    /// Creates an option with the given ID, text, and target.
+    /// Creates an option with the given ID, text, target, and source node.
     ///
     /// Tags, intentions, conditions, and outcomes all start empty.
-    pub fn new(id: u64, text: DialogText, target: DialogTarget) -> Self {
+    pub fn new(
+        id: u64,
+        text: DialogText,
+        target: DialogTarget,
+        source_node_id: DialogueNodeId,
+    ) -> Self {
         Self {
             id: DialogueOptionId::new(id),
             text,
@@ -166,6 +173,7 @@ impl DialogueOption {
             conditions: Vec::new(),
             outcomes: Vec::new(),
             target,
+            source_node_id,
         }
     }
 }
@@ -256,7 +264,7 @@ mod tests {
     #[test]
     fn dialogue_option_construction() {
         let text = DialogText::inline("Yes, I'll help.");
-        let option = DialogueOption::new(1, text, DialogTarget::node(2));
+        let option = DialogueOption::new(1, text, DialogTarget::node(2), DialogueNodeId::new(1));
         check!(option.id.0 == 1);
         check!(option.tags.is_empty());
         check!(option.conditions.is_empty());
@@ -374,9 +382,10 @@ mod proptests {
         proptest!(|(
             id in any::<u64>(),
             text in ".*",
-            target_id in any::<u64>()
+            target_id in any::<u64>(),
+            source_node_id in any::<u64>()
         )| {
-            let option = DialogueOption::new(id, DialogText::inline(&text), DialogTarget::node(target_id));
+            let option = DialogueOption::new(id, DialogText::inline(&text), DialogTarget::node(target_id), DialogueNodeId::new(source_node_id));
             prop_assert_eq!(option.id.0, id);
             prop_assert!(option.tags.is_empty());
             prop_assert!(option.conditions.is_empty());
@@ -386,6 +395,7 @@ mod proptests {
             } else {
                 prop_assert!(false, "expected Node target");
             }
+            prop_assert_eq!(option.source_node_id.0, source_node_id);
         });
     }
 }

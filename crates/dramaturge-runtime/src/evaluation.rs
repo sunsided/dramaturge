@@ -136,12 +136,31 @@ impl OutcomeApplier for DefaultOutcomeApplier {
         match outcome {
             Outcome::SetFact { scope, fact } => {
                 context.set_fact(scope.clone(), fact.clone());
+                let event_id = dramaturge_model::EventId::new(context.next_event_id());
+                let event = dramaturge_model::Event::new(
+                    event_id,
+                    dramaturge_model::EventKind::FactLearned {
+                        scope: scope.clone(),
+                        fact_id: fact.id.clone(),
+                    },
+                );
+                context.add_event(event);
             }
             Outcome::RemoveFact { scope, fact_id } => {
                 context.remove_fact(scope, fact_id);
             }
             Outcome::AddAlignment { axis, pole, delta } => {
                 context.add_alignment(axis.clone(), pole.clone(), *delta);
+                let event_id = dramaturge_model::EventId::new(context.next_event_id());
+                let event = dramaturge_model::Event::new(
+                    event_id,
+                    dramaturge_model::EventKind::AlignmentChanged {
+                        axis: axis.clone(),
+                        pole: pole.clone(),
+                        delta: *delta,
+                    },
+                );
+                context.add_event(event);
             }
             Outcome::AddRelationship {
                 source,
@@ -150,20 +169,23 @@ impl OutcomeApplier for DefaultOutcomeApplier {
                 delta,
             } => {
                 context.add_relationship(*source, *target, axis.clone(), *delta);
+                let event_id = dramaturge_model::EventId::new(context.next_event_id());
+                let event = dramaturge_model::Event::new(
+                    event_id,
+                    dramaturge_model::EventKind::RelationshipChanged {
+                        a: *source,
+                        b: *target,
+                        axis: axis.clone(),
+                        delta: *delta,
+                    },
+                );
+                context.add_event(event);
             }
             Outcome::AddMemory { owner, memory } => {
                 context.add_memory(*owner, memory.clone());
             }
             Outcome::EmitEvent { kind } => {
-                let event_id = dramaturge_model::EventId::new(
-                    context
-                        .events
-                        .iter()
-                        .map(|e| e.id.0)
-                        .max()
-                        .unwrap_or(0)
-                        .saturating_add(1),
-                );
+                let event_id = dramaturge_model::EventId::new(context.next_event_id());
                 let event = dramaturge_model::Event::new(event_id, kind.clone());
                 context.add_event(event);
             }
@@ -172,12 +194,28 @@ impl OutcomeApplier for DefaultOutcomeApplier {
                     dramaturge_model::FactScope::World,
                     dramaturge_model::Fact::bool(format!("quest_started_{quest_id}"), true),
                 );
+                let event_id = dramaturge_model::EventId::new(context.next_event_id());
+                let event = dramaturge_model::Event::new(
+                    event_id,
+                    dramaturge_model::EventKind::Custom {
+                        kind: format!("quest_started_{quest_id}").into(),
+                    },
+                );
+                context.add_event(event);
             }
             Outcome::AdvanceQuest { quest_id, stage } => {
                 context.set_fact(
                     dramaturge_model::FactScope::World,
                     dramaturge_model::Fact::text(format!("quest_stage_{quest_id}"), stage.as_str()),
                 );
+                let event_id = dramaturge_model::EventId::new(context.next_event_id());
+                let event = dramaturge_model::Event::new(
+                    event_id,
+                    dramaturge_model::EventKind::Custom {
+                        kind: format!("quest_advanced_{quest_id}_{stage}").into(),
+                    },
+                );
+                context.add_event(event);
             }
             Outcome::Custom { .. } => {}
         }

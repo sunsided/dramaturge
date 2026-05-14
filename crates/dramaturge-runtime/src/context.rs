@@ -185,6 +185,57 @@ impl DialogWorldState {
         self.events.push(event);
     }
 
+    /// Returns the next auto-incremented event ID based on existing events.
+    pub fn next_event_id(&self) -> u64 {
+        self.events
+            .iter()
+            .map(|e| e.id.0)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1)
+    }
+
+    /// Returns all events in chronological order.
+    pub fn events(&self) -> &[Event] {
+        &self.events
+    }
+
+    /// Returns events matching the given kind variant name.
+    ///
+    /// Matches against the variant name (e.g., "DialogOptionChosen", "FactLearned").
+    pub fn events_of_kind(&self, kind: &str) -> Vec<&Event> {
+        self.events
+            .iter()
+            .filter(|e| e.kind.variant_name() == kind)
+            .collect()
+    }
+
+    /// Returns events where the actor matches.
+    pub fn events_by_actor(&self, actor: EntityId) -> Vec<&Event> {
+        self.events
+            .iter()
+            .filter(|e| e.actor == Some(actor))
+            .collect()
+    }
+
+    /// Returns events where the target matches.
+    pub fn events_by_target(&self, target: EntityId) -> Vec<&Event> {
+        self.events
+            .iter()
+            .filter(|e| e.target == Some(target))
+            .collect()
+    }
+
+    /// Returns the last N events.
+    pub fn recent_events(&self, count: usize) -> Vec<&Event> {
+        self.events.iter().rev().take(count).rev().collect()
+    }
+
+    /// Returns events matching a predicate.
+    pub fn find_events<F: Fn(&Event) -> bool>(&self, predicate: F) -> Vec<&Event> {
+        self.events.iter().filter(|e| predicate(e)).collect()
+    }
+
     /// Adds a tag to the set of available tags.
     pub fn add_available_tag(&mut self, tag: DialogTagKind) {
         self.available_tags.push(tag);
@@ -324,6 +375,75 @@ mod tests {
         check!(state.get_relationship(s, t, &RelationshipAxisId::new("trust")) == Some(30));
         state.add_relationship(s, t, RelationshipAxisId::new("trust"), -10);
         check!(state.get_relationship(s, t, &RelationshipAxisId::new("trust")) == Some(20));
+    }
+
+    #[test]
+    fn event_query_methods() {
+        use dramaturge_model::{Event, EventId, EventKind};
+
+        let mut state = DialogWorldState::new();
+        let e1 = Event::new(
+            EventId::new(1),
+            EventKind::DialogOptionChosen {
+                node_id: dramaturge_model::DialogueNodeId::new(1),
+                option_id: dramaturge_model::DialogueOptionId::new(1),
+                tags: vec![],
+                intentions: dramaturge_model::DialogIntentions::new(),
+            },
+        );
+        let mut e2 = Event::new(
+            EventId::new(2),
+            EventKind::FactLearned {
+                scope: FactScope::World,
+                fact_id: FactId::new("met_hero"),
+            },
+        );
+        e2.actor = Some(EntityId::new(42));
+
+        let mut e3 = Event::new(
+            EventId::new(3),
+            EventKind::RelationshipChanged {
+                a: EntityId::new(1),
+                b: EntityId::new(2),
+                axis: dramaturge_model::RelationshipAxisId::new("trust"),
+                delta: 10,
+            },
+        );
+        e3.target = Some(EntityId::new(99));
+
+        state.add_event(e1);
+        state.add_event(e2);
+        state.add_event(e3);
+
+        check!(state.events().len() == 3);
+
+        let chosen = state.events_of_kind("DialogOptionChosen");
+        check!(chosen.len() == 1);
+        check!(chosen[0].id.0 == 1);
+
+        let learned = state.events_of_kind("FactLearned");
+        check!(learned.len() == 1);
+        check!(learned[0].id.0 == 2);
+
+        let by_actor = state.events_by_actor(EntityId::new(42));
+        check!(by_actor.len() == 1);
+        check!(by_actor[0].id.0 == 2);
+
+        let by_target = state.events_by_target(EntityId::new(99));
+        check!(by_target.len() == 1);
+        check!(by_target[0].id.0 == 3);
+
+        let recent = state.recent_events(2);
+        check!(recent.len() == 2);
+        check!(recent[0].id.0 == 2);
+        check!(recent[1].id.0 == 3);
+
+        let all_recent = state.recent_events(10);
+        check!(all_recent.len() == 3);
+
+        let found = state.find_events(|e| matches!(e.kind, EventKind::RelationshipChanged { .. }));
+        check!(found.len() == 1);
+        check!(found[0].id.0 == 3);
     }
 }
 
@@ -498,6 +618,26 @@ mod proptests {
             let memories = ctx.get_memories(owner);
             prop_assert!(!memories.is_empty());
             prop_assert!(memories.contains(&&memory));
+        });
+    }
+
+    #[test]
+    fn prop_recent_events_bounds() {
+        proptest!(|(events in proptest::collection::vec(any::<u64>(), 0..20), count in 0usize..30)| {
+            let mut ctx = DialogWorldState::new();
+            for (i, id) in events.iter().enumerate() {
+                let event = Event::new(
+                    dramaturge_model::EventId::new(*id),
+                    EventKind::Custom { kind: format!("event_{i}").into() },
+                );
+                ctx.add_event(event);
+            }
+            let recent = ctx.recent_events(count);
+            let expected_len = count.min(events.len());
+            prop_assert_eq!(recent.len(), expected_len);
+            if !recent.is_empty() {
+                prop_assert!(recent.iter().all(|e| ctx.events.iter().any(|ev| ev.id == e.id)));
+            }
         });
     }
 }
