@@ -19,4 +19,4 @@ pub use evaluation::{
     ConditionEvaluator, DefaultConditionEvaluator, DefaultOutcomeApplier, EvaluationResult,
     OutcomeApplier,
 };
-pub use runtime::{DefaultRuntime, DialogueRuntime};
+pub use runtime::{AvailableOptionsIter, DefaultRuntime, DialogueRuntime};
