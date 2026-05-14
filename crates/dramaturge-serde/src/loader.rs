@@ -101,17 +101,20 @@ pub enum YamlNavigationHint {
 
 impl YamlNavigationHint {
     /// Convert to a model NavigationHint.
-    fn to_model(&self, go_to_target: &Option<String>) -> model::NavigationHint {
+    fn to_model(&self, go_to_target: &Option<String>) -> Result<model::NavigationHint, String> {
         use model::NavigationHint;
         match self {
-            YamlNavigationHint::Continue => NavigationHint::Continue,
-            YamlNavigationHint::Leave => NavigationHint::Leave,
+            YamlNavigationHint::Continue => Ok(NavigationHint::Continue),
+            YamlNavigationHint::Leave => Ok(NavigationHint::Leave),
             YamlNavigationHint::GoTo => {
-                NavigationHint::GoTo(go_to_target.clone().unwrap_or_else(|| "Target".to_string()))
+                let target = go_to_target
+                    .as_ref()
+                    .ok_or("GoTo navigation hint requires 'go_to_target' to be specified")?;
+                Ok(NavigationHint::GoTo(target.clone()))
             }
-            YamlNavigationHint::End => NavigationHint::End,
-            YamlNavigationHint::Return => NavigationHint::Return,
-            YamlNavigationHint::Custom(label) => NavigationHint::Custom(label.clone()),
+            YamlNavigationHint::End => Ok(NavigationHint::End),
+            YamlNavigationHint::Return => Ok(NavigationHint::Return),
+            YamlNavigationHint::Custom(label) => Ok(NavigationHint::Custom(label.clone())),
         }
     }
 
@@ -288,7 +291,7 @@ impl YamlDialogueGraph {
 
                 // Convert navigation hint
                 if let Some(hint) = &yaml_option.navigation_hint {
-                    option.navigation_hint = Some(hint.to_model(&yaml_option.go_to_target));
+                    option.navigation_hint = Some(hint.to_model(&yaml_option.go_to_target)?);
                 }
 
                 // Convert tags
@@ -306,6 +309,13 @@ impl YamlDialogueGraph {
                     tag.requires_trait = yaml_tag
                         .requires_trait
                         .unwrap_or_else(|| yaml_tag.axis.as_str() == "skill");
+
+                    // If this tag requires a trait, add a HasSkill condition to the option
+                    if tag.requires_trait {
+                        option
+                            .conditions
+                            .push(model::Condition::has_skill(&*tag.key));
+                    }
 
                     option.tags.push(tag);
                 }
@@ -468,5 +478,132 @@ nodes:
         let model_graph = graph.to_model().expect("Should convert");
         assert_eq!(model_graph.nodes.len(), 1);
         assert!(model_graph.entry_node.is_some());
+    }
+
+    #[test]
+    fn test_goto_without_target_fails() {
+        let yaml = r#"
+version: "1.0"
+entry_node: 1
+characters:
+  mara:
+    id: 2
+    name: "Mara Vey"
+nodes:
+  - id: 1
+    speaker: mara
+    text: "Hello, traveler."
+    options:
+      - id: 1
+        text: "Go somewhere."
+        navigation_hint: go_to
+        target: "end"
+"#;
+
+        let graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
+        let result = graph.to_model();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(err_msg.contains("go_to_target"));
+    }
+
+    #[test]
+    fn test_goto_with_target_succeeds() {
+        let yaml = r#"
+version: "1.0"
+entry_node: 1
+characters:
+  mara:
+    id: 2
+    name: "Mara Vey"
+nodes:
+  - id: 1
+    speaker: mara
+    text: "Hello, traveler."
+    options:
+      - id: 1
+        text: "Go to the ship."
+        navigation_hint: go_to
+        go_to_target: "the ship"
+        target: "end"
+"#;
+
+        let graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
+        let model_graph = graph.to_model().expect("Should convert with go_to_target");
+        assert_eq!(model_graph.nodes.len(), 1);
+        let option = &model_graph.nodes[0].options[0];
+        assert!(matches!(
+            option.navigation_hint,
+            Some(model::NavigationHint::GoTo(ref target)) if target == "the ship"
+        ));
+    }
+
+    #[test]
+    fn test_skill_tag_adds_has_skill_condition() {
+        let yaml = r#"
+version: "1.0"
+entry_node: 1
+characters:
+  mara:
+    id: 2
+    name: "Mara Vey"
+nodes:
+  - id: 1
+    speaker: mara
+    text: "Hello, traveler."
+    options:
+      - id: 1
+        text: "Treat the wound."
+        tags:
+          - { axis: "skill", key: "medic" }
+        target: "end"
+"#;
+
+        let graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
+        let model_graph = graph.to_model().expect("Should convert");
+        let option = &model_graph.nodes[0].options[0];
+
+        // Check that the tag has requires_trait set
+        assert_eq!(option.tags.len(), 1);
+        assert!(option.tags[0].requires_trait);
+
+        // Check that a HasSkill condition was added
+        assert_eq!(option.conditions.len(), 1);
+        assert!(matches!(
+            option.conditions[0],
+            model::Condition::HasSkill { ref skill } if skill == "medic"
+        ));
+    }
+
+    #[test]
+    fn test_non_skill_tag_without_requires_trait_does_not_add_condition() {
+        let yaml = r#"
+version: "1.0"
+entry_node: 1
+characters:
+  mara:
+    id: 2
+    name: "Mara Vey"
+nodes:
+  - id: 1
+    speaker: mara
+    text: "Hello, traveler."
+    options:
+      - id: 1
+        text: "Be nice."
+        tags:
+          - { axis: "moral", key: "paragon" }
+        target: "end"
+"#;
+
+        let graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
+        let model_graph = graph.to_model().expect("Should convert");
+        let option = &model_graph.nodes[0].options[0];
+
+        // Check that the tag does not require trait
+        assert!(!option.tags[0].requires_trait);
+
+        // Check that no HasSkill condition was added
+        assert!(option.conditions.is_empty());
     }
 }

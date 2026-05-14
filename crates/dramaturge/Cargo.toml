@@ -12,7 +12,7 @@ categories.workspace = true
 [dependencies]
 dramaturge-model = { workspace = true }
 dramaturge-runtime = { workspace = true }
-dramaturge-serde = { workspace = true, features = ["serde"] }
+dramaturge-serde = { workspace = true, features = ["yaml"] }
 
 [dev-dependencies]
 assert2 = { workspace = true }

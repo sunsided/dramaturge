@@ -36,7 +36,11 @@ impl DialogTag for CustomDialogTag {
 }
 
 /// User-defined tag with arbitrary axis and key.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// Equality and hashing are based only on `axis` and `key`, not on
+/// `display_prefix` or `requires_trait`. This ensures tags are compared
+/// by their semantic identity regardless of display or requirement metadata.
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CustomDialogTag {
     /// Custom axis identifier.
@@ -50,6 +54,23 @@ pub struct CustomDialogTag {
     /// When true, the option is only available if the player has this trait.
     #[cfg_attr(feature = "serde", serde(default))]
     pub requires_trait: bool,
+}
+
+impl PartialEq for CustomDialogTag {
+    fn eq(&self, other: &Self) -> bool {
+        // Only compare semantic identity (axis and key), not display/requirement metadata
+        self.axis == other.axis && self.key == other.key
+    }
+}
+
+impl Eq for CustomDialogTag {}
+
+impl Hash for CustomDialogTag {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Only hash semantic identity (axis and key), not display/requirement metadata
+        self.axis.hash(state);
+        self.key.hash(state);
+    }
 }
 
 impl CustomDialogTag {
@@ -180,5 +201,46 @@ mod tests {
 
         let tag_no_prefix = CustomDialogTag::new("moral", "paragon");
         check!(tag_no_prefix.display_prefix().is_none());
+    }
+
+    #[test]
+    fn tag_equality_ignores_display_metadata() {
+        // Tags with same axis/key should be equal regardless of display_prefix or requires_trait
+        let tag_basic = CustomDialogTag::new("skill", "medic");
+        let tag_with_prefix = CustomDialogTag::with_prefix("skill", "medic", "[Medic]");
+        let tag_requires_trait = CustomDialogTag::new("skill", "medic").with_requires_trait(true);
+        let tag_both =
+            CustomDialogTag::with_prefix("skill", "medic", "[Doctor]").with_requires_trait(true);
+
+        check!(tag_basic == tag_with_prefix);
+        check!(tag_basic == tag_requires_trait);
+        check!(tag_basic == tag_both);
+        check!(tag_with_prefix == tag_requires_trait);
+
+        // Different axis or key should not be equal
+        let tag_different_key = CustomDialogTag::new("skill", "investigator");
+        let tag_different_axis = CustomDialogTag::new("moral", "medic");
+
+        check!(tag_basic != tag_different_key);
+        check!(tag_basic != tag_different_axis);
+    }
+
+    #[test]
+    fn tag_hash_ignores_display_metadata() {
+        use std::collections::HashSet;
+
+        let tag_basic = CustomDialogTag::new("skill", "medic");
+        let tag_with_prefix = CustomDialogTag::with_prefix("skill", "medic", "[Medic]");
+        let tag_requires_trait = CustomDialogTag::new("skill", "medic").with_requires_trait(true);
+
+        let mut set = HashSet::new();
+        set.insert(tag_basic.clone());
+
+        // Inserting equivalent tags (same axis/key) should not increase set size
+        set.insert(tag_with_prefix);
+        check!(set.len() == 1);
+
+        set.insert(tag_requires_trait);
+        check!(set.len() == 1);
     }
 }

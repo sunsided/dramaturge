@@ -8,12 +8,12 @@
 //! # Features
 //!
 //! - `serde` — activates [`serde`](https://docs.rs/serde) as a dependency.
-//! - `serde` — enables YAML loader support.
+//! - `yaml` — enables YAML loader support (implies `serde`).
 
 #[cfg(feature = "serde")]
 pub use serde;
 
-#[cfg(feature = "serde")]
+#[cfg(feature = "yaml")]
 pub mod loader;
 
 use dramaturge_model as model;
