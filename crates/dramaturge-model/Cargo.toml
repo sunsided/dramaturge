@@ -10,3 +10,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
+
+[dev-dependencies]
+dramaturge-macros = { workspace = true }
+assert2 = { workspace = true }
+proptest = "1"

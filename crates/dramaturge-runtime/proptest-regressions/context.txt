@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0f43af747338dcf9b9b9f161df60c961cc4c257a05b8d42d25d8ff54293d32ee # shrinks to axis = AlignmentAxisId(""), pole = AlignmentPoleId(""), deltas = [-1240564319, -906919330]
+cc ceb57d9e6ae436b800630d7ce51282ae2b142ccaf489edd6102aeec8ff35ac89 # shrinks to events = [Event { id: EventId(3616740310710155161), kind: Custom { kind: "" }, actor: None, target: None }, Event { id: EventId(0), kind: Custom { kind: "" }, actor: None, target: None }]

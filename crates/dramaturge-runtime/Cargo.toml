@@ -11,3 +11,7 @@ categories.workspace = true
 
 [dependencies]
 dramaturge-model = { workspace = true }
+
+[dev-dependencies]
+assert2 = { workspace = true }
+proptest = "1"
