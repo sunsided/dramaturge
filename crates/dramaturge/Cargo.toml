@@ -15,3 +15,7 @@ dramaturge-runtime = { workspace = true }
 
 [dev-dependencies]
 assert2 = { workspace = true }
+
+[[example]]
+name = "overheard_truth_lie"
+path = "examples/overheard_truth_lie.rs"
