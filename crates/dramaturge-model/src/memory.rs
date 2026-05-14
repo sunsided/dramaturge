@@ -68,7 +68,7 @@ pub enum MemoryTag {
 /// Structured query for filtering memories by criteria.
 ///
 /// Multiple filters use **AND** semantics — all specified filters must match.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
 pub struct MemoryQuery {
     /// Match memories that have this exact tag.
     pub tag: Option<MemoryTag>,
@@ -79,6 +79,8 @@ pub struct MemoryQuery {
     /// Match memories whose subject is this entity.
     pub subject: Option<EntityId>,
     /// Match memories that reference any of these facts.
+    /// Multiple filters across fields use **AND** semantics; within this list,
+    /// a memory matches if it contains **any** of the specified facts.
     pub facts: Vec<FactId>,
 }
 

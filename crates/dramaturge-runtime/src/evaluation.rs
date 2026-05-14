@@ -378,6 +378,22 @@ mod tests {
     }
 
     #[test]
+    fn default_applier_remove_memory() {
+        use dramaturge_model::{Memory, MemoryId, MemoryTag};
+        let applier = DefaultOutcomeApplier;
+        let mut ctx = DialogWorldState::new();
+        let owner = EntityId::new(1);
+        let memory_id = MemoryId::new(42);
+        let memory = Memory::new(memory_id).with_tag(MemoryTag::HelpedMe);
+        ctx.add_memory(owner, memory);
+        check!(ctx.get_memories(owner).len() == 1);
+
+        let outcome = Outcome::RemoveMemory { owner, memory_id };
+        applier.apply(&outcome, &mut ctx);
+        check!(ctx.get_memories(owner).is_empty());
+    }
+
+    #[test]
     fn default_evaluator_relationship_at_least() {
         let evaluator = DefaultConditionEvaluator;
         let mut ctx = DialogWorldState::new();

@@ -152,6 +152,17 @@ mod tests {
     }
 
     #[test]
+    fn outcome_add_relationship() {
+        let o = Outcome::AddRelationship {
+            source: EntityId::new(1),
+            target: EntityId::new(2),
+            axis: RelationshipAxisId::new("trust"),
+            delta: 5,
+        };
+        check!(let Outcome::AddRelationship { .. } = o);
+    }
+
+    #[test]
     fn outcome_emit_event() {
         use std::sync::Arc;
         let kind = EventKind::Custom {
