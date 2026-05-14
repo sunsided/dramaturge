@@ -47,7 +47,7 @@ pub use condition::Condition;
 // Re-exports: dialogue graph
 pub use dialogue::{
     DialogTarget, DialogText, DialogueGraph, DialogueNode, DialogueNodeId, DialogueOption,
-    DialogueOptionId,
+    DialogueOptionId, NavigationHint,
 };
 // Re-exports: events
 pub use event::{Event, EventContext, EventId, EventKind};

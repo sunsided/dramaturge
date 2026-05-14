@@ -300,16 +300,65 @@ fn clear_screen() {
     io::stdout().flush().unwrap();
 }
 
-/// Renders option text with display prefixes from tags.
-fn format_option_text(opt: &DialogueOption) -> String {
-    // Collect display prefixes from tags that have them
-    let prefixes: Vec<&str> = opt
-        .tags
-        .iter()
-        .filter_map(|tag| tag.display_prefix())
-        .collect();
+/// Collects inferred prefixes from tags based on their axis.
+fn collect_inferred_prefixes(opt: &DialogueOption) -> Vec<String> {
+    use dramaturge::DialogTag;
 
-    let prefix_str = prefixes.join("");
+    let mut prefixes = Vec::new();
+
+    for tag in &opt.tags {
+        // Skip if tag has explicit display_prefix (already handled separately)
+        if tag.display_prefix().is_some() {
+            continue;
+        }
+
+        // Infer prefix based on axis
+        let prefix = match tag.axis() {
+            "skill" => Some(format!("[{}]", capitalize_first(tag.key()))),
+            "moral" => Some(format!("[{}]", capitalize_first(tag.key()))),
+            "speech" => Some(format!("[{}]", capitalize_first(tag.key()))),
+            "social" => Some(format!("[{}]", capitalize_first(tag.key()))),
+            _ => None,
+        };
+
+        if let Some(p) = prefix {
+            prefixes.push(p);
+        }
+    }
+
+    prefixes
+}
+
+/// Capitalizes the first character of a string.
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
+/// Renders option text with navigation hints and display prefixes from tags.
+fn format_option_text(opt: &DialogueOption) -> String {
+    let mut all_prefixes: Vec<String> = Vec::new();
+
+    // 1. Navigation hint prefix (highest priority)
+    if let Some(hint) = &opt.navigation_hint {
+        all_prefixes.push(hint.display_prefix());
+    }
+
+    // 2. Explicit display prefixes from tags
+    for tag in &opt.tags {
+        if let Some(prefix) = tag.display_prefix() {
+            all_prefixes.push(prefix.to_string());
+        }
+    }
+
+    // 3. Inferred prefixes from tag axes (only for tags without explicit prefix)
+    let inferred = collect_inferred_prefixes(opt);
+    all_prefixes.extend(inferred);
+
+    let prefix_str = all_prefixes.join(" ");
 
     let text = match &opt.text {
         DialogText::Inline(s) => s.as_str(),

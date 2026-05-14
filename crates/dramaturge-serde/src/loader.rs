@@ -54,6 +54,7 @@ pub struct YamlOption {
     /// Unique option ID.
     pub id: u64,
     /// Option text.
+    #[serde(default)]
     pub text: String,
     /// Tags categorizing this option.
     #[serde(default)]
@@ -72,6 +73,62 @@ pub struct YamlOption {
     pub outcomes: Vec<YamlOutcome>,
     /// Target node ID or special value "end".
     pub target: String,
+    /// Navigation hint for this option.
+    #[serde(default)]
+    pub navigation_hint: Option<YamlNavigationHint>,
+    /// Target name for GoTo navigation hint.
+    #[serde(default)]
+    pub go_to_target: Option<String>,
+}
+
+/// Navigation hint for dialogue options.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum YamlNavigationHint {
+    /// Continue to next node.
+    Continue,
+    /// Leave the conversation.
+    Leave,
+    /// Go to a specific target.
+    GoTo,
+    /// End the conversation.
+    End,
+    /// Return to previous menu.
+    Return,
+    /// Custom navigation label.
+    Custom(String),
+}
+
+impl YamlNavigationHint {
+    /// Convert to a model NavigationHint.
+    fn to_model(&self, go_to_target: &Option<String>) -> model::NavigationHint {
+        use model::NavigationHint;
+        match self {
+            YamlNavigationHint::Continue => NavigationHint::Continue,
+            YamlNavigationHint::Leave => NavigationHint::Leave,
+            YamlNavigationHint::GoTo => {
+                NavigationHint::GoTo(go_to_target.clone().unwrap_or_else(|| "Target".to_string()))
+            }
+            YamlNavigationHint::End => NavigationHint::End,
+            YamlNavigationHint::Return => NavigationHint::Return,
+            YamlNavigationHint::Custom(label) => NavigationHint::Custom(label.clone()),
+        }
+    }
+
+    /// Returns the default display text for this navigation hint.
+    fn default_text(&self, go_to_target: &Option<String>) -> String {
+        match self {
+            YamlNavigationHint::Continue => "Continue...".to_string(),
+            YamlNavigationHint::Leave => "Leave...".to_string(),
+            YamlNavigationHint::GoTo => format!(
+                "Go to {}...",
+                go_to_target.clone().unwrap_or_else(|| "Target".to_string())
+            ),
+            YamlNavigationHint::End => "End conversation".to_string(),
+            YamlNavigationHint::Return => "Return...".to_string(),
+            YamlNavigationHint::Custom(label) => label.clone(),
+        }
+    }
 }
 
 /// A tag.
@@ -211,12 +268,28 @@ impl YamlDialogueGraph {
                     DialogTarget::Node(DialogueNodeId::new(target_id))
                 };
 
+                // Determine the text for the option: use explicit text, or default from navigation hint
+                let option_text = if yaml_option.text.is_empty() {
+                    yaml_option
+                        .navigation_hint
+                        .as_ref()
+                        .map(|h| h.default_text(&yaml_option.go_to_target))
+                        .unwrap_or_else(|| "...".to_string())
+                } else {
+                    yaml_option.text.clone()
+                };
+
                 let mut option = DialogueOption::new(
                     yaml_option.id,
-                    DialogText::inline(&yaml_option.text),
+                    DialogText::inline(&option_text),
                     target,
                     DialogueNodeId::new(yaml_node.id),
                 );
+
+                // Convert navigation hint
+                if let Some(hint) = &yaml_option.navigation_hint {
+                    option.navigation_hint = Some(hint.to_model(&yaml_option.go_to_target));
+                }
 
                 // Convert tags
                 for yaml_tag in &yaml_option.tags {

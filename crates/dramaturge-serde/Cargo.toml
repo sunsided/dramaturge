@@ -13,7 +13,7 @@ categories.workspace = true
 serde = ["dep:serde", "dep:serde_yaml"]
 
 [dependencies]
-dramaturge-model = { workspace = true }
+dramaturge-model = { workspace = true, features = ["serde"] }
 serde = { workspace = true, optional = true }
 serde_yaml = { version = "0.9", optional = true }
 

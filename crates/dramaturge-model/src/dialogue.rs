@@ -74,6 +74,54 @@ pub enum DialogTarget {
     Custom(Arc<str>),
 }
 
+/// Navigation hint for dialogue options.
+///
+/// Provides typed navigation cues that can be rendered as UI hints
+/// (e.g., "[Continue]", "[Leave]", "[End]"). These replace hardcoded
+/// prefixes in dialogue text with semantic, localizable navigation markers.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum NavigationHint {
+    /// Continue to the next node (→ Continue / [Continue]).
+    Continue,
+    /// Leave the current conversation (← Leave / [Leave]).
+    Leave,
+    /// Go to a specific character or location (→ Go to {name} / [Go to {name}]).
+    GoTo(String),
+    /// End the conversation (✓ End / [End]).
+    End,
+    /// Return to a previous menu or caller (↩ Return / [Return]).
+    Return,
+    /// Custom navigation label.
+    Custom(String),
+}
+
+impl NavigationHint {
+    /// Returns the default display text for this navigation hint.
+    pub fn default_text(&self) -> String {
+        match self {
+            NavigationHint::Continue => "Continue...".to_string(),
+            NavigationHint::Leave => "Leave...".to_string(),
+            NavigationHint::GoTo(target) => format!("Go to {target}"),
+            NavigationHint::End => "End conversation".to_string(),
+            NavigationHint::Return => "Return...".to_string(),
+            NavigationHint::Custom(label) => label.clone(),
+        }
+    }
+
+    /// Returns the display prefix for this navigation hint (e.g., "[Continue]").
+    pub fn display_prefix(&self) -> String {
+        match self {
+            NavigationHint::Continue => "[Continue]".to_string(),
+            NavigationHint::Leave => "[Leave]".to_string(),
+            NavigationHint::GoTo(target) => format!("[Go to {target}]"),
+            NavigationHint::End => "[End]".to_string(),
+            NavigationHint::Return => "[Return]".to_string(),
+            NavigationHint::Custom(label) => format!("[{label}]"),
+        }
+    }
+}
+
 impl DialogTarget {
     /// Creates a target pointing to the given node ID.
     pub fn node(id: u64) -> Self {
@@ -159,12 +207,15 @@ pub struct DialogueOption {
     pub target: DialogTarget,
     /// The node this option belongs to.
     pub source_node_id: DialogueNodeId,
+    /// Optional navigation hint (e.g., Continue, Leave, End).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub navigation_hint: Option<NavigationHint>,
 }
 
 impl DialogueOption {
     /// Creates an option with the given ID, text, target, and source node.
     ///
-    /// Tags, intentions, conditions, and outcomes all start empty.
+    /// Tags, intentions, conditions, outcomes, and navigation hint all start empty.
     pub fn new(
         id: u64,
         text: DialogText,
@@ -180,7 +231,14 @@ impl DialogueOption {
             outcomes: Vec::new(),
             target,
             source_node_id,
+            navigation_hint: None,
         }
+    }
+
+    /// Sets the navigation hint for this option.
+    pub fn with_navigation_hint(mut self, hint: NavigationHint) -> Self {
+        self.navigation_hint = Some(hint);
+        self
     }
 }
 

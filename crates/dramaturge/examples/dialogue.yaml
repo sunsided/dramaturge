@@ -22,7 +22,7 @@ nodes:
     text: "If you came about the missing shipment, I already told the Wardens everything I can."
     options:
       - id: 1
-        text: "[Medic] You treated someone with that medicine, didn't you? I'm not here to punish that."
+        text: "You treated someone with that medicine, didn't you? I'm not here to punish that."
         tags:
           - { axis: "moral", key: "paragon" }
           - { axis: "skill", key: "medic" }
@@ -40,7 +40,7 @@ nodes:
             value: true
         target: "2"
       - id: 2
-        text: "[Investigator] The ledger says three crates vanished after your signature."
+        text: "The ledger says three crates vanished after your signature."
         tags:
           - { axis: "moral", key: "pragmatic" }
           - { axis: "skill", key: "investigator" }
@@ -49,7 +49,7 @@ nodes:
         intentions_implicit: ["PressureWitness"]
         target: "3"
       - id: 3
-        text: "[Intimidation] Don't waste my time. Tell me where the crates went."
+        text: "Don't waste my time. Tell me where the crates went."
         tags:
           - { axis: "moral", key: "renegade" }
           - { axis: "skill", key: "intimidation" }
@@ -67,7 +67,7 @@ nodes:
             value: true
         target: "4"
       - id: 20
-        text: "[Accuse] You're a thief and a liar. I should drag you to the stocks right now."
+        text: "You're a thief and a liar. I should drag you to the stocks right now."
         tags:
           - { axis: "moral", key: "renegade" }
           - { axis: "speech", key: "accuse" }
@@ -100,7 +100,7 @@ nodes:
         value: true
     options:
       - id: 4
-        text: "[Paragon] I'll speak carefully. The truth matters, but so do the people you saved."
+        text: "I'll speak carefully. The truth matters, but so do the people you saved."
         tags:
           - { axis: "moral", key: "paragon" }
           - { axis: "speech", key: "promise" }
@@ -118,7 +118,7 @@ nodes:
             value: true
         target: "5"
       - id: 5
-        text: "[Truth] I won't hide this. Orren needs to know what happened."
+        text: "I won't hide this. Orren needs to know what happened."
         tags:
           - { axis: "moral", key: "pragmatic" }
           - { axis: "speech", key: "truth" }
@@ -151,7 +151,7 @@ nodes:
         value: true
     options:
       - id: 6
-        text: "[Continue] ..."
+        navigation_hint: continue
         target: "5"
 
   # Node 4: Mara Confession Forced (intimidation path)
@@ -170,7 +170,7 @@ nodes:
         value: true
     options:
       - id: 7
-        text: "[Leave] ..."
+        navigation_hint: leave
         target: "5"
 
   # Node 5: Mara Promise Choice (transition to Orren)
@@ -179,7 +179,8 @@ nodes:
     text: "Whatever happens... thank you for hearing me out. Captain Vale is waiting in the council room."
     options:
       - id: 8
-        text: "[Go to Captain Vale] ..."
+        navigation_hint: go_to
+        go_to_target: "Captain Vale"
         target: "10"
 
   # Node 6: Mara Refused (aggressive accusation path)
@@ -198,7 +199,8 @@ nodes:
         value: true
     options:
       - id: 21
-        text: "[Leave] Fine. I'll talk to Vale directly."
+        navigation_hint: leave
+        text: "Fine. I'll talk to Vale directly."
         target: "10"
 
   # Scene 2: Orren Intro
@@ -207,7 +209,7 @@ nodes:
     text: "You spoke to Mara Vey. Good. Then you know whether my missing medicine is a theft, a clerical error, or something worse."
     options:
       - id: 10
-        text: "[Truth] Mara diverted the medicine to refugees outside the wall. She saved three children with fever."
+        text: "Mara diverted the medicine to refugees outside the wall. She saved three children with fever."
         tags:
           - { axis: "moral", key: "paragon" }
           - { axis: "skill", key: "medic" }
@@ -237,7 +239,7 @@ nodes:
             value: true
         target: "11"
       - id: 11
-        text: "[Lie] Mara found the crates already missing. She had nothing to do with it."
+        text: "Mara found the crates already missing. She had nothing to do with it."
         tags:
           - { axis: "moral", key: "renegade" }
           - { axis: "skill", key: "streetwise" }
@@ -259,7 +261,7 @@ nodes:
             value: true
         target: "12"
       - id: 16
-        text: "[Half-Truth] Mara did find the crates missing... after signing for them. She was trying to help someone."
+        text: "Mara did find the crates missing... after signing for them. She was trying to help someone."
         tags:
           - { axis: "moral", key: "pragmatic" }
           - { axis: "skill", key: "streetwise" }
@@ -297,7 +299,7 @@ nodes:
             value: true
         target: "15"
       - id: 12
-        text: "[Deflect] I gave Mara my word. Ask me what I saw, not what she trusted me with."
+        text: "I gave Mara my word. Ask me what I saw, not what she trusted me with."
         tags:
           - { axis: "moral", key: "paragon" }
           - { axis: "speech", key: "deflect" }
@@ -335,7 +337,8 @@ nodes:
         delta: 5
     options:
       - id: 13
-        text: "[End] Thank you, Captain."
+        navigation_hint: end
+        text: "Thank you, Captain."
         target: "end"
 
   # Node 12: Orren Lie Response
@@ -344,7 +347,7 @@ nodes:
     text: "*eyes narrow* I see. Then perhaps you can explain why I overheard her confession not an hour ago. You protect a thief and lie to my face?"
     options:
       - id: 14
-        text: "[End] ..."
+        navigation_hint: end
         target: "end"
 
   # Node 13: Orren Refuse Response
@@ -359,7 +362,8 @@ nodes:
         delta: 5
     options:
       - id: 15
-        text: "[End] Thank you for understanding, Captain."
+        navigation_hint: end
+        text: "Thank you for understanding, Captain."
         target: "end"
 
   # Node 14: Orren Pretends Belief
@@ -380,7 +384,8 @@ nodes:
         value: true
     options:
       - id: 17
-        text: "[End] Thank you, Captain. I knew you'd understand."
+        navigation_hint: end
+        text: "Thank you, Captain. I knew you'd understand."
         target: "end"
 
   # Node 15: Orren Bluff Response (when player claims Mara clammed up)
@@ -401,5 +406,5 @@ nodes:
         value: true
     options:
       - id: 23
-        text: "[End] ..."
+        navigation_hint: end
         target: "end"
