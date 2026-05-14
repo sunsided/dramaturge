@@ -60,11 +60,11 @@ pub struct RelationshipScore {
 
 impl RelationshipScore {
     /// Creates a new relationship score.
-    pub fn new(source: EntityId, target: EntityId, axis: impl Into<Arc<str>>, value: i32) -> Self {
+    pub fn new(source: EntityId, target: EntityId, axis: RelationshipAxisId, value: i32) -> Self {
         Self {
             source,
             target,
-            axis: RelationshipAxisId::new(axis),
+            axis,
             value,
         }
     }
@@ -73,7 +73,7 @@ impl RelationshipScore {
     pub fn positive(
         source: EntityId,
         target: EntityId,
-        axis: impl Into<Arc<str>>,
+        axis: RelationshipAxisId,
         value: i32,
     ) -> Self {
         Self::new(source, target, axis, value.saturating_abs())
@@ -83,7 +83,7 @@ impl RelationshipScore {
     pub fn negative(
         source: EntityId,
         target: EntityId,
-        axis: impl Into<Arc<str>>,
+        axis: RelationshipAxisId,
         value: i32,
     ) -> Self {
         Self::new(source, target, axis, -(value.saturating_abs()))
@@ -123,7 +123,12 @@ mod tests {
 
     #[test]
     fn relationship_score_new() {
-        let score = RelationshipScore::new(EntityId::new(1), EntityId::new(2), "trust", 50);
+        let score = RelationshipScore::new(
+            EntityId::new(1),
+            EntityId::new(2),
+            RelationshipAxisId::new("trust"),
+            50,
+        );
         check!(score.source.0 == 1);
         check!(score.target.0 == 2);
         check!(&*score.axis.0 == "trust");
@@ -132,31 +137,59 @@ mod tests {
 
     #[test]
     fn relationship_score_positive() {
-        let score = RelationshipScore::positive(EntityId::new(1), EntityId::new(2), "trust", 50);
+        let score = RelationshipScore::positive(
+            EntityId::new(1),
+            EntityId::new(2),
+            RelationshipAxisId::new("trust"),
+            50,
+        );
         check!(score.value == 50);
-        let score = RelationshipScore::positive(EntityId::new(1), EntityId::new(2), "trust", -50);
+        let score = RelationshipScore::positive(
+            EntityId::new(1),
+            EntityId::new(2),
+            RelationshipAxisId::new("trust"),
+            -50,
+        );
         check!(score.value == 50);
     }
 
     #[test]
     fn relationship_score_negative() {
-        let score = RelationshipScore::negative(EntityId::new(1), EntityId::new(2), "trust", 50);
+        let score = RelationshipScore::negative(
+            EntityId::new(1),
+            EntityId::new(2),
+            RelationshipAxisId::new("trust"),
+            50,
+        );
         check!(score.value == -50);
-        let score = RelationshipScore::negative(EntityId::new(1), EntityId::new(2), "trust", -50);
+        let score = RelationshipScore::negative(
+            EntityId::new(1),
+            EntityId::new(2),
+            RelationshipAxisId::new("trust"),
+            -50,
+        );
         check!(score.value == -50);
     }
 
     #[test]
     fn relationship_score_positive_i32_min() {
-        let score =
-            RelationshipScore::positive(EntityId::new(1), EntityId::new(2), "trust", i32::MIN);
+        let score = RelationshipScore::positive(
+            EntityId::new(1),
+            EntityId::new(2),
+            RelationshipAxisId::new("trust"),
+            i32::MIN,
+        );
         check!(score.value == i32::MAX);
     }
 
     #[test]
     fn relationship_score_negative_i32_min() {
-        let score =
-            RelationshipScore::negative(EntityId::new(1), EntityId::new(2), "trust", i32::MIN);
+        let score = RelationshipScore::negative(
+            EntityId::new(1),
+            EntityId::new(2),
+            RelationshipAxisId::new("trust"),
+            i32::MIN,
+        );
         check!(score.value == i32::MIN + 1);
     }
 }
