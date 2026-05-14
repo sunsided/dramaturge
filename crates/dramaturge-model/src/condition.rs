@@ -79,6 +79,15 @@ pub enum Condition {
         /// The minimum score required (returns `true` if score >= value).
         value: i32,
     },
+    /// Checks that an alignment score is at most the given value.
+    AlignmentAtMost {
+        /// The alignment axis to check.
+        axis: AlignmentAxisId,
+        /// The pole on the axis to check.
+        pole: AlignmentPoleId,
+        /// The maximum score allowed (returns `true` if score <= value).
+        value: i32,
+    },
     /// Checks that a relationship score is at least the given value.
     RelationshipAtLeast {
         /// The source entity in the relationship.
@@ -88,6 +97,17 @@ pub enum Condition {
         /// The relationship axis to check.
         axis: RelationshipAxisId,
         /// The minimum score required (returns `true` if score >= value).
+        value: i32,
+    },
+    /// Checks that a relationship score is at most the given value.
+    RelationshipAtMost {
+        /// The source entity in the relationship.
+        source: EntityId,
+        /// The target entity in the relationship.
+        target: EntityId,
+        /// The relationship axis to check.
+        axis: RelationshipAxisId,
+        /// The maximum score allowed (returns `true` if score <= value).
         value: i32,
     },
     /// Checks that an entity has at least one memory matching the query.
@@ -206,6 +226,16 @@ mod tests {
     }
 
     #[test]
+    fn condition_alignment_at_most() {
+        let c = Condition::AlignmentAtMost {
+            axis: AlignmentAxisId::new("chaos"),
+            pole: AlignmentPoleId::new("order"),
+            value: 30,
+        };
+        check!(let Condition::AlignmentAtMost { .. } = c);
+    }
+
+    #[test]
     fn condition_relationship_at_least() {
         let c = Condition::RelationshipAtLeast {
             source: EntityId::new(1),
@@ -214,6 +244,17 @@ mod tests {
             value: 30,
         };
         check!(let Condition::RelationshipAtLeast { .. } = c);
+    }
+
+    #[test]
+    fn condition_relationship_at_most() {
+        let c = Condition::RelationshipAtMost {
+            source: EntityId::new(1),
+            target: EntityId::new(2),
+            axis: RelationshipAxisId::new("hostility"),
+            value: -20,
+        };
+        check!(let Condition::RelationshipAtMost { .. } = c);
     }
 
     #[test]

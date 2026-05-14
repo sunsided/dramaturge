@@ -35,7 +35,7 @@ pub trait OutcomeApplier {
     fn apply(&self, outcome: &Outcome, context: &mut DialogWorldState);
 }
 
-/// Reference implementation handling all 12 condition variants.
+/// Reference implementation handling all 14 condition variants.
 ///
 /// This evaluator provides the default semantics for each condition:
 /// `Always`/`Never` return constant booleans, `All`/`Any`/`Not` perform
@@ -73,6 +73,19 @@ impl ConditionEvaluator for DefaultConditionEvaluator {
             } => context
                 .get_relationship(*source, *target, axis)
                 .map(|v| v >= *value)
+                .unwrap_or(false),
+            Condition::AlignmentAtMost { axis, pole, value } => context
+                .get_alignment(axis, pole)
+                .map(|v| v <= *value)
+                .unwrap_or(false),
+            Condition::RelationshipAtMost {
+                source,
+                target,
+                axis,
+                value,
+            } => context
+                .get_relationship(*source, *target, axis)
+                .map(|v| v <= *value)
                 .unwrap_or(false),
             Condition::FactAtLeast {
                 scope,
@@ -202,6 +215,7 @@ impl OutcomeApplier for DefaultOutcomeApplier {
 mod tests {
     use super::*;
     use assert2::check;
+    use dramaturge_model::alignment::{AlignmentAxisId, AlignmentPoleId};
     use dramaturge_model::character::EntityId;
     use dramaturge_model::{Fact, FactId, FactScope, FactValue, RelationshipAxisId};
 
@@ -419,6 +433,141 @@ mod tests {
     }
 
     #[test]
+    fn default_evaluator_relationship_at_most() {
+        let evaluator = DefaultConditionEvaluator;
+
+        // No relationship set returns false (via unwrap_or)
+        {
+            let ctx = DialogWorldState::new();
+            let cond = Condition::RelationshipAtMost {
+                source: EntityId::new(1),
+                target: EntityId::new(2),
+                axis: RelationshipAxisId::new("hostility"),
+                value: -20,
+            };
+            check!(!evaluator.evaluate(&cond, &ctx));
+        }
+
+        // Exactly at the boundary returns true
+        {
+            let mut ctx = DialogWorldState::new();
+            let cond = Condition::RelationshipAtMost {
+                source: EntityId::new(1),
+                target: EntityId::new(2),
+                axis: RelationshipAxisId::new("hostility"),
+                value: -20,
+            };
+            ctx.add_relationship(
+                EntityId::new(1),
+                EntityId::new(2),
+                RelationshipAxisId::new("hostility"),
+                -20,
+            );
+            check!(evaluator.evaluate(&cond, &ctx));
+        }
+
+        // Below the boundary returns true
+        {
+            let mut ctx = DialogWorldState::new();
+            let cond = Condition::RelationshipAtMost {
+                source: EntityId::new(1),
+                target: EntityId::new(2),
+                axis: RelationshipAxisId::new("hostility"),
+                value: -20,
+            };
+            ctx.add_relationship(
+                EntityId::new(1),
+                EntityId::new(2),
+                RelationshipAxisId::new("hostility"),
+                -50,
+            );
+            check!(evaluator.evaluate(&cond, &ctx));
+        }
+
+        // Above the boundary returns false
+        {
+            let mut ctx = DialogWorldState::new();
+            let cond = Condition::RelationshipAtMost {
+                source: EntityId::new(1),
+                target: EntityId::new(2),
+                axis: RelationshipAxisId::new("hostility"),
+                value: -20,
+            };
+            ctx.add_relationship(
+                EntityId::new(1),
+                EntityId::new(2),
+                RelationshipAxisId::new("hostility"),
+                10,
+            );
+            check!(!evaluator.evaluate(&cond, &ctx));
+        }
+    }
+
+    #[test]
+    fn default_evaluator_alignment_at_most() {
+        let evaluator = DefaultConditionEvaluator;
+
+        // No alignment set returns false (via unwrap_or)
+        {
+            let ctx = DialogWorldState::new();
+            let cond = Condition::AlignmentAtMost {
+                axis: AlignmentAxisId::new("chaos"),
+                pole: AlignmentPoleId::new("order"),
+                value: 30,
+            };
+            check!(!evaluator.evaluate(&cond, &ctx));
+        }
+
+        // Exactly at the boundary returns true
+        {
+            let mut ctx = DialogWorldState::new();
+            let cond = Condition::AlignmentAtMost {
+                axis: AlignmentAxisId::new("chaos"),
+                pole: AlignmentPoleId::new("order"),
+                value: 30,
+            };
+            ctx.add_alignment(
+                AlignmentAxisId::new("chaos"),
+                AlignmentPoleId::new("order"),
+                30,
+            );
+            check!(evaluator.evaluate(&cond, &ctx));
+        }
+
+        // Below the boundary returns true
+        {
+            let mut ctx = DialogWorldState::new();
+            let cond = Condition::AlignmentAtMost {
+                axis: AlignmentAxisId::new("chaos"),
+                pole: AlignmentPoleId::new("order"),
+                value: 30,
+            };
+            ctx.add_alignment(
+                AlignmentAxisId::new("chaos"),
+                AlignmentPoleId::new("order"),
+                10,
+            );
+            check!(evaluator.evaluate(&cond, &ctx));
+        }
+
+        // Above the boundary returns false
+        {
+            let mut ctx = DialogWorldState::new();
+            let cond = Condition::AlignmentAtMost {
+                axis: AlignmentAxisId::new("chaos"),
+                pole: AlignmentPoleId::new("order"),
+                value: 30,
+            };
+            ctx.add_alignment(
+                AlignmentAxisId::new("chaos"),
+                AlignmentPoleId::new("order"),
+                50,
+            );
+            check!(!evaluator.evaluate(&cond, &ctx));
+        }
+    }
+
+    #[test]
     fn default_applier_add_relationship() {
         let applier = DefaultOutcomeApplier;
         let mut ctx = DialogWorldState::new();
@@ -533,9 +682,28 @@ mod proptests {
                     }
                 })
                 .boxed(),
+            (".*", any::<i32>())
+                .prop_map(|(axis, value)| {
+                    Condition::AlignmentAtMost {
+                        axis: dramaturge_model::AlignmentAxisId::new(axis.clone()),
+                        pole: dramaturge_model::AlignmentPoleId::new(axis),
+                        value,
+                    }
+                })
+                .boxed(),
             (any::<u64>(), any::<u64>(), ".*", any::<i32>())
                 .prop_map(|(s, t, axis, value)| {
                     Condition::RelationshipAtLeast {
+                        source: EntityId::new(s),
+                        target: EntityId::new(t),
+                        axis: dramaturge_model::RelationshipAxisId::new(axis.as_str()),
+                        value,
+                    }
+                })
+                .boxed(),
+            (any::<u64>(), any::<u64>(), ".*", any::<i32>())
+                .prop_map(|(s, t, axis, value)| {
+                    Condition::RelationshipAtMost {
                         source: EntityId::new(s),
                         target: EntityId::new(t),
                         axis: dramaturge_model::RelationshipAxisId::new(axis.as_str()),
