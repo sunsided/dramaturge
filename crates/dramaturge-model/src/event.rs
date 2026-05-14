@@ -94,6 +94,20 @@ pub enum EventKind {
     },
 }
 
+impl EventKind {
+    /// Returns the variant name of this event kind.
+    pub fn variant_name(&self) -> &str {
+        match self {
+            EventKind::DialogOptionChosen { .. } => "DialogOptionChosen",
+            EventKind::FactLearned { .. } => "FactLearned",
+            EventKind::FactRevealed { .. } => "FactRevealed",
+            EventKind::RelationshipChanged { .. } => "RelationshipChanged",
+            EventKind::AlignmentChanged { .. } => "AlignmentChanged",
+            EventKind::Custom { .. } => "Custom",
+        }
+    }
+}
+
 /// A recorded event in the narrative timeline.
 ///
 /// Events are immutable records of what occurred. They are appended to

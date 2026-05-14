@@ -80,6 +80,13 @@ impl DialogueRuntime for DefaultRuntime {
         option: &DialogueOption,
         state: &mut DialogWorldState,
     ) -> DialogTarget {
+        state.emit_event(dramaturge_model::EventKind::DialogOptionChosen {
+            node_id: option.source_node_id,
+            option_id: option.id,
+            tags: option.tags.clone(),
+            intentions: option.intentions.clone(),
+        });
+
         for outcome in &option.outcomes {
             self.applier.apply(outcome, state);
         }
@@ -125,6 +132,7 @@ mod tests {
                     conditions: vec![],
                     outcomes: vec![],
                     target: DialogTarget::node(2),
+                    source_node_id: dramaturge_model::DialogueNodeId::new(1),
                 },
                 DialogueOption {
                     id: DialogueOptionId::new(2),
@@ -138,6 +146,7 @@ mod tests {
                     }],
                     outcomes: vec![],
                     target: DialogTarget::node(3),
+                    source_node_id: dramaturge_model::DialogueNodeId::new(1),
                 },
                 DialogueOption {
                     id: DialogueOptionId::new(3),
@@ -147,6 +156,7 @@ mod tests {
                     conditions: vec![Condition::Never],
                     outcomes: vec![],
                     target: DialogTarget::node(4),
+                    source_node_id: dramaturge_model::DialogueNodeId::new(1),
                 },
             ],
         };
@@ -174,10 +184,28 @@ mod tests {
                 fact: Fact::bool("agreed", true),
             }],
             target: DialogTarget::node(5),
+            source_node_id: dramaturge_model::DialogueNodeId::new(1),
         };
 
         let target = rt.choose_option(&option, &mut state);
         check!(let DialogTarget::Node(n) = target && n.0 == 5);
         check!(state.fact_exists(&FactScope::World, &FactId::new("agreed")));
+        assert_eq!(state.events.len(), 2);
+        match &state.events[0].kind {
+            dramaturge_model::EventKind::DialogOptionChosen {
+                node_id, option_id, ..
+            } => {
+                assert_eq!(node_id.0, 1);
+                assert_eq!(option_id.0, 1);
+            }
+            _ => panic!("expected DialogOptionChosen"),
+        }
+        match &state.events[1].kind {
+            dramaturge_model::EventKind::FactLearned { scope, fact_id } => {
+                assert!(matches!(scope, FactScope::World));
+                assert_eq!(fact_id.0.as_ref(), "agreed");
+            }
+            _ => panic!("expected FactLearned"),
+        }
     }
 }

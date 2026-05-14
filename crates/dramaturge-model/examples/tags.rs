@@ -7,7 +7,7 @@
 
 use dramaturge_model::{
     CharacterId, CustomDialogTag, DialogTag, DialogTagKind, DialogTarget, DialogText,
-    DialogueGraph, DialogueNode, DialogueOption, EntityId,
+    DialogueGraph, DialogueNode, DialogueNodeId, DialogueOption, EntityId,
 };
 
 /// Domain-specific tag for a fantasy RPG.
@@ -132,16 +132,19 @@ fn main() {
         1,
         DialogText::inline("I come in peace."),
         DialogTarget::node(2),
+        DialogueNodeId::new(1),
     );
     let option2 = DialogueOption::new(
         2,
         DialogText::inline("Hand over your gold!"),
         DialogTarget::node(2),
+        DialogueNodeId::new(1),
     );
     let option3 = DialogueOption::new(
         3,
         DialogText::inline("Tell me about the old kingdom."),
         DialogTarget::end(),
+        DialogueNodeId::new(1),
     );
 
     // Attach CustomDialogTag to options
