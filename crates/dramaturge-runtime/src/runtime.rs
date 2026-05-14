@@ -5,7 +5,7 @@
 //! applying outcomes when an option is chosen. [`DefaultRuntime`]
 //! combines the default condition evaluator and outcome applier.
 
-use dramaturge_model::{DialogTarget, DialogueNode, DialogueOption, DialogueOptionId};
+use dramaturge_model::{DialogTarget, DialogueNode, DialogueOption};
 
 use crate::context::DialogWorldState;
 use crate::evaluation::{
@@ -17,16 +17,16 @@ use crate::evaluation::{
 /// Implementations determine which options are available at a given
 /// node and handle the consequences of choosing an option.
 pub trait DialogueRuntime {
-    /// Returns the IDs of options whose conditions are satisfied.
+    /// Returns references to options whose conditions are satisfied.
     ///
     /// Options with no conditions are always included. Options with
     /// conditions are included only if all their conditions evaluate
     /// to `true`.
-    fn available_options(
+    fn available_options<'a>(
         &self,
-        node: &DialogueNode,
+        node: &'a DialogueNode,
         state: &DialogWorldState,
-    ) -> Vec<DialogueOptionId>;
+    ) -> Vec<&'a DialogueOption>;
 
     /// Applies the option's outcomes and returns the target to transition to.
     ///
@@ -57,11 +57,11 @@ impl DefaultRuntime {
 }
 
 impl DialogueRuntime for DefaultRuntime {
-    fn available_options(
+    fn available_options<'a>(
         &self,
-        node: &DialogueNode,
+        node: &'a DialogueNode,
         state: &DialogWorldState,
-    ) -> Vec<DialogueOptionId> {
+    ) -> Vec<&'a DialogueOption> {
         node.options
             .iter()
             .filter(|option| {
@@ -71,7 +71,6 @@ impl DialogueRuntime for DefaultRuntime {
                         .iter()
                         .all(|c| self.evaluator.evaluate(c, state))
             })
-            .map(|option| option.id)
             .collect()
     }
 
@@ -100,7 +99,8 @@ mod tests {
     use crate::context::DialogWorldState;
     use assert2::check;
     use dramaturge_model::{
-        CharacterId, Condition, DialogText, DialogueOption, EntityId, Fact, FactId, FactScope,
+        CharacterId, Condition, DialogText, DialogueOption, DialogueOptionId, EntityId, Fact,
+        FactId, FactScope,
     };
 
     #[test]
@@ -163,9 +163,9 @@ mod tests {
 
         let available = rt.available_options(&node, &state);
         check!(available.len() == 2);
-        check!(available.contains(&DialogueOptionId::new(1)));
-        check!(available.contains(&DialogueOptionId::new(2)));
-        check!(!available.contains(&DialogueOptionId::new(3)));
+        check!(available.iter().any(|o| o.id == DialogueOptionId::new(1)));
+        check!(available.iter().any(|o| o.id == DialogueOptionId::new(2)));
+        check!(!available.iter().any(|o| o.id == DialogueOptionId::new(3)));
     }
 
     #[test]
