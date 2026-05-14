@@ -74,6 +74,19 @@ impl ConditionEvaluator for DefaultConditionEvaluator {
                 .get_relationship(*source, *target, axis)
                 .map(|v| v >= *value)
                 .unwrap_or(false),
+            Condition::AlignmentAtMost { axis, pole, value } => context
+                .get_alignment(axis, pole)
+                .map(|v| v <= *value)
+                .unwrap_or(false),
+            Condition::RelationshipAtMost {
+                source,
+                target,
+                axis,
+                value,
+            } => context
+                .get_relationship(*source, *target, axis)
+                .map(|v| v <= *value)
+                .unwrap_or(false),
             Condition::FactAtLeast {
                 scope,
                 fact_id,
