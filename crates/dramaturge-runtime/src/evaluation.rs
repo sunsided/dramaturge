@@ -188,7 +188,8 @@ impl OutcomeApplier for DefaultOutcomeApplier {
 mod tests {
     use super::*;
     use assert2::check;
-    use dramaturge_model::{Fact, FactId, FactScope, FactValue};
+    use dramaturge_model::character::EntityId;
+    use dramaturge_model::{Fact, FactId, FactScope, FactValue, RelationshipAxisId};
 
     #[test]
     fn evaluation_result_variants() {
@@ -360,6 +361,48 @@ mod tests {
         };
         applier.apply(&outcome, &mut ctx);
         check!(ctx.facts.is_empty());
+    }
+
+    #[test]
+    fn default_evaluator_relationship_at_least() {
+        let evaluator = DefaultConditionEvaluator;
+        let mut ctx = DialogWorldState::new();
+        let source = EntityId::new(1);
+        let target = EntityId::new(2);
+
+        let cond = Condition::RelationshipAtLeast {
+            source,
+            target,
+            axis: RelationshipAxisId::new("trust"),
+            value: 30,
+        };
+        check!(!evaluator.evaluate(&cond, &ctx));
+
+        ctx.add_relationship(source, target, RelationshipAxisId::new("trust"), 30);
+        check!(evaluator.evaluate(&cond, &ctx));
+
+        ctx.add_relationship(source, target, RelationshipAxisId::new("trust"), 20);
+        check!(evaluator.evaluate(&cond, &ctx));
+
+        ctx.add_relationship(source, target, RelationshipAxisId::new("trust"), -60);
+        check!(!evaluator.evaluate(&cond, &ctx));
+    }
+
+    #[test]
+    fn default_applier_add_relationship() {
+        let applier = DefaultOutcomeApplier;
+        let mut ctx = DialogWorldState::new();
+        let source = EntityId::new(1);
+        let target = EntityId::new(2);
+
+        let outcome = Outcome::AddRelationship {
+            source,
+            target,
+            axis: RelationshipAxisId::new("trust"),
+            delta: 15,
+        };
+        applier.apply(&outcome, &mut ctx);
+        check!(ctx.get_relationship(source, target, &RelationshipAxisId::new("trust")) == Some(15));
     }
 }
 
