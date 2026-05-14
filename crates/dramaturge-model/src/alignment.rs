@@ -115,12 +115,12 @@ impl AlignmentScore {
 
     /// Creates a positive alignment score (absolute value is taken).
     pub fn positive(axis: impl Into<Arc<str>>, pole: impl Into<Arc<str>>, value: i32) -> Self {
-        Self::new(axis, pole, value.abs())
+        Self::new(axis, pole, value.saturating_abs())
     }
 
     /// Creates a negative alignment score (absolute value is taken and negated).
     pub fn negative(axis: impl Into<Arc<str>>, pole: impl Into<Arc<str>>, value: i32) -> Self {
-        Self::new(axis, pole, -value.abs())
+        Self::new(axis, pole, -(value.saturating_abs()))
     }
 }
 
@@ -204,5 +204,17 @@ mod tests {
         check!(score.value == -50);
         let score = AlignmentScore::negative("moral", "paragon", -50);
         check!(score.value == -50);
+    }
+
+    #[test]
+    fn alignment_score_positive_i32_min() {
+        let score = AlignmentScore::positive("moral", "paragon", i32::MIN);
+        check!(score.value == i32::MAX);
+    }
+
+    #[test]
+    fn alignment_score_negative_i32_min() {
+        let score = AlignmentScore::negative("moral", "paragon", i32::MIN);
+        check!(score.value == i32::MIN + 1);
     }
 }

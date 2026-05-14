@@ -42,7 +42,7 @@ tasks:
     aliases:
       - lint:check
     cmds:
-      - "{{.CARGO}} clippy --all-features --all-targets"
+      - "{{.CARGO}} clippy --all-features --all-targets -- -D warnings"
 
   lint:fix:
     desc: Apply clippy fixes for all targets and features
@@ -108,7 +108,7 @@ tasks:
       - check:all-features
       - check:no-features
       - lint:check
-      - test
+      - test:default-features
       - test:all-features
       - test:no-features
 

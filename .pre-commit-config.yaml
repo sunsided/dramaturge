@@ -34,13 +34,15 @@ repos:
         entry: task check
         language: system
         pass_filenames: false
-        types:
+        types_or:
           - rust
+          - toml
 
       - id: cargo-clippy
         name: cargo clippy
         entry: task lint:check
         language: system
         pass_filenames: false
-        types:
+        types_or:
           - rust
+          - toml
