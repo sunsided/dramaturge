@@ -265,6 +265,28 @@ impl DialogWorldState {
         self.available_tags.contains(tag)
     }
 
+    /// Checks if the player has a specific skill.
+    ///
+    /// Skills are stored as facts in the `Player` scope with the key pattern `skill:{skill_name}`.
+    pub fn has_skill(&self, skill: &str) -> bool {
+        use dramaturge_model::{FactId, FactScope, FactValue};
+        let fact_id = FactId::new(format!("skill:{skill}"));
+        matches!(
+            self.get_fact(&FactScope::Player, &fact_id),
+            Some(FactValue::Bool(true))
+        )
+    }
+
+    /// Grants a skill to the player.
+    ///
+    /// Skills are stored as facts in the `Player` scope with the key pattern `skill:{skill_name}`.
+    pub fn add_skill(&mut self, skill: impl Into<std::sync::Arc<str>>) {
+        use dramaturge_model::{Fact, FactScope};
+        let skill = skill.into();
+        let fact = Fact::bool(format!("skill:{skill}"), true);
+        self.set_fact(FactScope::Player, fact);
+    }
+
     /// Checks if any memory owned by the given entity matches the query.
     pub fn matches_memory_query(&self, owner: EntityId, query: &MemoryQuery) -> bool {
         self.get_memories(owner).iter().any(|m| query.matches(m))

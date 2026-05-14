@@ -276,10 +276,10 @@ nodes:
             value: true
         target: "14"
       - id: 22
-        text: "[Bluff] She clammed up when I pressed her. My guess? Bandits hit the shipment before it reached the clinic."
+        text: "She clammed up when I pressed her. My guess? Bandits hit the shipment before it reached the clinic."
         tags:
           - { axis: "moral", key: "renegade" }
-          - { axis: "skill", key: "streetwise" }
+          - { axis: "skill", key: "streetwise", display_prefix: "[Bluff]" }
           - { axis: "speech", key: "lie" }
         intentions_explicit: ["Deceive"]
         intentions_implicit: ["BlindGuess"]
@@ -293,9 +293,9 @@ nodes:
             axis: "trust"
             delta: -25
           - type: set_fact
-            fact: "PlayerLiedToOrren"
+            fact: "PlayerBluffedOrren"
             value: true
-        target: "12"
+        target: "15"
       - id: 12
         text: "[Deflect] I gave Mara my word. Ask me what I saw, not what she trusted me with."
         tags:
@@ -381,4 +381,25 @@ nodes:
     options:
       - id: 17
         text: "[End] Thank you, Captain. I knew you'd understand."
+        target: "end"
+
+  # Node 15: Orren Bluff Response (when player claims Mara clammed up)
+  - id: 15
+    speaker: orren
+    text: "*chuckles dryly* Bandits. Of course. And I suppose the Wardens just happened to miss any sign of forced entry. You expect me to believe Mara Vey - who once talked her way out of a hanging - simply 'clammed up'?"
+    outcomes:
+      - type: add_relationship
+        source: 1
+        target: 3
+        axis: "trust"
+        delta: -30
+      - type: set_fact
+        fact: "PlayerBluffFailed"
+        value: true
+      - type: set_fact
+        fact: "OrrenKnowsPlayerLying"
+        value: true
+    options:
+      - id: 23
+        text: "[End] ..."
         target: "end"

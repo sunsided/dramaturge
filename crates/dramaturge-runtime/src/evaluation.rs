@@ -105,6 +105,7 @@ impl ConditionEvaluator for DefaultConditionEvaluator {
                 .unwrap_or(false),
             Condition::HasMemory { owner, query } => context.matches_memory_query(*owner, query),
             Condition::HasTagAvailable { tag } => context.has_tag_available(tag),
+            Condition::HasSkill { skill } => context.has_skill(skill),
             Condition::Custom { .. } => false,
         }
     }
@@ -351,6 +352,28 @@ mod tests {
             args: vec![],
         };
         check!(!evaluator.evaluate(&cond, &ctx));
+    }
+
+    #[test]
+    fn default_evaluator_has_skill() {
+        let evaluator = DefaultConditionEvaluator;
+        let mut ctx = DialogWorldState::new();
+
+        // Player doesn't have the skill initially
+        let cond = Condition::HasSkill {
+            skill: "medic".to_string(),
+        };
+        check!(!evaluator.evaluate(&cond, &ctx));
+
+        // Grant the skill to the player
+        ctx.add_skill("medic");
+        check!(evaluator.evaluate(&cond, &ctx));
+
+        // Check that other skills are not affected
+        let cond_investigator = Condition::HasSkill {
+            skill: "investigator".to_string(),
+        };
+        check!(!evaluator.evaluate(&cond_investigator, &ctx));
     }
 
     #[test]

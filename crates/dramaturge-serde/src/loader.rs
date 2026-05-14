@@ -81,6 +81,12 @@ pub struct YamlTag {
     pub axis: String,
     /// Tag key/value.
     pub key: String,
+    /// Optional display prefix for rendering (e.g., "[Medic]").
+    #[serde(default)]
+    pub display_prefix: Option<String>,
+    /// Whether this tag requires the player to have the trait.
+    #[serde(default)]
+    pub requires_trait: Option<bool>,
 }
 
 /// A condition.
@@ -109,6 +115,12 @@ pub enum YamlCondition {
         fact: String,
         /// Expected value.
         value: YamlValue,
+    },
+    /// Check if player has a skill.
+    #[serde(rename = "has_skill")]
+    HasSkill {
+        /// Skill identifier.
+        skill: String,
     },
 }
 
@@ -208,10 +220,21 @@ impl YamlDialogueGraph {
 
                 // Convert tags
                 for yaml_tag in &yaml_option.tags {
-                    option.tags.push(model::CustomDialogTag::new(
-                        yaml_tag.axis.as_str(),
-                        yaml_tag.key.as_str(),
-                    ));
+                    let mut tag =
+                        model::CustomDialogTag::new(yaml_tag.axis.as_str(), yaml_tag.key.as_str());
+
+                    // Apply display prefix if provided
+                    if let Some(prefix) = &yaml_tag.display_prefix {
+                        tag.display_prefix = Some(std::sync::Arc::from(prefix.as_str()));
+                    }
+
+                    // Apply requires_trait: use explicit value if provided, otherwise default
+                    // based on axis convention (skill axis defaults to true)
+                    tag.requires_trait = yaml_tag
+                        .requires_trait
+                        .unwrap_or_else(|| yaml_tag.axis.as_str() == "skill");
+
+                    option.tags.push(tag);
                 }
 
                 // Convert intentions
@@ -284,6 +307,9 @@ impl YamlCondition {
                     value: fact_value,
                 })
             }
+            YamlCondition::HasSkill { skill } => Ok(Condition::HasSkill {
+                skill: skill.clone(),
+            }),
         }
     }
 }

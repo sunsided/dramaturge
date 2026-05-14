@@ -58,6 +58,12 @@ impl GameState {
     fn new(graph: DialogueGraph) -> Self {
         let mut world = DialogWorldState::new();
 
+        // Initialize player skills
+        world.add_skill("medic");
+        world.add_skill("investigator");
+        world.add_skill("streetwise");
+        // Note: player does NOT have intimidation skill - that option should be unavailable
+
         // Initialize relationships
         world.add_relationship(
             entities::player(),
@@ -117,9 +123,23 @@ impl GameState {
         node.options
             .iter()
             .filter(|opt| {
-                opt.conditions
+                // Check explicit conditions
+                let conditions_pass = opt
+                    .conditions
                     .iter()
-                    .all(|c| evaluator.evaluate(c, &self.world))
+                    .all(|c| evaluator.evaluate(c, &self.world));
+
+                // Check skill requirements from tags
+                let skill_requirements_pass = opt.tags.iter().all(|tag| {
+                    if tag.requires_trait {
+                        // Check if player has the required skill
+                        self.world.has_skill(&tag.key)
+                    } else {
+                        true
+                    }
+                });
+
+                conditions_pass && skill_requirements_pass
             })
             .collect()
     }
@@ -280,6 +300,29 @@ fn clear_screen() {
     io::stdout().flush().unwrap();
 }
 
+/// Renders option text with display prefixes from tags.
+fn format_option_text(opt: &DialogueOption) -> String {
+    // Collect display prefixes from tags that have them
+    let prefixes: Vec<&str> = opt
+        .tags
+        .iter()
+        .filter_map(|tag| tag.display_prefix())
+        .collect();
+
+    let prefix_str = prefixes.join("");
+
+    let text = match &opt.text {
+        DialogText::Inline(s) => s.as_str(),
+        DialogText::LocalizedKey(key) => key.as_ref(), // Use key as fallback
+    };
+
+    if prefix_str.is_empty() {
+        text.to_string()
+    } else {
+        format!("{} {}", prefix_str, text)
+    }
+}
+
 fn render_scene(state: &GameState) {
     clear_screen();
     println!("╔══════════════════════════════════════════════════════════════════╗");
@@ -301,10 +344,10 @@ fn render_scene(state: &GameState) {
     };
 
     let speaker_name = state.get_speaker_name(node.speaker.0);
-    println!("║  {:<64} ║", format!("{}:", speaker_name));
+    println!("║  {:<64}║", format!("{}:", speaker_name));
 
     for line in word_wrap(text, 64) {
-        println!("║  {:<64} ║", line);
+        println!("║  {:<64}║", line);
     }
 
     println!("╠══════════════════════════════════════════════════════════════════╣");
@@ -314,15 +357,14 @@ fn render_scene(state: &GameState) {
         println!("║  No available options.                                           ║");
     } else {
         for (i, opt) in options.iter().enumerate() {
-            let opt_text = match &opt.text {
-                DialogText::Inline(s) => s.as_str(),
-                _ => "<localized>",
-            };
-            let tag_str: Vec<String> = opt.tags.iter().map(|t| format!("[{}]", t.key)).collect();
-            let tags = tag_str.join("");
-            println!("║  {}. {} ", i + 1, opt_text);
-            if !tags.is_empty() {
-                println!("║     Tags: {}", tags);
+            let formatted_text = format_option_text(opt);
+            let lines = word_wrap(&formatted_text, 60);
+            for (j, line) in lines.iter().enumerate() {
+                if j == 0 {
+                    println!("║  {}. {:<60} ║", i + 1, line);
+                } else {
+                    println!("║     {:<60} ║", line);
+                }
             }
         }
     }
@@ -347,7 +389,7 @@ fn render_scene(state: &GameState) {
         .unwrap_or(0);
 
     println!(
-        "║  Trust: Mara={:>3}  Orren={:>3}  |  Press 'd' for debug        ║",
+        "║  Trust: Mara={:>3}  Orren={:>3}  |  Press 'd' for debug              ║",
         mara_trust, orren_trust
     );
 
@@ -358,6 +400,17 @@ fn render_scene(state: &GameState) {
             "║  Known facts: {:?}                                                ║",
             state.world.facts.len()
         );
+        // Show available skills
+        let skills: Vec<&str> = state
+            .world
+            .facts
+            .iter()
+            .filter(|sf| matches!(sf.scope, FactScope::Player))
+            .filter(|sf| sf.fact.id.0.starts_with("skill:"))
+            .filter(|sf| matches!(sf.fact.value, dramaturge::FactValue::Bool(true)))
+            .map(|sf| sf.fact.id.0.strip_prefix("skill:").unwrap_or(&sf.fact.id.0))
+            .collect();
+        println!("║  Skills: {:<56} ║", skills.join(", "));
     }
 
     println!("╚══════════════════════════════════════════════════════════════════╝");
