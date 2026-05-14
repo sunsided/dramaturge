@@ -17,16 +17,26 @@ use crate::evaluation::{
 /// Implementations determine which options are available at a given
 /// node and handle the consequences of choosing an option.
 pub trait DialogueRuntime {
+    /// The iterator type returned by [`available_options`](Self::available_options).
+    ///
+    /// This associated type allows implementors to choose their own iterator
+    /// type while maintaining the trait interface. Implementors can return
+    /// `std::slice::Iter`, `std::iter::Filter`, custom iterators, or
+    /// `Box<dyn Iterator>` as needed.
+    type OptionsIter<'a>: Iterator<Item = &'a DialogueOption>
+    where
+        Self: 'a;
+
     /// Returns references to options whose conditions are satisfied.
     ///
     /// Options with no conditions are always included. Options with
     /// conditions are included only if all their conditions evaluate
     /// to `true`.
     fn available_options<'a>(
-        &self,
+        &'a self,
         node: &'a DialogueNode,
-        state: &DialogWorldState,
-    ) -> Vec<&'a DialogueOption>;
+        state: &'a DialogWorldState,
+    ) -> Self::OptionsIter<'a>;
 
     /// Applies the option's outcomes and returns the target to transition to.
     ///
@@ -49,6 +59,54 @@ pub struct DefaultRuntime {
     pub applier: DefaultOutcomeApplier,
 }
 
+/// Iterator over available dialogue options.
+///
+/// This struct is returned by [`DefaultRuntime::available_options`] and
+/// yields references to options whose conditions are satisfied.
+pub struct AvailableOptionsIter<'a> {
+    inner: std::slice::Iter<'a, DialogueOption>,
+    evaluator: &'a DefaultConditionEvaluator,
+    state: &'a DialogWorldState,
+}
+
+impl<'a> AvailableOptionsIter<'a> {
+    fn new(
+        node: &'a DialogueNode,
+        evaluator: &'a DefaultConditionEvaluator,
+        state: &'a DialogWorldState,
+    ) -> Self {
+        Self {
+            inner: node.options.iter(),
+            evaluator,
+            state,
+        }
+    }
+}
+
+impl<'a> Iterator for AvailableOptionsIter<'a> {
+    type Item = &'a DialogueOption;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let option = self.inner.next()?;
+            if option.conditions.is_empty()
+                || option
+                    .conditions
+                    .iter()
+                    .all(|c| self.evaluator.evaluate(c, self.state))
+            {
+                return Some(option);
+            }
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // We can't know exactly how many will pass the filter,
+        // but we can provide an upper bound
+        (0, self.inner.size_hint().1)
+    }
+}
+
 impl DefaultRuntime {
     /// Creates a new runtime with the default evaluator and applier.
     pub fn new() -> Self {
@@ -57,21 +115,14 @@ impl DefaultRuntime {
 }
 
 impl DialogueRuntime for DefaultRuntime {
+    type OptionsIter<'a> = AvailableOptionsIter<'a>;
+
     fn available_options<'a>(
-        &self,
+        &'a self,
         node: &'a DialogueNode,
-        state: &DialogWorldState,
-    ) -> Vec<&'a DialogueOption> {
-        node.options
-            .iter()
-            .filter(|option| {
-                option.conditions.is_empty()
-                    || option
-                        .conditions
-                        .iter()
-                        .all(|c| self.evaluator.evaluate(c, state))
-            })
-            .collect()
+        state: &'a DialogWorldState,
+    ) -> Self::OptionsIter<'a> {
+        AvailableOptionsIter::new(node, &self.evaluator, state)
     }
 
     fn choose_option(
@@ -161,7 +212,7 @@ mod tests {
             ],
         };
 
-        let available = rt.available_options(&node, &state);
+        let available: Vec<_> = rt.available_options(&node, &state).collect();
         check!(available.len() == 2);
         check!(available.iter().any(|o| o.id == DialogueOptionId::new(1)));
         check!(available.iter().any(|o| o.id == DialogueOptionId::new(2)));
