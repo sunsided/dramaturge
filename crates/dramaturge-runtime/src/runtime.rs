@@ -80,17 +80,12 @@ impl DialogueRuntime for DefaultRuntime {
         option: &DialogueOption,
         state: &mut DialogWorldState,
     ) -> DialogTarget {
-        let event_id = dramaturge_model::EventId::new(state.next_event_id());
-        let event = dramaturge_model::Event::new(
-            event_id,
-            dramaturge_model::EventKind::DialogOptionChosen {
-                node_id: option.source_node_id,
-                option_id: option.id,
-                tags: option.tags.clone(),
-                intentions: option.intentions.clone(),
-            },
-        );
-        state.add_event(event);
+        state.emit_event(dramaturge_model::EventKind::DialogOptionChosen {
+            node_id: option.source_node_id,
+            option_id: option.id,
+            tags: option.tags.clone(),
+            intentions: option.intentions.clone(),
+        });
 
         for outcome in &option.outcomes {
             self.applier.apply(outcome, state);

@@ -8,7 +8,8 @@
 
 use dramaturge_model::tag::DialogTagKind;
 use dramaturge_model::{
-    AlignmentScore, EntityId, Event, Memory, MemoryQuery, RelationshipScore, ScopedFact,
+    AlignmentScore, EntityId, Event, EventId, EventKind, Memory, MemoryQuery, RelationshipScore,
+    ScopedFact,
 };
 
 /// Complete snapshot of the narrative world state.
@@ -186,13 +187,22 @@ impl DialogWorldState {
     }
 
     /// Returns the next auto-incremented event ID based on existing events.
-    pub fn next_event_id(&self) -> u64 {
-        self.events
-            .iter()
-            .map(|e| e.id.0)
-            .max()
-            .unwrap_or(0)
-            .saturating_add(1)
+    ///
+    /// Returns `None` when the event log has reached `u64::MAX` events,
+    /// indicating that no more unique IDs can be allocated.
+    pub fn next_event_id(&self) -> Option<u64> {
+        let max_id = self.events.iter().map(|e| e.id.0).max().unwrap_or(0);
+        max_id.checked_add(1)
+    }
+
+    /// Allocates a new event ID and appends an event with the given kind.
+    ///
+    /// Returns `None` when the event ID space is exhausted.
+    pub fn emit_event(&mut self, kind: EventKind) -> Option<&Event> {
+        let id = self.next_event_id()?;
+        let event = Event::new(EventId::new(id), kind);
+        self.events.push(event);
+        self.events.last()
     }
 
     /// Returns all events in chronological order.
@@ -232,7 +242,7 @@ impl DialogWorldState {
     }
 
     /// Returns events matching a predicate.
-    pub fn find_events<F: Fn(&Event) -> bool>(&self, predicate: F) -> Vec<&Event> {
+    pub fn find_events<F: FnMut(&Event) -> bool>(&self, mut predicate: F) -> Vec<&Event> {
         self.events.iter().filter(|e| predicate(e)).collect()
     }
 
@@ -441,7 +451,7 @@ mod tests {
         let all_recent = state.recent_events(10);
         check!(all_recent.len() == 3);
 
-        let found = state.find_events(|e| matches!(e.kind, EventKind::RelationshipChanged { .. }));
+        let found = state.find_events(|e| matches!(&e.kind, EventKind::RelationshipChanged { .. }));
         check!(found.len() == 1);
         check!(found[0].id.0 == 3);
     }

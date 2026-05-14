@@ -221,11 +221,11 @@ fn emit_event_outcome_still_works() {
 
     assert_eq!(state.events.len(), 3);
     assert!(matches!(
-        state.events[0].kind,
+        &state.events[0].kind,
         EventKind::DialogOptionChosen { .. }
     ));
     assert!(matches!(
-        state.events[1].kind,
+        &state.events[1].kind,
         EventKind::FactLearned { .. }
     ));
     assert_eq!(state.events[2].kind, custom_kind);
@@ -275,7 +275,10 @@ fn event_queries_return_correct_results() {
 
     let recent = state.recent_events(1);
     assert_eq!(recent.len(), 1);
-    assert!(matches!(recent[0].kind, EventKind::AlignmentChanged { .. }));
+    assert!(matches!(
+        &recent[0].kind,
+        EventKind::AlignmentChanged { .. }
+    ));
 
     let found = state.find_events(|e| {
         matches!(&e.kind, EventKind::FactLearned { fact_id, .. } if fact_id.0.as_ref() == "met_npc")
