@@ -119,7 +119,7 @@ tasks:
       - "{{.CARGO}} clean"
 
   run:the-broken-seal:
-    desc: Run the The Broken Seal example
+    desc: Run The Broken Seal example
     aliases:
       - run
       - example
