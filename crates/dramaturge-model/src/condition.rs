@@ -10,6 +10,36 @@
 //! Use the associated constructors ([`Condition::always()`],
 //! [`Condition::never()`], [`Condition::all()`], [`Condition::any()`],
 //! [`Condition::negate()`]) for convenience.
+//!
+//! # Custom Conditions
+//!
+//! When built-in variants don't cover a game mechanic, use
+//! `Condition::Custom { key, args }`. The default evaluator always returns
+//! `false` for custom conditions — you supply the logic by implementing
+//! [`ConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/trait.ConditionEvaluator.html).
+//!
+//! ```rust
+//! use dramaturge_model::{Condition, FactValue};
+//!
+//! // "Is it currently daytime?" — handled by your game engine
+//! let cond = Condition::Custom {
+//!     key: "is_daytime".to_string(),
+//!     args: vec![],
+//! };
+//!
+//! // "Does the player have at least 50 gold?" — with an argument
+//! let cond_with_arg = Condition::Custom {
+//!     key: "has_gold".to_string(),
+//!     args: vec![FactValue::Int(50)],
+//! };
+//! ```
+//!
+//! In your evaluator, match on `key` and delegate non-custom arms to
+//! [`DefaultConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/struct.DefaultConditionEvaluator.html):
+//!
+//! ```rust
+//! // See dramaturge_runtime::evaluation for the full extension example.
+//! ```
 
 use crate::alignment::{AlignmentAxisId, AlignmentPoleId};
 use crate::character::EntityId;
