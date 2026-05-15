@@ -4,6 +4,35 @@
 //! characters along moral, reputational, or other axes. An [`AlignmentAxis`]
 //! defines the available poles (e.g., Paragon/Renegade), while an
 //! [`AlignmentScore`] tracks a character's current position on that axis.
+//!
+//! # Multi-Game Examples
+//!
+//! **Mass Effect** — moral alignment with Paragon and Renegade poles:
+//!
+//! ```rust
+//! use dramaturge_model::{AlignmentAxis, AlignmentPole, AlignmentAxisId, AlignmentPoleId, Condition};
+//!
+//! let mut morality = AlignmentAxis::new("morality", "Moral Alignment");
+//! morality.add_pole(AlignmentPole::new("paragon", "Paragon"));
+//! morality.add_pole(AlignmentPole::new("renegade", "Renegade"));
+//!
+//! // Check if the player has enough Paragon score to unlock the option
+//! let condition = Condition::AlignmentAtLeast {
+//!     axis: AlignmentAxisId::new("morality"),
+//!     pole: AlignmentPoleId::new("paragon"),
+//!     value: 60,
+//! };
+//! ```
+//!
+//! **Generic RPG** — faction reputation axis:
+//!
+//! ```rust
+//! use dramaturge_model::{AlignmentAxis, AlignmentPole};
+//!
+//! let mut rep = AlignmentAxis::new("reputation", "Guild Reputation");
+//! rep.add_pole(AlignmentPole::new("honored", "Honored"));
+//! rep.add_pole(AlignmentPole::new("reviled", "Reviled"));
+//! ```
 
 use std::sync::Arc;
 
