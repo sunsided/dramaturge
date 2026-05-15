@@ -117,3 +117,12 @@ tasks:
     desc: Remove Cargo build artifacts
     cmds:
       - "{{.CARGO}} clean"
+
+  run:the-broken-seal:
+    desc: Run The Broken Seal example
+    aliases:
+      - run
+      - example
+      - example:the-broken-seal
+    cmds:
+      - "{{.CARGO}} run --example the_broken_seal"
