@@ -16,6 +16,7 @@
 //! 5. **Cycles** — Nodes participating in cycles, reporting all cycle members
 //! 6. **Always-false conditions** — Options with conditions that evaluate to always false via constant folding
 //! 7. **Orphaned fact references** — Facts referenced in conditions but never set by any outcome
+//! 8. **Mismatched source node IDs** — Options whose `source_node_id` does not match their parent `DialogueNode`
 //!
 //! # When to Use
 //!
@@ -102,7 +103,7 @@ impl ValidationIssue {
 
 /// Validates a [`DialogueGraph`] for structural correctness.
 ///
-/// Runs seven validation checks covering graph integrity, reachability,
+/// Runs eight validation checks covering graph integrity, reachability,
 /// condition validity, and fact reference consistency.
 #[derive(Debug, Clone, Default)]
 pub struct GraphValidator;
@@ -113,7 +114,7 @@ impl GraphValidator {
         Self
     }
 
-    /// Runs all seven validation checks and returns the list of issues found.
+    /// Runs all eight validation checks and returns the list of issues found.
     pub fn validate(&self, graph: &DialogueGraph) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
 
@@ -127,6 +128,7 @@ impl GraphValidator {
         self.check_cycles(graph, &node_map, &mut issues);
         self.check_always_false_conditions(graph, &node_map, &mut issues);
         self.check_orphaned_fact_references(graph, &mut issues);
+        self.check_source_node_ids(graph, &mut issues);
 
         issues
     }
@@ -559,6 +561,28 @@ impl GraphValidator {
             }
         }
     }
+
+    /// Detects options whose `source_node_id` does not match their parent node's ID.
+    /// A mismatch corrupts runtime event history recorded by `DefaultRuntime::choose_option`.
+    fn check_source_node_ids(&self, graph: &DialogueGraph, issues: &mut Vec<ValidationIssue>) {
+        for node in &graph.nodes {
+            for option in &node.options {
+                if option.source_node_id != node.id {
+                    issues.push(
+                        ValidationIssue::new(
+                            ValidationSeverity::Error,
+                            format!(
+                                "Option {} in node {} has wrong source node {} (parent is node {})",
+                                option.id.0, node.id.0, option.source_node_id.0, node.id.0
+                            ),
+                        )
+                        .with_node(node.id)
+                        .with_option(option.id),
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -893,5 +917,52 @@ mod tests {
                 .iter()
                 .any(|i| i.message.contains("potential dead end"))
         );
+    }
+
+    #[test]
+    fn valid_source_node_id_no_issue() {
+        let validator = GraphValidator::new();
+        let option = make_option(
+            1,
+            DialogTarget::Node(DialogueNodeId::new(2)),
+            DialogueNodeId::new(1), // matches parent node id=1
+        );
+        let node = make_node(1, vec![option]);
+        let node2 = make_node(2, vec![]);
+        let graph = DialogueGraph {
+            nodes: vec![node, node2],
+            entry_node: Some(DialogueNodeId::new(1)),
+        };
+        let issues = validator.validate(&graph);
+        check!(
+            !issues
+                .iter()
+                .any(|i| i.message.contains("wrong source node"))
+        );
+    }
+
+    #[test]
+    fn detects_mismatched_source_node_id() {
+        let validator = GraphValidator::new();
+        let option = make_option(
+            1,
+            DialogTarget::Node(DialogueNodeId::new(2)),
+            DialogueNodeId::new(99), // wrong: parent node id=1, not 99
+        );
+        let node = make_node(1, vec![option]);
+        let node2 = make_node(2, vec![]);
+        let graph = DialogueGraph {
+            nodes: vec![node, node2],
+            entry_node: Some(DialogueNodeId::new(1)),
+        };
+        let issues = validator.validate(&graph);
+        let mismatch_issues: Vec<_> = issues
+            .iter()
+            .filter(|i| i.message.contains("wrong source node"))
+            .collect();
+        check!(mismatch_issues.len() == 1);
+        check!(mismatch_issues[0].severity == ValidationSeverity::Error);
+        check!(mismatch_issues[0].node_id == Some(DialogueNodeId::new(1)));
+        check!(mismatch_issues[0].option_id == Some(DialogueOptionId::new(1)));
     }
 }
