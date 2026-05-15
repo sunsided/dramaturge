@@ -2,7 +2,7 @@
 
 Core domain types for the [dramaturge](https://crates.io/crates/dramaturge) dialogue toolkit.
 
-This crate is the foundation layer: pure data, no I/O, no serde dependency by default. It defines everything the rest of the workspace reasons about - characters, facts, conditions, outcomes, alignment axes, relationships, memories, and dialogue graphs.
+This crate is the foundation layer: pure data, no I/O, no serde dependency. It defines everything the rest of the workspace reasons about - characters, facts, conditions, outcomes, alignment axes, relationships, memories, and dialogue graphs.
 
 ## When to depend on this directly
 
@@ -27,15 +27,9 @@ Most projects should depend on `dramaturge` (the facade crate) instead. Depend o
 | `AlignmentAxis` / `AlignmentScore` | Named moral/political dimensions with named poles |
 | `RelationshipScore` | Directional, named relationship strength between entities |
 
-## Optional serde support
+## Serialization
 
-`serde` support is gated behind a feature flag so game engines that serialize through other means (binary formats, custom reflection) pay zero cost:
-
-```toml
-dramaturge-model = { version = "...", features = ["serde"] }
-```
-
-For YAML loading, use [`dramaturge-serde`](https://crates.io/crates/dramaturge-serde) instead.
+This crate has no serde dependency. Serialization is handled exclusively by [`dramaturge-serde`](https://crates.io/crates/dramaturge-serde), which provides DTO types and a YAML loader that convert to and from model types.
 
 ## Part of the dramaturge workspace
 
