@@ -16,6 +16,7 @@ dramaturge-serde = { workspace = true, features = ["yaml"] }
 
 [dev-dependencies]
 assert2 = { workspace = true }
+dramaturge-authoring = { workspace = true }
 
 [[example]]
 name = "the_broken_seal"
