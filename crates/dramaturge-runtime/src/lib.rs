@@ -48,6 +48,11 @@
 //!                 // delegate to game engine
 //!                 false // placeholder
 //!             }
+//!             // Recurse through composites using self so nested Custom
+//!             // conditions reach this evaluator, not the default.
+//!             Condition::All(cs) => cs.iter().all(|c| self.evaluate(c, ctx)),
+//!             Condition::Any(cs) => cs.iter().any(|c| self.evaluate(c, ctx)),
+//!             Condition::Not(c) => !self.evaluate(c, ctx),
 //!             other => self.inner.evaluate(other, ctx),
 //!         }
 //!     }

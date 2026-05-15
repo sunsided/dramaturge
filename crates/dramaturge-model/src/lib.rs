@@ -1,7 +1,8 @@
 //! Core domain model for the `dramaturge` dialogue toolkit.
 //!
 //! This crate provides game-agnostic foundational types for branching dialogue
-//! systems. It is intentionally free of serde and runtime dependencies.
+//! systems. It has no hard serde or runtime dependency — `serde` support is
+//! gated behind an optional feature flag.
 //!
 //! # Concepts
 //!

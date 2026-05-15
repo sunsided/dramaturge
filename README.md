@@ -46,7 +46,7 @@ assert!(evaluator.evaluate(&condition, &world));
 [`the_broken_seal`](crates/dramaturge/examples/the_broken_seal.rs) demonstrates a complete dialogue scene loaded from YAML: branching conditions based on player skills, relationship outcomes, and a simple text-based TUI. Run it with:
 
 ```bash
-cargo run --example the_broken_seal
+cargo run -p dramaturge --example the_broken_seal
 ```
 
 ## Workspace Layout

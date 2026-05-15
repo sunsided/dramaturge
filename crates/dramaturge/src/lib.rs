@@ -32,7 +32,8 @@
 //! └──────────────────────────────────────────────────────┘
 //! ```
 //!
-//! The model crate has no serde or runtime dependency. The runtime crate knows
+//! The model crate has no default serde or runtime dependency (`serde` is an
+//! optional feature). The runtime crate knows
 //! nothing about serialization. You can depend on individual crates or on this
 //! facade for the full public surface.
 //!

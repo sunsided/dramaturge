@@ -34,12 +34,12 @@
 //! };
 //! ```
 //!
-//! In your evaluator, match on `key` and delegate non-custom arms to
-//! [`DefaultConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/struct.DefaultConditionEvaluator.html):
-//!
-//! See [`ConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/trait.ConditionEvaluator.html) and
-//! [`DefaultConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/struct.DefaultConditionEvaluator.html)
-//! for the full extension example.
+//! In your evaluator, match on `key`, explicitly recurse through
+//! `All`/`Any`/`Not` using `self.evaluate()` (so nested `Custom` conditions
+//! reach your evaluator), and delegate everything else to
+//! [`DefaultConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/struct.DefaultConditionEvaluator.html).
+//! See [`ConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/trait.ConditionEvaluator.html)
+//! for the full pattern with composite recursion.
 
 use crate::alignment::{AlignmentAxisId, AlignmentPoleId};
 use crate::character::EntityId;
