@@ -92,6 +92,40 @@
 //! ]);
 //! let cond = GameFacts::not(GameFacts::MetHero.is_false(FactScope::World));
 //! ```
+//!
+//! # `#[derive(FactValue)]`
+//!
+//! Generates typed fact helpers and condition builders for a user-defined
+//! fact enum. Each variant becomes a `Fact` constructor and a `Condition`
+//! builder method.
+//!
+//! ```ignore
+//! use dramaturge_macros::FactValue;
+//!
+//! #[derive(FactValue)]
+//! enum MyFact {
+//!     QuestComplete,
+//!     GoldAmount(i64),
+//! }
+//! ```
+//!
+//! # `#[derive(ConditionBuilder)]`
+//!
+//! Generates fluent condition construction methods on a fact enum, enabling
+//! `MyFact::QuestComplete.is_true()` style condition building.
+//!
+//! ```ignore
+//! use dramaturge_macros::ConditionBuilder;
+//!
+//! #[derive(ConditionBuilder)]
+//! enum MyFact {
+//!     QuestComplete,
+//! }
+//! ```
+//!
+//! # `#[derive(Dramaturge)]`
+//!
+//! Placeholder derive macro. Currently a no-op; reserved for future use.
 
 extern crate proc_macro;
 

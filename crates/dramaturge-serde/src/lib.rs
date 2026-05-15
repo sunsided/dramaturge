@@ -1,14 +1,33 @@
 //! Optional serialization integration for the `dramaturge` toolkit.
 //!
-//! Enable the `serde` feature to pull in [`serde`](https://docs.rs/serde)
-//! support. The core domain model crate (`dramaturge-model`) intentionally
-//! avoids a hard serde dependency; this crate is the designated integration
-//! point.
-//!
 //! # Features
 //!
-//! - `serde` — activates [`serde`](https://docs.rs/serde) as a dependency.
-//! - `yaml` — enables YAML loader support (implies `serde`).
+//! - `serde` — activates [`serde`](https://docs.rs/serde) support across the
+//!   model types. Enable with `dramaturge-serde = { features = ["serde"] }`.
+//! - `yaml` — enables the YAML dialogue loader (implies `serde`). Requires the
+//!   `yaml` feature: `dramaturge-serde = { features = ["yaml"] }`.
+//!
+//! # YAML Loader
+//!
+//! With the `yaml` feature, load a [`DialogueGraph`] from a YAML file:
+//!
+//! ```ignore
+//! use dramaturge_serde::loader::YamlDialogueGraph;
+//!
+//! let raw = std::fs::read_to_string("dialogue.yaml").unwrap();
+//! let graph = YamlDialogueGraph::from_str(&raw)
+//!     .expect("invalid YAML")
+//!     .into_graph()
+//!     .expect("invalid graph structure");
+//! ```
+//!
+//! See `crates/dramaturge/examples/dialogue.yaml` for the full YAML format.
+//!
+//! # Why a Separate Crate?
+//!
+//! `dramaturge-model` intentionally has no serde dependency so that game
+//! engines that serialize state through other means (binary formats, custom
+//! reflection, etc.) pay zero cost. Add this crate only when you need it.
 
 #[cfg(feature = "serde")]
 pub use serde;
