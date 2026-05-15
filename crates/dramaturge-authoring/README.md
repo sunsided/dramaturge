@@ -15,7 +15,7 @@ let validator = GraphValidator::new();
 let issues = validator.validate(&graph);
 
 for issue in &issues {
-    println!("{:?} — {:?}", issue.severity, issue.kind);
+    println!("{:?}: {}", issue.severity, issue.message);
 }
 ```
 

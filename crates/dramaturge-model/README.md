@@ -18,8 +18,9 @@ Most projects should depend on `dramaturge` (the facade crate) instead. Depend o
 |---|---|
 | `EntityId` | Universal `u64` identifier used across all entities |
 | `Character` | Wraps `EntityId` with a string key, display name, and optional traits |
-| `Fact` / `FactValue` | Named value (bool, int, float, text, entity ref, set) with scope |
-| `FactScope` | Controls knowledge ownership: `World`, `Player`, `Character`, `Faction`, `Party` |
+| `Fact` / `FactValue` | Named value: bool, int, float, text, entity ref, or set |
+| `FactScope` | Knowledge ownership: `World`, `Player`, `Character`, `Faction`, `Party` |
+| `ScopedFact` | Pairs a `Fact` with a `FactScope`; used when scope must travel with the value |
 | `Condition` | Composable boolean expression tree evaluated against world state |
 | `Outcome` | Declarative state change applied at runtime |
 | `DialogueGraph` | Pure data structure holding nodes and options - no evaluation logic |
