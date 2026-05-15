@@ -10,6 +10,10 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[package.metadata.docs.rs]
+features = ["serde"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 serde = ["dep:serde"]
 

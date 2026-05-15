@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
 //! Optional serialization integration for the `dramaturge` toolkit.
 //!
 //! # Features
@@ -30,6 +31,7 @@
 pub use serde;
 
 #[cfg(feature = "yaml")]
+#[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
 pub mod loader;
 
 use dramaturge_model as model;

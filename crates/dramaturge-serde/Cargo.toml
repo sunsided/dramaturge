@@ -10,6 +10,10 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[package.metadata.docs.rs]
+features = ["yaml"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 yaml = ["dep:serde_yaml"]
 

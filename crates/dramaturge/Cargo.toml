@@ -10,6 +10,9 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 dramaturge-model = { workspace = true }
 dramaturge-runtime = { workspace = true }
