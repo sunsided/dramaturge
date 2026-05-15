@@ -10,6 +10,36 @@
 //! Use the associated constructors ([`Condition::always()`],
 //! [`Condition::never()`], [`Condition::all()`], [`Condition::any()`],
 //! [`Condition::negate()`]) for convenience.
+//!
+//! # Custom Conditions
+//!
+//! When built-in variants don't cover a game mechanic, use
+//! `Condition::Custom { key, args }`. The default evaluator always returns
+//! `false` for custom conditions — you supply the logic by implementing
+//! [`ConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/trait.ConditionEvaluator.html).
+//!
+//! ```rust
+//! use dramaturge_model::{Condition, FactValue};
+//!
+//! // "Is it currently daytime?" — handled by your game engine
+//! let cond = Condition::Custom {
+//!     key: "is_daytime".to_string(),
+//!     args: vec![],
+//! };
+//!
+//! // "Does the player have at least 50 gold?" — with an argument
+//! let cond_with_arg = Condition::Custom {
+//!     key: "has_gold".to_string(),
+//!     args: vec![FactValue::Int(50)],
+//! };
+//! ```
+//!
+//! In your evaluator, match on `key`, explicitly recurse through
+//! `All`/`Any`/`Not` using `self.evaluate()` (so nested `Custom` conditions
+//! reach your evaluator), and delegate everything else to
+//! [`DefaultConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/struct.DefaultConditionEvaluator.html).
+//! See [`ConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/trait.ConditionEvaluator.html)
+//! for the full pattern with composite recursion.
 
 use crate::alignment::{AlignmentAxisId, AlignmentPoleId};
 use crate::character::EntityId;

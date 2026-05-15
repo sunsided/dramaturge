@@ -92,6 +92,10 @@
 //! ]);
 //! let cond = GameFacts::not(GameFacts::MetHero.is_false(FactScope::World));
 //! ```
+//!
+//! # `#[derive(Dramaturge)]`
+//!
+//! Placeholder derive macro. Currently a no-op; reserved for future use.
 
 extern crate proc_macro;
 

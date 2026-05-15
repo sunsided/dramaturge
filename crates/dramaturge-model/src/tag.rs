@@ -9,6 +9,53 @@
 //! axis/key combinations via the [`DialogTag`] trait. Users can also
 //! implement the [`DialogTag`] trait on their own domain-specific enums.
 //! [`DialogTagKind`] is a type alias for [`CustomDialogTag`].
+//!
+//! # Custom Tag Types
+//!
+//! Use [`CustomDialogTag`] for ad-hoc axis/key pairs:
+//!
+//! ```rust
+//! use dramaturge_model::CustomDialogTag;
+//!
+//! // Mass Effect style
+//! let paragon = CustomDialogTag::new("moral", "paragon");
+//! let renegade = CustomDialogTag::new("moral", "renegade");
+//!
+//! // Skill-gated options
+//! let medic = CustomDialogTag::skill("medic");       // axis = "skill"
+//! let hacker = CustomDialogTag::skill("hacking");
+//!
+//! // With a UI prefix shown to the player
+//! let charmed = CustomDialogTag::with_prefix("social", "charm", "[Charm]");
+//! ```
+//!
+//! Or implement the [`DialogTag`] trait on your own enum for compile-time
+//! safety and derive macro support:
+//!
+//! ```rust
+//! use std::fmt::Debug;
+//! use dramaturge_model::DialogTag;
+//!
+//! #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+//! enum SpectreTone {
+//!     Paragon,
+//!     Renegade,
+//! }
+//!
+//! impl DialogTag for SpectreTone {
+//!     fn axis(&self) -> &str { "moral" }
+//!     fn key(&self) -> &str {
+//!         match self {
+//!             SpectreTone::Paragon => "paragon",
+//!             SpectreTone::Renegade => "renegade",
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! Use `#[derive(DialogTag)]` from `dramaturge-macros` to generate the
+//! `DialogTag` impl automatically from `#[tag(axis = "...", key = "...")]`
+//! attributes on variants.
 
 use std::fmt::Debug;
 use std::hash::Hash;

@@ -10,6 +10,40 @@
 //! `Fact`, `ScopedFact`, `Condition`, `Outcome`, `DialogueNode`, etc.)
 //! only derive `Debug, Clone, PartialEq`. Float comparison uses epsilon
 //! (`f64::EPSILON`) in the evaluation layer.
+//!
+//! # Multi-Game Examples
+//!
+//! **Pokémon** — friendship fact scoped to the player:
+//!
+//! ```rust
+//! use dramaturge_model::{Fact, FactScope};
+//!
+//! // Track Pikachu's friendship score
+//! let friendship = Fact::int("friendship:pikachu", 120);
+//! // Scoped to the player — other characters don't see it
+//! let scope = FactScope::Player;
+//! ```
+//!
+//! **Mass Effect** — global mission completion flag:
+//!
+//! ```rust
+//! use dramaturge_model::{Fact, FactScope};
+//!
+//! // Objective truth — every character knows the mission is done
+//! let mission_done = Fact::bool("mission:eden_prime_complete", true);
+//! let scope = FactScope::World;
+//! ```
+//!
+//! **Asymmetric knowledge** — only Mara knows about the hidden shipment:
+//!
+//! ```rust
+//! use dramaturge_model::{Character, EntityId, CharacterId, Fact, FactScope};
+//!
+//! let mara_id = CharacterId::new(EntityId::new(2));
+//! let scope = FactScope::Character(mara_id);
+//! let fact = Fact::bool("knows_about_hidden_shipment", true);
+//! // The player and other characters do not see this fact
+//! ```
 
 use std::sync::Arc;
 

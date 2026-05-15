@@ -6,62 +6,59 @@
 
 ---
 
-**Status: Bootstrap / Prototype — APIs are unstable and incomplete.**
+dramaturge is a game-agnostic Rust library for building branching dialogue systems. It models characters, facts, alignment, relationships, memories, and events as pure data — no game engine knowledge baked in. Your game-specific rules live in typed IDs, tags, facts, and state changes; the library evaluates conditions, applies outcomes, and drives dialogue sessions.
 
-This workspace is in its earliest scaffolding stage. The crate layout, public API shapes,
-and module structure are established; full implementation will follow in subsequent milestones.
+## Quick Start
 
----
+```toml
+[dependencies]
+# workspace member (not yet published to crates.io)
+dramaturge = { path = "crates/dramaturge" }
+```
 
-## Intended Architecture
+```rust
+use dramaturge::{
+    Character, EntityId, Fact, FactId, FactScope, FactValue,
+    Condition, DialogWorldState, DefaultConditionEvaluator, ConditionEvaluator,
+};
 
-The workspace is split into focused crates:
+// Create a character
+let hero = Character::new(EntityId::new(1), "hero", "Elara");
+assert_eq!(&*hero.display_name, "Elara");
+
+// Set a fact in the world state
+let mut world = DialogWorldState::new();
+world.set_fact(FactScope::Player, Fact::bool("met_the_oracle", true));
+
+// Gate a dialogue option on that fact
+let condition = Condition::FactEquals {
+    scope: FactScope::Player,
+    fact_id: FactId::new("met_the_oracle"),
+    value: FactValue::Bool(true),
+};
+
+let evaluator = DefaultConditionEvaluator;
+assert!(evaluator.evaluate(&condition, &world));
+```
+
+## Full Example
+
+[`the_broken_seal`](crates/dramaturge/examples/the_broken_seal.rs) demonstrates a complete dialogue scene loaded from YAML: branching conditions based on player skills, relationship outcomes, and a simple text-based TUI. Run it with:
+
+```bash
+cargo run -p dramaturge --example the_broken_seal
+```
+
+## Workspace Layout
 
 | Crate | Purpose |
 |---|---|
 | `dramaturge` | Public facade — re-exports the most important items |
-| `dramaturge-model` | Core domain types (characters, dialogue graphs, facts, …) |
-| `dramaturge-runtime` | Evaluation traits and runtime engine interface |
-| `dramaturge-macros` | Procedural macros (placeholder) |
-| `dramaturge-serde` | Optional serialization integration |
-| `dramaturge-authoring` | Authoring-time validation helpers |
-
-## Crate Layout
-
-```
-crates/
-├── dramaturge/           # Facade crate
-├── dramaturge-model/     # Core domain model
-├── dramaturge-runtime/   # Runtime/evaluation traits
-├── dramaturge-macros/    # Proc-macro crate (placeholder)
-├── dramaturge-serde/     # Serialization integration (optional serde feature)
-└── dramaturge-authoring/ # Authoring/validation helpers
-```
-
-## Example Sketch
-
-The following sketch shows the intended import ergonomics once the library matures.
-**Nothing below is implemented yet** — it is a design target only.
-
-```rust
-use dramaturge::{
-    Character, CharacterId,
-    DialogueGraph, DialogueNode, DialogueOption,
-    OptionTag, Alignment,
-    Fact, Condition, Outcome,
-    Intent, Memory, Event,
-    DialogueRuntime, EvaluationContext, EvaluationResult,
-};
-
-// Construct a character
-let hero = Character {
-    id: CharacterId("hero".into()),
-    name: "Elara".into(),
-};
-
-// Build a dialogue graph
-let graph = DialogueGraph { nodes: vec![] };
-```
+| `dramaturge-model` | Core domain types: characters, facts, conditions, outcomes, dialogue graphs |
+| `dramaturge-runtime` | Evaluation traits and default runtime engine |
+| `dramaturge-macros` | Derive macros: `DialogTag`, `FactValue`, `ConditionBuilder` |
+| `dramaturge-serde` | Optional serialization integration (`serde` and `yaml` features) |
+| `dramaturge-authoring` | Authoring-time validation: graph structure checks, dead-end detection, orphan facts |
 
 ## License
 

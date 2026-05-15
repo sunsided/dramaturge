@@ -16,6 +16,35 @@
 //! 5. **Cycles** — Nodes participating in cycles, reporting all cycle members
 //! 6. **Always-false conditions** — Options with conditions that evaluate to always false via constant folding
 //! 7. **Orphaned fact references** — Facts referenced in conditions but never set by any outcome
+//!
+//! # When to Use
+//!
+//! Run the validator at authoring time — in CI, in an editor plugin, or as
+//! a build step — not at game runtime. Validation catches structural problems
+//! early, before they manifest as silent failures during play.
+//!
+//! # Severity Levels in Practice
+//!
+//! - [`ValidationSeverity::Error`] — graph is broken; the dialogue cannot
+//!   run correctly. Ship-blocker. Examples: option targets a non-existent
+//!   node, entry node missing.
+//! - [`ValidationSeverity::Warning`] — likely a mistake but not fatal.
+//!   Examples: unreachable node, always-false condition, orphaned fact reference.
+//! - [`ValidationSeverity::Info`] — informational. Dead-end nodes at the
+//!   narrative leaves are common and expected.
+//!
+//! # Example
+//!
+//! ```rust
+//! use dramaturge_authoring::GraphValidator;
+//! use dramaturge_model::DialogueGraph;
+//!
+//! let graph = DialogueGraph::default();
+//! let validator = GraphValidator::new();
+//! let issues = validator.validate(&graph);
+//! // An empty graph has no issues.
+//! assert!(issues.is_empty());
+//! ```
 
 use std::collections::{HashMap, HashSet, VecDeque};
 

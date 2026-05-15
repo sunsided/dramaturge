@@ -6,16 +6,18 @@
 //! ## Features Demonstrated
 //!
 //! - Loading dialogue graphs from YAML configuration
+//! - Authoring-time graph validation (missing targets, unreachable nodes, dead ends)
 //! - Runtime validation of conditions and outcomes
 //! - Interactive TUI with debug mode
 //!
 //! ## Run the Example
 //!
 //! ```bash
-//! cargo run --example overheard_truth_lie
+//! cargo run --example the_broken_seal
 //! ```
 
 use dramaturge::*;
+use dramaturge_authoring::{GraphValidator, ValidationSeverity};
 use dramaturge_serde::loader::YamlDialogueGraph;
 use std::collections::HashMap;
 use std::io::{self, Write};
@@ -638,6 +640,28 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    // Validate graph structure before running
+    let issues = GraphValidator::new().validate(&graph);
+    if !issues.is_empty() {
+        eprintln!("Graph validation:");
+        for issue in &issues {
+            let prefix = match issue.severity {
+                ValidationSeverity::Error => "  [ERROR]",
+                ValidationSeverity::Warning => "  [WARN] ",
+                ValidationSeverity::Info => "  [INFO] ",
+            };
+            eprintln!("{} {}", prefix, issue.message);
+        }
+        if issues
+            .iter()
+            .any(|i| i.severity == ValidationSeverity::Error)
+        {
+            eprintln!("Aborting: graph has validation errors.");
+            std::process::exit(1);
+        }
+        eprintln!();
+    }
 
     // Show intro and configure character
     let (has_medic, has_intimidation) = show_intro_and_configure();
