@@ -1,6 +1,7 @@
 [package]
 name = "dramaturge-runtime"
 description = "Runtime evaluation traits and engine interface for dramaturge."
+readme = "README.md"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
