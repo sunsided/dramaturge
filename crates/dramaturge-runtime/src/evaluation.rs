@@ -5,6 +5,62 @@
 //! the mutable world state ([`DialogWorldState`]).
 //! Default implementations ([`DefaultConditionEvaluator`], [`DefaultOutcomeApplier`])
 //! are provided for all condition and outcome variants.
+//!
+//! # Implementing a Custom Evaluator
+//!
+//! Wrap [`DefaultConditionEvaluator`] and handle only your custom keys:
+//!
+//! ```rust
+//! use dramaturge_runtime::{ConditionEvaluator, DefaultConditionEvaluator, DialogWorldState};
+//! use dramaturge_model::{Condition, FactValue};
+//!
+//! struct GameEvaluator {
+//!     inner: DefaultConditionEvaluator,
+//! }
+//!
+//! impl ConditionEvaluator for GameEvaluator {
+//!     fn evaluate(&self, condition: &Condition, ctx: &DialogWorldState) -> bool {
+//!         match condition {
+//!             Condition::Custom { key, .. } if key == "is_daytime" => {
+//!                 // Your game engine call goes here.
+//!                 false
+//!             }
+//!             Condition::Custom { key, args } if key == "has_gold" => {
+//!                 let _min = args.first()
+//!                     .and_then(|v| if let FactValue::Int(n) = v { Some(*n) } else { None })
+//!                     .unwrap_or(0);
+//!                 // Query your game's gold counter here.
+//!                 false
+//!             }
+//!             other => self.inner.evaluate(other, ctx),
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! # Implementing a Custom Outcome Applier
+//!
+//! Wrap [`DefaultOutcomeApplier`] and handle only your custom keys:
+//!
+//! ```rust
+//! use dramaturge_runtime::{OutcomeApplier, DefaultOutcomeApplier, DialogWorldState};
+//! use dramaturge_model::Outcome;
+//!
+//! struct GameApplier {
+//!     inner: DefaultOutcomeApplier,
+//! }
+//!
+//! impl OutcomeApplier for GameApplier {
+//!     fn apply(&mut self, outcome: &Outcome, state: &mut DialogWorldState) {
+//!         match outcome {
+//!             Outcome::Custom { key, .. } if key == "unlock_achievement" => {
+//!                 // Fire your achievement system here.
+//!             }
+//!             other => self.inner.apply(other, state),
+//!         }
+//!     }
+//! }
+//! ```
 
 use dramaturge_model::{Condition, Outcome};
 
