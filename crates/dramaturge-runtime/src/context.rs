@@ -209,7 +209,14 @@ impl DialogWorldState {
     }
 
     /// Appends an event to the timeline.
+    ///
+    /// If the event's ID is at or above the current allocation counter, the
+    /// counter is advanced past it so that subsequent [`emit_event`](Self::emit_event)
+    /// calls cannot produce a duplicate ID.
     pub fn add_event(&mut self, event: Event) {
+        if event.id.0 >= self.event_id_counter {
+            self.event_id_counter = event.id.0.wrapping_add(1);
+        }
         self.events.push(event);
     }
 
@@ -295,14 +302,18 @@ mod tests {
     use dramaturge_model::{Fact, FactId, FactScope};
 
     #[test]
-    fn next_event_id_counter_is_independent_of_add_event() {
+    fn add_event_advances_counter_to_prevent_duplicate_ids() {
         use dramaturge_model::{Event, EventId, EventKind};
         let mut state = DialogWorldState::new();
         state.add_event(Event::new(
             EventId::new(100),
             EventKind::Custom { kind: "x".into() },
         ));
-        assert_eq!(state.next_event_id(), Some(1));
+        assert_eq!(state.next_event_id(), Some(101));
+        let emitted = state
+            .emit_event(EventKind::Custom { kind: "y".into() })
+            .unwrap();
+        assert_eq!(emitted.id.0, 101);
     }
 
     #[test]
