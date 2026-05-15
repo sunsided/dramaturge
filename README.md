@@ -12,7 +12,8 @@ dramaturge is a game-agnostic Rust library for building branching dialogue syste
 
 ```toml
 [dependencies]
-dramaturge = { version = "0.1", path = "crates/dramaturge" }
+# workspace member (not yet published to crates.io)
+dramaturge = { path = "crates/dramaturge" }
 ```
 
 ```rust
@@ -45,7 +46,7 @@ assert!(evaluator.evaluate(&condition, &world));
 [`the_broken_seal`](crates/dramaturge/examples/the_broken_seal.rs) demonstrates a complete dialogue scene loaded from YAML: branching conditions based on player skills, relationship outcomes, and a simple text-based TUI. Run it with:
 
 ```bash
-cargo run --example the_broken_seal --all-features
+cargo run --example the_broken_seal
 ```
 
 ## Workspace Layout

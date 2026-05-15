@@ -12,7 +12,7 @@
 //! ## Run the Example
 //!
 //! ```bash
-//! cargo run --example overheard_truth_lie
+//! cargo run --example the_broken_seal
 //! ```
 
 use dramaturge::*;
