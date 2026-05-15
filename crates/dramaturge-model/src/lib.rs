@@ -1,4 +1,3 @@
-#![cfg_attr(docsrs, feature(doc_cfg))]
 //! Core domain model for the `dramaturge` dialogue toolkit.
 //!
 //! This crate provides game-agnostic foundational types for branching dialogue
@@ -81,6 +80,8 @@
 //! [`DialogTag`] is a trait for axis/key annotation on dialogue options.
 //! [`CustomDialogTag`] is the built-in implementation. Implement [`DialogTag`]
 //! on your own enum for a type-safe tag system with derive macro support.
+
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod alignment;
 pub mod character;

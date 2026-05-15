@@ -1,4 +1,3 @@
-#![cfg_attr(docsrs, feature(doc_cfg))]
 //! Optional serialization integration for the `dramaturge` toolkit.
 //!
 //! # Features
@@ -27,6 +26,8 @@
 //! `dramaturge-model` intentionally has no serde dependency so that game
 //! engines that serialize state through other means (binary formats, custom
 //! reflection, etc.) pay zero cost. Add this crate only when you need it.
+
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub use serde;
 
