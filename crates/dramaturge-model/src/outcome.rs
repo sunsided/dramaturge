@@ -19,7 +19,6 @@ use crate::relationship::RelationshipAxisId;
 /// (applied when the option is chosen) or to [`DialogueNode`](crate::DialogueNode)
 /// (applied when the node is entered).
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Outcome {
     /// Sets or updates a scoped fact in the world state.
     SetFact {

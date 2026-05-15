@@ -54,7 +54,6 @@ use crate::tag::DialogTagKind;
 /// whether certain outcomes should apply. They form a composable tree
 /// that supports logical operators, fact queries, and extension points.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Condition {
     /// Always evaluates to `true`.
     Always,
