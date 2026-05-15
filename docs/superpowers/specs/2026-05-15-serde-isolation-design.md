@@ -61,7 +61,7 @@ Strip all serde annotations:
 - `alignment.rs` - 5 derives
 - `character.rs` - 5 derives
 - `condition.rs` - 1 derive
-- `dialogue.rs` - 7 derives + 1 field attr (`serde(default)` on `navigation_hint`)
+- `dialogue.rs` - 8 derives + 1 field attr (`serde(default)` on `navigation_hint`)
 - `event.rs` - 4 derives
 - `fact.rs` - 5 derives
 - `intent.rs` - 2 derives

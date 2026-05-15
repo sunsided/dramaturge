@@ -19,7 +19,7 @@
 | `crates/dramaturge-model/src/alignment.rs` | Remove 5 `cfg_attr` derive lines |
 | `crates/dramaturge-model/src/character.rs` | Remove 5 `cfg_attr` derive lines |
 | `crates/dramaturge-model/src/condition.rs` | Remove 1 `cfg_attr` derive line |
-| `crates/dramaturge-model/src/dialogue.rs` | Remove 7 `cfg_attr` derive lines + 1 field attr |
+| `crates/dramaturge-model/src/dialogue.rs` | Remove 8 `cfg_attr` derive lines + 1 field attr |
 | `crates/dramaturge-model/src/event.rs` | Remove 4 `cfg_attr` derive lines |
 | `crates/dramaturge-model/src/fact.rs` | Remove 5 `cfg_attr` derive lines |
 | `crates/dramaturge-model/src/intent.rs` | Remove 2 `cfg_attr` derive lines |
@@ -46,10 +46,10 @@ Expected: all tests pass. If any fail, stop and investigate — don't proceed wi
 - [ ] **Step 2: Record serde presence in model's dep tree**
 
 ```bash
-cargo tree -p dramaturge-model 2>/dev/null | grep serde
+cargo tree -p dramaturge-model --features serde 2>/dev/null | grep serde
 ```
 
-Expected: shows `serde v1.x.x` in the tree (it's currently an optional dep, listed when feature is active). This will be empty after the work is done.
+Expected: shows `serde v1.x.x` in the tree (optional deps are only shown when the feature is explicitly activated). After the work is done, this command will produce no output because the `serde` feature will no longer exist.
 
 ---
 
@@ -315,10 +315,8 @@ Expected: no errors.
 Open `crates/dramaturge-model/Cargo.toml`. Apply this diff:
 
 ```toml
-# REMOVE this entire block:
-[package.metadata.docs.rs]
+# REMOVE only this line from [package.metadata.docs.rs] (keep rustdoc-args):
 features = ["serde"]
-rustdoc-args = ["--cfg", "docsrs"]
 
 # REMOVE this entire block:
 [features]

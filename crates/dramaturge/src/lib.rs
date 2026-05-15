@@ -32,10 +32,11 @@
 //! └──────────────────────────────────────────────────────┘
 //! ```
 //!
-//! The model crate has no default serde or runtime dependency (`serde` is an
-//! optional feature). The runtime crate knows
-//! nothing about serialization. You can depend on individual crates or on this
-//! facade for the full public surface.
+//! The model crate has no serde or runtime dependency. Serialization is handled
+//! exclusively by `dramaturge-serde` via DTO types; enabling the `serde` feature
+//! on this facade pulls that crate in. The runtime crate knows nothing about
+//! serialization. You can depend on individual crates or on this facade for the
+//! full public surface.
 //!
 //! # Extending the System
 //!
