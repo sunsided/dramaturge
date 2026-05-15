@@ -17,7 +17,7 @@ use dramaturge_model::{
 /// This struct holds all mutable state that the dialogue system interacts
 /// with during evaluation. Facts are scoped, alignments and relationships
 /// are directional, and memories are owned by entities.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DialogWorldState {
     /// Scoped facts known in the world.
     pub facts: Vec<ScopedFact>,
@@ -31,6 +31,24 @@ pub struct DialogWorldState {
     pub events: Vec<Event>,
     /// Tags currently available in the world.
     pub available_tags: Vec<DialogTagKind>,
+    /// Next event ID to allocate via [`emit_event`](Self::emit_event).
+    ///
+    /// Zero means the counter has wrapped around and the ID space is exhausted.
+    event_id_counter: u64,
+}
+
+impl Default for DialogWorldState {
+    fn default() -> Self {
+        Self {
+            facts: Vec::new(),
+            alignments: Vec::new(),
+            relationships: Vec::new(),
+            memories: Vec::new(),
+            events: Vec::new(),
+            available_tags: Vec::new(),
+            event_id_counter: 1,
+        }
+    }
 }
 
 /// Type alias for backward compatibility with earlier versions.
@@ -191,17 +209,22 @@ impl DialogWorldState {
     }
 
     /// Appends an event to the timeline.
+    ///
+    /// If the event's ID is at or above the current allocation counter, the
+    /// counter is advanced past it so that subsequent [`emit_event`](Self::emit_event)
+    /// calls cannot produce a duplicate ID.
     pub fn add_event(&mut self, event: Event) {
+        if event.id.0 >= self.event_id_counter {
+            self.event_id_counter = event.id.0.wrapping_add(1);
+        }
         self.events.push(event);
     }
 
-    /// Returns the next auto-incremented event ID based on existing events.
+    /// Returns the next event ID that [`emit_event`](Self::emit_event) would allocate.
     ///
-    /// Returns `None` when the event log has reached `u64::MAX` events,
-    /// indicating that no more unique IDs can be allocated.
+    /// Returns `None` when the event ID space is exhausted (after 2^64 - 1 events).
     pub fn next_event_id(&self) -> Option<u64> {
-        let max_id = self.events.iter().map(|e| e.id.0).max().unwrap_or(0);
-        max_id.checked_add(1)
+        (self.event_id_counter != 0).then_some(self.event_id_counter)
     }
 
     /// Allocates a new event ID and appends an event with the given kind.
@@ -211,6 +234,7 @@ impl DialogWorldState {
         let id = self.next_event_id()?;
         let event = Event::new(EventId::new(id), kind);
         self.events.push(event);
+        self.event_id_counter = self.event_id_counter.wrapping_add(1);
         self.events.last()
     }
 
@@ -276,6 +300,21 @@ mod tests {
     use super::*;
     use assert2::check;
     use dramaturge_model::{Fact, FactId, FactScope};
+
+    #[test]
+    fn add_event_advances_counter_to_prevent_duplicate_ids() {
+        use dramaturge_model::{Event, EventId, EventKind};
+        let mut state = DialogWorldState::new();
+        state.add_event(Event::new(
+            EventId::new(100),
+            EventKind::Custom { kind: "x".into() },
+        ));
+        assert_eq!(state.next_event_id(), Some(101));
+        let emitted = state
+            .emit_event(EventKind::Custom { kind: "y".into() })
+            .unwrap();
+        assert_eq!(emitted.id.0, 101);
+    }
 
     #[test]
     fn world_state_default() {
@@ -695,6 +734,23 @@ mod proptests {
             let memories = ctx.get_memories(owner);
             prop_assert!(!memories.is_empty());
             prop_assert!(memories.contains(&&memory));
+        });
+    }
+
+    #[test]
+    fn prop_emit_event_counter_sequential() {
+        proptest!(|(n in 1usize..50)| {
+            let mut ctx = DialogWorldState::new();
+            for expected_id in 1..=(n as u64) {
+                let before = ctx.next_event_id();
+                prop_assert_eq!(before, Some(expected_id));
+                let event = ctx
+                    .emit_event(EventKind::Custom { kind: "x".into() })
+                    .unwrap();
+                prop_assert_eq!(event.id.0, expected_id);
+            }
+            prop_assert_eq!(ctx.next_event_id(), Some(n as u64 + 1));
+            prop_assert_eq!(ctx.events.len(), n);
         });
     }
 
