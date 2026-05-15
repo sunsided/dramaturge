@@ -53,7 +53,7 @@
 //!
 //! [`Outcome`] is a declarative state change: set a fact, adjust alignment,
 //! modify a relationship, add a memory, emit an event, or a custom extension.
-//! Applied by [`OutcomeApplier`](dramaturge_runtime::OutcomeApplier) at runtime.
+//! Applied by [`OutcomeApplier`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/trait.OutcomeApplier.html) at runtime.
 //!
 //! ## Memories
 //!

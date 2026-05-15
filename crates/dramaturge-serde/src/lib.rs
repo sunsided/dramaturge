@@ -15,9 +15,9 @@
 //! use dramaturge_serde::loader::YamlDialogueGraph;
 //!
 //! let raw = std::fs::read_to_string("dialogue.yaml").unwrap();
-//! let graph = YamlDialogueGraph::from_str(&raw)
+//! let graph = YamlDialogueGraph::from_yaml(&raw)
 //!     .expect("invalid YAML")
-//!     .into_graph()
+//!     .to_model()
 //!     .expect("invalid graph structure");
 //! ```
 //!

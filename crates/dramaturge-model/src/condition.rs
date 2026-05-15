@@ -37,9 +37,9 @@
 //! In your evaluator, match on `key` and delegate non-custom arms to
 //! [`DefaultConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/struct.DefaultConditionEvaluator.html):
 //!
-//! ```rust
-//! // See dramaturge_runtime::evaluation for the full extension example.
-//! ```
+//! See [`ConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/trait.ConditionEvaluator.html) and
+//! [`DefaultConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/struct.DefaultConditionEvaluator.html)
+//! for the full extension example.
 
 use crate::alignment::{AlignmentAxisId, AlignmentPoleId};
 use crate::character::EntityId;
