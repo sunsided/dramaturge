@@ -2,10 +2,8 @@
 //!
 //! # Features
 //!
-//! - `serde` — activates [`serde`](https://docs.rs/serde) support across the
-//!   model types. Enable with `dramaturge-serde = { features = ["serde"] }`.
-//! - `yaml` — enables the YAML dialogue loader (implies `serde`). Requires the
-//!   `yaml` feature: `dramaturge-serde = { features = ["yaml"] }`.
+//! - `yaml` — enables the YAML dialogue loader. Requires the `yaml` feature:
+//!   `dramaturge-serde = { features = ["yaml"] }`.
 //!
 //! # YAML Loader
 //!
@@ -29,10 +27,12 @@
 //! engines that serialize state through other means (binary formats, custom
 //! reflection, etc.) pay zero cost. Add this crate only when you need it.
 
-#[cfg(feature = "serde")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 pub use serde;
 
 #[cfg(feature = "yaml")]
+#[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
 pub mod loader;
 
 use dramaturge_model as model;

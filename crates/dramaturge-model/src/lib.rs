@@ -81,6 +81,8 @@
 //! [`CustomDialogTag`] is the built-in implementation. Implement [`DialogTag`]
 //! on your own enum for a type-safe tag system with derive macro support.
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 pub mod alignment;
 pub mod character;
 pub mod condition;
