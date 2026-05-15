@@ -11,12 +11,11 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-serde = ["dep:serde"]
-yaml = ["serde", "dep:serde_yaml"]
+yaml = ["dep:serde_yaml"]
 
 [dependencies]
 dramaturge-model = { workspace = true, features = ["serde"] }
-serde = { workspace = true, optional = true }
+serde = { workspace = true }
 serde_yaml = { version = "0.9", optional = true }
 
 [dev-dependencies]

@@ -4,12 +4,25 @@ Optional serialization integration for the [dramaturge](https://crates.io/crates
 
 `dramaturge-model` intentionally has no serde dependency so game engines that serialize state through other means (binary formats, custom reflection, etc.) pay zero cost. Add this crate only when you need it.
 
+Serde `Serialize`/`Deserialize` is always enabled for all model types. The `yaml` feature adds the YAML dialogue loader on top.
+
 ## Features
 
 | Feature | What it enables |
 |---|---|
-| `serde` | Serde `Serialize`/`Deserialize` on all model types |
-| `yaml` | YAML dialogue graph loader (implies `serde`) |
+| *(default)* | Serde `Serialize`/`Deserialize` on all model types |
+| `yaml` | YAML dialogue graph loader |
+
+## Serde (JSON, binary, etc.)
+
+No feature flag needed - just add the crate:
+
+```toml
+[dependencies]
+dramaturge-serde = "..."
+```
+
+Model types then implement `serde::Serialize` and `serde::Deserialize`, ready for use with `serde_json`, `bincode`, `postcard`, etc.
 
 ## YAML loader
 
@@ -27,15 +40,6 @@ let graph = YamlDialogueGraph::from_yaml(&raw)?
 ```
 
 See [`crates/dramaturge/examples/dialogue.yaml`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge/examples/dialogue.yaml) in the repository for the full YAML schema.
-
-## Serde-only (no YAML)
-
-When you only need serde support (e.g. for JSON or binary formats via `bincode`/`postcard`):
-
-```toml
-[dependencies]
-dramaturge-serde = { version = "...", features = ["serde"] }
-```
 
 ## Part of the dramaturge workspace
 
