@@ -88,18 +88,15 @@ impl DialogTag for CustomDialogTag {
 /// `display_prefix` or `requires_trait`. This ensures tags are compared
 /// by their semantic identity regardless of display or requirement metadata.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CustomDialogTag {
     /// Custom axis identifier.
     pub axis: Arc<str>,
     /// Custom key within the axis.
     pub key: Arc<str>,
     /// Optional display prefix for rendering (e.g., "[Medic]").
-    #[cfg_attr(feature = "serde", serde(default))]
     pub display_prefix: Option<Arc<str>>,
     /// Whether this tag represents a required player trait/skill.
     /// When true, the option is only available if the player has this trait.
-    #[cfg_attr(feature = "serde", serde(default))]
     pub requires_trait: bool,
 }
 

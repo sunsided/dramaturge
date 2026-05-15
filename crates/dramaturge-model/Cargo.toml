@@ -11,14 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [package.metadata.docs.rs]
-features = ["serde"]
 rustdoc-args = ["--cfg", "docsrs"]
-
-[features]
-serde = ["dep:serde"]
-
-[dependencies]
-serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 dramaturge-macros = { workspace = true }

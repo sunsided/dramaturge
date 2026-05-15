@@ -16,7 +16,6 @@ use crate::tag::DialogTagKind;
 
 /// Unique numeric identifier for a dialogue node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueNodeId(pub u64);
 
 impl DialogueNodeId {
@@ -28,7 +27,6 @@ impl DialogueNodeId {
 
 /// Unique numeric identifier for a dialogue option.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueOptionId(pub u64);
 
 impl DialogueOptionId {
@@ -40,7 +38,6 @@ impl DialogueOptionId {
 
 /// Text content that can be inline or localized.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DialogText {
     /// Direct string text.
     Inline(String),
@@ -62,7 +59,6 @@ impl DialogText {
 
 /// Where a dialogue option leads.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DialogTarget {
     /// Transitions to another dialogue node.
     Node(DialogueNodeId),
@@ -80,7 +76,6 @@ pub enum DialogTarget {
 /// (e.g., "[Continue]", "[Leave]", "[End]"). These replace hardcoded
 /// prefixes in dialogue text with semantic, localizable navigation markers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum NavigationHint {
     /// Continue to the next node (→ Continue / [Continue]).
     Continue,
@@ -151,7 +146,6 @@ impl DialogTarget {
 /// Nodes can have conditions that gate their entry and outcomes that
 /// apply when the node is entered.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueNode {
     /// Unique identifier for this node.
     pub id: DialogueNodeId,
@@ -189,7 +183,6 @@ impl DialogueNode {
 /// responses or actions available to the player. Each option can have
 /// tags, intentions, conditions, and outcomes.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueOption {
     /// Unique identifier for this option.
     pub id: DialogueOptionId,
@@ -208,7 +201,6 @@ pub struct DialogueOption {
     /// The node this option belongs to.
     pub source_node_id: DialogueNodeId,
     /// Optional navigation hint (e.g., Continue, Leave, End).
-    #[cfg_attr(feature = "serde", serde(default))]
     pub navigation_hint: Option<NavigationHint>,
 }
 
@@ -247,7 +239,6 @@ impl DialogueOption {
 /// Holds all nodes and optionally designates an entry point for
 /// traversal.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DialogueGraph {
     /// All nodes in the graph.
     pub nodes: Vec<DialogueNode>,

@@ -18,7 +18,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 yaml = ["dep:serde_yaml"]
 
 [dependencies]
-dramaturge-model = { workspace = true, features = ["serde"] }
+dramaturge-model = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { version = "0.9", optional = true }
 

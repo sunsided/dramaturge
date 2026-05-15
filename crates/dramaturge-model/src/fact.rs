@@ -53,7 +53,6 @@ use crate::character::{CharacterId, EntityId};
 ///
 /// Uses `Arc<str>` internally for cheap cloning.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FactId(pub Arc<str>);
 
 impl FactId {
@@ -70,7 +69,6 @@ impl FactId {
 /// on this type and all types that contain it transitively.
 /// Float equality is handled with epsilon comparison in the evaluation layer.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FactValue {
     /// Boolean flag.
     Bool(bool),
@@ -88,7 +86,6 @@ pub enum FactValue {
 
 /// A single named piece of information with a typed value.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Fact {
     /// Unique fact identifier.
     pub id: FactId,
@@ -152,7 +149,6 @@ impl Fact {
 /// know a secret that a character does not, or a faction may have
 /// information not shared with the world.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FactScope {
     /// Fact known globally (objective truth).
     World,
@@ -171,7 +167,6 @@ pub enum FactScope {
 /// Combines a fact with the scope in which it applies, enabling
 /// queries like "what does character X know about fact Y?"
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ScopedFact {
     /// Where this fact applies.
     pub scope: FactScope,
