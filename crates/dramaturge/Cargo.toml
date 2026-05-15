@@ -11,17 +11,23 @@ keywords.workspace = true
 categories.workspace = true
 
 [package.metadata.docs.rs]
+features = ["yaml"]
 rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+serde = ["dep:dramaturge-serde"]
+yaml = ["dep:dramaturge-serde", "dramaturge-serde/yaml"]
 
 [dependencies]
 dramaturge-model = { workspace = true }
 dramaturge-runtime = { workspace = true }
+dramaturge-serde = { workspace = true, optional = true }
 
 [dev-dependencies]
 assert2 = { workspace = true }
 dramaturge-authoring = { workspace = true }
-dramaturge-serde = { workspace = true, features = ["yaml"] }
 
 [[example]]
 name = "the_broken_seal"
 path = "examples/the_broken_seal.rs"
+required-features = ["yaml"]
