@@ -1,28 +1,84 @@
 //! Core domain model for the `dramaturge` dialogue toolkit.
 //!
-//! This crate provides game-agnostic, foundational types for building
-//! branching dialogue systems. It is intentionally free of serde or other
-//! serialization dependencies — the `dramaturge_serde` crate serves as
-//! the designated integration point for optional serialization.
+//! This crate provides game-agnostic foundational types for branching dialogue
+//! systems. It is intentionally free of serde and runtime dependencies.
 //!
-//! The types in this crate represent:
+//! # Concepts
 //!
-//! - **Characters and entities** — [`EntityId`], [`Character`], [`CharacterTrait`]
-//! - **Facts and scoping** — [`Fact`], [`FactValue`], [`FactScope`], [`ScopedFact`]
-//!   (note: `FactValue::Float(f64)` prevents `Eq`/`Hash` derivation on
-//!   transitively dependent types)
-//! - **Alignment** — [`AlignmentAxis`], [`AlignmentPole`], [`AlignmentScore`]
-//! - **Relationships** — [`RelationshipScore`], [`RelationshipAxisId`]
-//! - **Dialogue graphs** — [`DialogueGraph`], [`DialogueNode`], [`DialogueOption`]
-//! - **Conditions** — [`Condition`] (composable boolean expression trees)
-//! - **Outcomes** — [`Outcome`] (state changes triggered by dialogue choices)
-//! - **Memories** — [`Memory`], [`Confidence`], [`MemoryTag`]
-//! - **Events** — [`Event`], [`EventKind`]
-//! - **Intentions** — [`Intention`], [`DialogIntentions`]
-//! - **Tags** — [`DialogTag`], [`DialogTagKind`], [`CustomDialogTag`]
+//! ## Characters and Entities
 //!
-//! Circular module imports between `dialogue`, `outcome`, `event`, and
-//! `condition` are intentional and compile cleanly within a single crate.
+//! [`EntityId`] is the universal identifier — a `u64` wrapper used everywhere.
+//! [`Character`] wraps it with a string key, display name, and optional traits.
+//! [`CharacterTrait`] is a generic `namespace::key` pair; your game decides
+//! what traits exist.
+//!
+//! ## Facts and Scoping
+//!
+//! [`Fact`] is the unit of knowledge: a named [`FactValue`] (bool, int, float,
+//! text, entity reference, or set). [`FactScope`] controls who knows it:
+//! [`FactScope::World`] (objective), [`FactScope::Player`], [`FactScope::Character`],
+//! [`FactScope::Faction`], or [`FactScope::Party`]. Asymmetric knowledge is
+//! first-class — the player can know something a character does not.
+//!
+//! Note: [`FactValue::Float`] contains `f64`, which prevents `Eq`/`Hash`
+//! derivation. All types that transitively contain `FactValue` derive only
+//! `Debug, Clone, PartialEq`. Float equality uses epsilon comparison in the
+//! evaluation layer.
+//!
+//! ## Alignment
+//!
+//! [`AlignmentAxis`] defines a named dimension (e.g., `"morality"`) with named
+//! [`AlignmentPole`]s (e.g., `"paragon"`, `"renegade"`). [`AlignmentScore`]
+//! tracks a character's current position. Your game defines the axes and poles.
+//!
+//! ## Relationships
+//!
+//! [`RelationshipScore`] tracks directional, named relationships between entities
+//! (e.g., player → NPC trust). Axes are arbitrary string keys.
+//!
+//! ## Dialogue Graphs
+//!
+//! [`DialogueGraph`] is a pure data structure: a collection of [`DialogueNode`]s,
+//! each holding text, a speaker, [`DialogueOption`]s, and optional enter/exit
+//! [`Outcome`]s. No evaluation logic lives here.
+//!
+//! ## Conditions
+//!
+//! [`Condition`] is a composable boolean expression tree evaluated against world
+//! state. Supports logical operators, fact checks, alignment/relationship
+//! thresholds, memory queries, tag availability, and `Condition::Custom` for
+//! game-specific extensions.
+//!
+//! ## Outcomes
+//!
+//! [`Outcome`] is a declarative state change: set a fact, adjust alignment,
+//! modify a relationship, add a memory, emit an event, or a custom extension.
+//! Applied by [`OutcomeApplier`](dramaturge_runtime::OutcomeApplier) at runtime.
+//!
+//! ## Memories
+//!
+//! [`Memory`] is a character's subjective belief about another entity. Unlike
+//! facts (objective/scoped knowledge), memories carry a [`Confidence`] level
+//! and optional [`MemoryTag`]s (e.g., `HelpedMe`, `Betrayed`). Characters can
+//! have multiple memories about the same entity.
+//!
+//! ## Events
+//!
+//! [`Event`] records a moment in the narrative timeline — a dialogue choice, a
+//! fact learned, a relationship change. Events are queryable by kind, actor,
+//! and target, enabling reactive narrative logic.
+//!
+//! ## Intentions
+//!
+//! [`Intention`] describes the communicative purpose of a dialogue option
+//! (e.g., `Persuade`, `Threaten`, `Comfort`). Complements [`DialogTag`] by
+//! capturing *why* an option exists, not just *what category* it belongs to.
+//!
+//! ## Tags
+//!
+//! [`DialogTag`] is a trait for axis/key annotation on dialogue options.
+//! [`CustomDialogTag`] is the built-in implementation. Implement [`DialogTag`]
+//! on your own enum for a type-safe tag system with derive macro support.
 
 pub mod alignment;
 pub mod character;
