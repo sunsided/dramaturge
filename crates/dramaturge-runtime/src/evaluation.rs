@@ -41,10 +41,9 @@
 //! For handlers that need host state, implement [`CustomHandler`] for your
 //! state type and use it as `S`; see the `host_state` example.
 
-use dramaturge_model::{Condition, EventKind, Fact, FactScope, FactValue, Outcome};
-
 use crate::context::DialogWorldState;
 use crate::state::NarrativeState;
+use dramaturge_model::{Condition, EventKind, Fact, FactScope, FactValue, Outcome};
 
 /// Legacy result enum kept for backward compatibility.
 ///
@@ -580,7 +579,7 @@ mod tests {
             args: vec![],
         };
         applier.apply(&outcome, &mut ctx);
-        check!(ctx.facts.is_empty());
+        check!(ctx.fact_count() == 0);
     }
 
     #[test]
@@ -779,14 +778,14 @@ mod tests {
 
 #[cfg(test)]
 mod proptests {
-    use proptest::prelude::*;
-    use proptest::strategy::Strategy;
-
     use super::*;
+    use assert2::check;
     use dramaturge_model::character::{CharacterId, EntityId};
     use dramaturge_model::condition::Condition;
     use dramaturge_model::fact::{FactScope, FactValue};
     use proptest::collection::vec as prop_vec;
+    use proptest::prelude::*;
+    use proptest::strategy::Strategy;
 
     const MAX_SET_DEPTH: usize = 2;
 
@@ -963,7 +962,7 @@ mod proptests {
             (FactValue::Set(vec![]), FactValue::Bool(false)),
         ];
         for (a, b) in cases {
-            assert!(!partial_eq_values(&a, &b));
+            check!(!partial_eq_values(&a, &b));
         }
     }
 
@@ -1045,14 +1044,14 @@ mod proptests {
     fn prop_all_empty_true() {
         let ctx = DialogWorldState::new();
         let evaluator = DefaultConditionEvaluator::new();
-        assert!(evaluator.evaluate(&Condition::All(vec![]), &ctx));
+        check!(evaluator.evaluate(&Condition::All(vec![]), &ctx));
     }
 
     #[test]
     fn prop_any_empty_false() {
         let ctx = DialogWorldState::new();
         let evaluator = DefaultConditionEvaluator::new();
-        assert!(!evaluator.evaluate(&Condition::Any(vec![]), &ctx));
+        check!(!evaluator.evaluate(&Condition::Any(vec![]), &ctx));
     }
 
     #[test]
@@ -1070,9 +1069,8 @@ mod proptests {
         let ctx = DialogWorldState::new();
         let evaluator = DefaultConditionEvaluator::new();
         let not_always = Condition::Not(Box::new(Condition::Always));
-        assert_eq!(
-            evaluator.evaluate(&not_always, &ctx),
-            evaluator.evaluate(&Condition::Never, &ctx)
+        check!(
+            evaluator.evaluate(&not_always, &ctx) == evaluator.evaluate(&Condition::Never, &ctx)
         );
     }
 
@@ -1081,9 +1079,8 @@ mod proptests {
         let ctx = DialogWorldState::new();
         let evaluator = DefaultConditionEvaluator::new();
         let not_never = Condition::Not(Box::new(Condition::Never));
-        assert_eq!(
-            evaluator.evaluate(&not_never, &ctx),
-            evaluator.evaluate(&Condition::Always, &ctx)
+        check!(
+            evaluator.evaluate(&not_never, &ctx) == evaluator.evaluate(&Condition::Always, &ctx)
         );
     }
 }

@@ -34,7 +34,6 @@ pub use serde;
 #[cfg(feature = "yaml")]
 #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
 pub mod loader;
-
 use dramaturge_model as model;
 
 /// Re-export the model crate for downstream convenience.

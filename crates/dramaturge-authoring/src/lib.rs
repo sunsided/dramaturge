@@ -47,12 +47,11 @@
 //! assert!(issues.is_empty());
 //! ```
 
-use std::collections::{HashMap, HashSet, VecDeque};
-
 use dramaturge_model::{
     Condition, DialogTarget, DialogueGraph, DialogueNode, DialogueNodeId, DialogueOptionId,
     SymbolTable,
 };
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Classification of issue importance.
 #[derive(Debug, Clone, PartialEq, Eq)]

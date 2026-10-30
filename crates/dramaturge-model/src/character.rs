@@ -11,7 +11,7 @@ use std::sync::Arc;
 ///
 /// This is a newtype over `u64` that provides type safety, preventing
 /// accidental mixing of entity IDs with other numeric identifiers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EntityId(pub u64);
 
 impl EntityId {
@@ -23,7 +23,7 @@ impl EntityId {
 
 /// Wraps an [`EntityId`] to distinguish characters from generic entities
 /// at compile time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CharacterId(pub EntityId);
 
 impl CharacterId {
@@ -38,7 +38,7 @@ impl CharacterId {
 /// Uses `Arc<str>` internally for cheap cloning, making it suitable
 /// for use in authoring tools and scripting environments where the same
 /// key may be referenced many times.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CharacterKey(pub Arc<str>);
 
 impl CharacterKey {

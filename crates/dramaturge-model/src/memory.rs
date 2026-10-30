@@ -7,13 +7,12 @@
 //! [`MemoryTag`] tags describing the emotional significance of the
 //! recollection.
 
-use std::sync::Arc;
-
 use crate::character::EntityId;
 use crate::fact::FactId;
+use std::sync::Arc;
 
 /// Unique numeric identifier for a memory entry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct MemoryId(pub u64);
 
 impl MemoryId {
@@ -150,7 +149,7 @@ impl MemoryQuery {
 /// Memories are subjective and carry metadata about confidence,
 /// emotional weight, and categorical tags. They are distinct from
 /// facts, which represent scoped knowledge in the world state.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Memory {
     /// Unique identifier for this memory.
     pub id: MemoryId,
@@ -282,10 +281,10 @@ mod tests {
 
     #[test]
     fn confidence_ordering() {
-        assert!(Confidence::Rumor < Confidence::Suspected);
-        assert!(Confidence::Suspected < Confidence::Believed);
-        assert!(Confidence::Believed < Confidence::Known);
-        assert!(Confidence::Known < Confidence::Witnessed);
+        check!(Confidence::Rumor < Confidence::Suspected);
+        check!(Confidence::Suspected < Confidence::Believed);
+        check!(Confidence::Believed < Confidence::Known);
+        check!(Confidence::Known < Confidence::Witnessed);
     }
 
     #[test]

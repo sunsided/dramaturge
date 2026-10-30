@@ -136,6 +136,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn custom_condition_reads_host_room() {
@@ -150,7 +151,7 @@ mod tests {
         let node = build_node();
 
         // Lamp not lit yet: the nested fact check fails.
-        assert_eq!(runtime.available_options(&node, &state).count(), 0);
+        check!(runtime.available_options(&node, &state).count() == 0);
 
         state
             .dialog
@@ -159,7 +160,7 @@ mod tests {
             .available_options(&node, &state)
             .map(|o| o.id)
             .collect();
-        assert_eq!(ids, vec![DialogueOptionId::new(1)]);
+        check!(ids == vec![DialogueOptionId::new(1)]);
     }
 
     #[test]
@@ -174,8 +175,8 @@ mod tests {
         );
         let node = build_node();
         runtime.choose_option(&node.options[1], &mut state);
-        assert_eq!(state.current_room, "shore");
+        check!(state.current_room == "shore");
         // The built-in DialogOptionChosen event lands in the embedded state.
-        assert_eq!(state.dialog.events().len(), 1);
+        check!(state.dialog.events().len() == 1);
     }
 }

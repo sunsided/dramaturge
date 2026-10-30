@@ -33,11 +33,9 @@
 //! are still accepted for one release. Each use adds a deprecation message
 //! to [`LoadedDialogue::warnings`].
 
-use std::collections::{BTreeMap, HashMap};
-
-use serde::{Deserialize, Serialize};
-
 use dramaturge_model as model;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 
 /// A dialogue graph loaded from YAML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -579,6 +577,7 @@ fn parse_fact_scope(scope: &str) -> Result<model::FactScope, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn test_parse_simple_yaml() {
@@ -599,22 +598,22 @@ nodes:
 "#;
 
         let graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
-        assert_eq!(graph.version, "2.0");
-        assert_eq!(graph.entry_node, YamlKey::from("mara.intro"));
-        assert_eq!(graph.nodes.len(), 1);
+        check!(graph.version == "2.0");
+        check!(graph.entry_node == YamlKey::from("mara.intro"));
+        check!(graph.nodes.len() == 1);
 
         // Test conversion to model
         let loaded = graph.to_model().expect("Should convert");
-        assert_eq!(loaded.graph.nodes.len(), 1);
+        check!(loaded.graph.nodes.len() == 1);
         let entry = loaded.graph.entry_node.expect("entry node");
-        assert_eq!(loaded.symbols.node_key(entry), Some("mara.intro"));
-        assert_eq!(
+        check!(loaded.symbols.node_key(entry) == Some("mara.intro"));
+        check!(
             loaded
                 .symbols
-                .option_key(loaded.graph.nodes[0].options[0].id),
-            Some("mara.intro.first")
+                .option_key(loaded.graph.nodes[0].options[0].id)
+                == Some("mara.intro.first")
         );
-        assert!(loaded.warnings.is_empty());
+        check!(loaded.warnings.is_empty());
     }
 
     #[test]
@@ -638,9 +637,9 @@ nodes:
 
         let graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
         let result = graph.to_model();
-        assert!(result.is_err());
+        check!(result.is_err());
         let err_msg = result.unwrap_err();
-        assert!(err_msg.contains("go_to_target"));
+        check!(err_msg.contains("go_to_target"));
     }
 
     #[test]
@@ -668,9 +667,9 @@ nodes:
             .to_model()
             .expect("Should convert with go_to_target")
             .graph;
-        assert_eq!(model_graph.nodes.len(), 1);
+        check!(model_graph.nodes.len() == 1);
         let option = &model_graph.nodes[0].options[0];
-        assert!(matches!(
+        check!(matches!(
             option.navigation_hint,
             Some(model::NavigationHint::GoTo(ref target)) if target == "the ship"
         ));
@@ -701,12 +700,12 @@ nodes:
         let option = &model_graph.nodes[0].options[0];
 
         // Check that the tag has requires_trait set (by convention for skill axis)
-        assert_eq!(option.tags.len(), 1);
-        assert!(option.tags[0].requires_trait);
+        check!(option.tags.len() == 1);
+        check!(option.tags[0].requires_trait);
 
         // Check that NO HasSkill condition was automatically added
         // (Users must now explicitly add fact-based conditions)
-        assert!(option.conditions.is_empty());
+        check!(option.conditions.is_empty());
     }
 
     #[test]
@@ -734,10 +733,10 @@ nodes:
         let option = &model_graph.nodes[0].options[0];
 
         // Check that the tag does not require trait
-        assert!(!option.tags[0].requires_trait);
+        check!(!option.tags[0].requires_trait);
 
         // Check that no HasSkill condition was added
-        assert!(option.conditions.is_empty());
+        check!(option.conditions.is_empty());
     }
 
     #[test]
@@ -772,18 +771,15 @@ nodes:
         let model::DialogTarget::Node(target) = option.target else {
             panic!("expected node target");
         };
-        assert_eq!(target, loaded.graph.nodes[1].id);
-        assert_eq!(loaded.symbols.node_key(target), Some("confession"));
+        check!(target == loaded.graph.nodes[1].id);
+        check!(loaded.symbols.node_key(target) == Some("confession"));
 
         let model::Outcome::AddRelationship { source, target, .. } = &option.outcomes[0] else {
             panic!("expected relationship outcome");
         };
-        assert_eq!(loaded.symbols.entity_key(*source), Some("player"));
-        assert_eq!(loaded.symbols.entity_key(*target), Some("mara"));
-        assert_eq!(
-            loaded.graph.nodes[0].speaker.0,
-            loaded.symbols.entity("mara").unwrap()
-        );
+        check!(loaded.symbols.entity_key(*source) == Some("player"));
+        check!(loaded.symbols.entity_key(*target) == Some("mara"));
+        check!(loaded.graph.nodes[0].speaker.0 == loaded.symbols.entity("mara").unwrap());
     }
 
     #[test]
@@ -808,8 +804,8 @@ nodes:
             .unwrap()
             .to_model()
             .unwrap_err();
-        assert!(err.contains("'intro.bye'"), "{err}");
-        assert!(err.contains("'nobody'"), "{err}");
+        check!(err.contains("'intro.bye'"), "{err}");
+        check!(err.contains("'nobody'"), "{err}");
     }
 
     #[test]
@@ -844,14 +840,14 @@ nodes:
         let model::DialogTarget::Node(target) = loaded.graph.nodes[0].options[0].target else {
             panic!("expected node target");
         };
-        assert_eq!(target, loaded.graph.nodes[1].id);
+        check!(target == loaded.graph.nodes[1].id);
         let model::Outcome::AddRelationship { source, .. } =
             &loaded.graph.nodes[0].options[0].outcomes[0]
         else {
             panic!("expected relationship outcome");
         };
-        assert_eq!(loaded.symbols.entity_key(*source), Some("player"));
-        assert!(!loaded.warnings.is_empty());
-        assert!(loaded.warnings.iter().all(|w| w.contains("deprecated")));
+        check!(loaded.symbols.entity_key(*source) == Some("player"));
+        check!(!loaded.warnings.is_empty());
+        check!(loaded.warnings.iter().all(|w| w.contains("deprecated")));
     }
 }

@@ -31,14 +31,13 @@
 //! assert_eq!(symbols.node_key(DialogueNodeId::new(99)), None);
 //! ```
 
+use crate::character::EntityId;
+use crate::dialogue::{DialogueNodeId, DialogueOptionId};
+use crate::memory::MemoryId;
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
-
-use crate::character::EntityId;
-use crate::dialogue::{DialogueNodeId, DialogueOptionId};
-use crate::memory::MemoryId;
 
 /// A numeric id type that a [`SymbolTable`] can hand out.
 ///

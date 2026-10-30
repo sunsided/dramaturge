@@ -109,6 +109,19 @@ impl PartialEq for CustomDialogTag {
 
 impl Eq for CustomDialogTag {}
 
+impl PartialOrd for CustomDialogTag {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CustomDialogTag {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Ordered by semantic identity, consistent with `Eq`
+        (&self.axis, &self.key).cmp(&(&other.axis, &other.key))
+    }
+}
+
 impl Hash for CustomDialogTag {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // Only hash semantic identity (axis and key), not display/requirement metadata

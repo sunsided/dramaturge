@@ -9,13 +9,12 @@
 //! Both the trait and the default runtime are generic over the state type
 //! `S`, which defaults to [`DialogWorldState`].
 
-use dramaturge_model::{DialogTarget, DialogueNode, DialogueOption, EventKind};
-
 use crate::context::DialogWorldState;
 use crate::evaluation::{
     ConditionEvaluator, DefaultConditionEvaluator, DefaultOutcomeApplier, OutcomeApplier,
 };
 use crate::state::NarrativeState;
+use dramaturge_model::{DialogTarget, DialogueNode, DialogueOption, EventKind};
 
 /// Trait defining the interface for driving a dialogue session.
 ///
@@ -264,20 +263,20 @@ mod tests {
         let target = rt.choose_option(&option, &mut state);
         check!(let DialogTarget::Node(n) = target && n.0 == 5);
         check!(state.fact_exists(&FactScope::World, &FactId::new("agreed")));
-        assert_eq!(state.events.len(), 2);
-        match &state.events[0].kind {
+        check!(state.events().len() == 2);
+        match &state.events()[0].kind {
             dramaturge_model::EventKind::DialogOptionChosen {
                 node_id, option_id, ..
             } => {
-                assert_eq!(node_id.0, 1);
-                assert_eq!(option_id.0, 1);
+                check!(node_id.0 == 1);
+                check!(option_id.0 == 1);
             }
             _ => panic!("expected DialogOptionChosen"),
         }
-        match &state.events[1].kind {
+        match &state.events()[1].kind {
             dramaturge_model::EventKind::FactLearned { scope, fact_id } => {
-                assert!(matches!(scope, FactScope::World));
-                assert_eq!(fact_id.0.as_ref(), "agreed");
+                check!(matches!(scope, FactScope::World));
+                check!(fact_id.0.as_ref() == "agreed");
             }
             _ => panic!("expected FactLearned"),
         }

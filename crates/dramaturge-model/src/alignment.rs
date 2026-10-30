@@ -37,7 +37,7 @@
 use std::sync::Arc;
 
 /// Identifier for an alignment axis (e.g., `"moral"`, `"reputation"`).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct AlignmentAxisId(pub Arc<str>);
 
 impl AlignmentAxisId {
@@ -87,7 +87,7 @@ impl AlignmentAxis {
 }
 
 /// Identifier for a specific pole on an alignment axis.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct AlignmentPoleId(pub Arc<str>);
 
 impl AlignmentPoleId {

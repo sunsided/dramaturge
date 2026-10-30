@@ -4,12 +4,11 @@
 //! Each relationship is directional (from a source to a target) and scored
 //! along a named axis (e.g., "trust", "romance").
 
+use crate::character::EntityId;
 use std::sync::Arc;
 
-use crate::character::EntityId;
-
 /// Identifier for a relationship axis (e.g., `"trust"`, `"romance"`).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RelationshipAxisId(pub Arc<str>);
 
 impl RelationshipAxisId {

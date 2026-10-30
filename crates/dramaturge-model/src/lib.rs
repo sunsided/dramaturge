@@ -135,10 +135,9 @@ pub use tag::{CustomDialogTag, DialogTag, DialogTagKind};
 
 #[cfg(test)]
 mod macro_tests {
+    use crate::{Condition, EntityId, FactScope};
     use assert2::check;
     use dramaturge_macros::{ConditionBuilder, FactValue};
-
-    use crate::{Condition, EntityId, FactScope};
 
     #[derive(FactValue)]
     #[allow(dead_code)]

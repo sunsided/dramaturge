@@ -6,16 +6,15 @@
 //! the conversation. Nodes and options can have conditions and outcomes
 //! attached.
 
-use std::sync::Arc;
-
 use crate::character::CharacterId;
 use crate::condition::Condition;
 use crate::intent::DialogIntentions;
 use crate::outcome::Outcome;
 use crate::tag::DialogTagKind;
+use std::sync::Arc;
 
 /// Unique numeric identifier for a dialogue node.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DialogueNodeId(pub u64);
 
 impl DialogueNodeId {
@@ -26,7 +25,7 @@ impl DialogueNodeId {
 }
 
 /// Unique numeric identifier for a dialogue option.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DialogueOptionId(pub u64);
 
 impl DialogueOptionId {
@@ -338,9 +337,9 @@ mod tests {
 
 #[cfg(test)]
 mod proptests {
-    use proptest::prelude::*;
-
     use super::*;
+    use assert2::check;
+    use proptest::prelude::*;
 
     fn arb_dialogue_node_id() -> impl Strategy<Value = DialogueNodeId> {
         any::<u64>().prop_map(DialogueNodeId::new)
@@ -390,7 +389,7 @@ mod proptests {
     #[test]
     fn prop_dialogue_graph_default_entry_none() {
         let graph = DialogueGraph::new();
-        assert!(graph.entry_node.is_none());
+        check!(graph.entry_node.is_none());
     }
 
     #[test]

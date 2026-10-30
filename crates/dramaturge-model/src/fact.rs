@@ -45,14 +45,13 @@
 //! // The player and other characters do not see this fact
 //! ```
 
-use std::sync::Arc;
-
 use crate::character::{CharacterId, EntityId};
+use std::sync::Arc;
 
 /// String-based identifier for a fact.
 ///
 /// Uses `Arc<str>` internally for cheap cloning.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FactId(pub Arc<str>);
 
 impl FactId {
@@ -148,7 +147,7 @@ impl Fact {
 /// Enables asymmetric knowledge scenarios — for example, the player may
 /// know a secret that a character does not, or a faction may have
 /// information not shared with the world.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum FactScope {
     /// Fact known globally (objective truth).
     World,

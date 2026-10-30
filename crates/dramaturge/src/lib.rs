@@ -73,7 +73,6 @@ pub use dramaturge_model::{
     MemoryQuery, MemoryTag, Outcome, RelationshipAxisId, RelationshipScore, ScopedFact,
     SymbolTable,
 };
-
 pub use dramaturge_runtime::{
     ConditionEvaluator, CustomHandler, DefaultConditionEvaluator, DefaultOutcomeApplier,
     DefaultRuntime, DialogWorldState, DialogueRuntime, EvaluationContext, EvaluationResult,

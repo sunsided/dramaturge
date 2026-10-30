@@ -484,17 +484,14 @@ fn render_scene(state: &GameState) {
         println!("║  DEBUG MODE                                                      ║");
         println!(
             "║  Known facts: {:?}                                                ║",
-            state.world.facts.len()
+            state.world.fact_count()
         );
         // Show available skills
         let skills: Vec<&str> = state
             .world
-            .facts
-            .iter()
-            .filter(|sf| matches!(sf.scope, FactScope::Player))
-            .filter(|sf| sf.fact.id.0.starts_with("skill:"))
-            .filter(|sf| matches!(sf.fact.value, dramaturge::FactValue::Bool(true)))
-            .map(|sf| sf.fact.id.0.strip_prefix("skill:").unwrap_or(&sf.fact.id.0))
+            .facts_in(&FactScope::Player)
+            .filter(|(_, value)| matches!(value, dramaturge::FactValue::Bool(true)))
+            .filter_map(|(id, _)| id.0.strip_prefix("skill:"))
             .collect();
         println!("║  Skills: {:<56} ║", skills.join(", "));
     }
@@ -699,6 +696,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     #[test]
     fn test_yaml_loads() {
@@ -719,7 +717,7 @@ nodes:
 "#;
 
         let yaml_graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
-        assert_eq!(yaml_graph.nodes.len(), 1);
+        check!(yaml_graph.nodes.len() == 1);
     }
 
     #[test]
@@ -728,13 +726,13 @@ nodes:
             .expect("Should parse")
             .to_model()
             .expect("Should convert");
-        assert!(loaded.warnings.is_empty(), "{:?}", loaded.warnings);
+        check!(loaded.warnings.is_empty(), "{:?}", loaded.warnings);
         let entry = loaded.graph.entry_node.unwrap();
-        assert_eq!(loaded.symbols.node_key(entry), Some("mara.intro"));
+        check!(loaded.symbols.node_key(entry) == Some("mara.intro"));
         Entities::resolve(&loaded.symbols);
 
         let issues = GraphValidator::new().validate_with_symbols(&loaded.graph, &loaded.symbols);
-        assert!(
+        check!(
             !issues
                 .iter()
                 .any(|i| i.severity == ValidationSeverity::Error),

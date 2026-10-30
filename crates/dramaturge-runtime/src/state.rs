@@ -34,12 +34,11 @@
 //! assert!(game.fact(&FactScope::World, &FactId::new("lamp_lit")).is_some());
 //! ```
 
+use crate::context::DialogWorldState;
 use dramaturge_model::{
     AlignmentAxisId, AlignmentPoleId, DialogTagKind, EntityId, EventKind, Fact, FactId, FactScope,
     FactValue, Memory, MemoryId, MemoryQuery, RelationshipAxisId,
 };
-
-use crate::context::DialogWorldState;
 
 /// Operations on narrative state used by the default evaluator and applier.
 ///

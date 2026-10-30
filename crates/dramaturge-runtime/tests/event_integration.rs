@@ -1,3 +1,4 @@
+use assert2::check;
 use dramaturge_model::{
     AlignmentAxisId, AlignmentPoleId, DialogTarget, DialogText, DialogueNodeId, DialogueOption,
     EntityId, EventKind, Fact, FactScope, Outcome, RelationshipAxisId,
@@ -36,13 +37,13 @@ fn choosing_option_produces_dialog_option_chosen_event() {
 
     rt.choose_option(&option, &mut state);
 
-    assert_eq!(state.events.len(), 1);
-    match &state.events[0].kind {
+    check!(state.events().len() == 1);
+    match &state.events()[0].kind {
         EventKind::DialogOptionChosen {
             node_id, option_id, ..
         } => {
-            assert_eq!(node_id.0, 1);
-            assert_eq!(option_id.0, 1);
+            check!(node_id.0 == 1);
+            check!(option_id.0 == 1);
         }
         other => panic!("expected DialogOptionChosen, got {:?}", other),
     }
@@ -66,11 +67,11 @@ fn setting_fact_produces_fact_learned_event() {
 
     rt.choose_option(&option, &mut state);
 
-    assert_eq!(state.events.len(), 2);
-    match &state.events[1].kind {
+    check!(state.events().len() == 2);
+    match &state.events()[1].kind {
         EventKind::FactLearned { scope, fact_id } => {
-            assert!(matches!(scope, FactScope::World));
-            assert_eq!(fact_id.0.as_ref(), "secret_revealed");
+            check!(matches!(scope, FactScope::World));
+            check!(fact_id.0.as_ref() == "secret_revealed");
         }
         other => panic!("expected FactLearned, got {:?}", other),
     }
@@ -95,12 +96,12 @@ fn changing_alignment_produces_alignment_changed_event() {
 
     rt.choose_option(&option, &mut state);
 
-    assert_eq!(state.events.len(), 2);
-    match &state.events[1].kind {
+    check!(state.events().len() == 2);
+    match &state.events()[1].kind {
         EventKind::AlignmentChanged { axis, pole, delta } => {
-            assert_eq!(axis.0.as_ref(), "morality");
-            assert_eq!(pole.0.as_ref(), "paragon");
-            assert_eq!(*delta, 25);
+            check!(axis.0.as_ref() == "morality");
+            check!(pole.0.as_ref() == "paragon");
+            check!(*delta == 25);
         }
         other => panic!("expected AlignmentChanged, got {:?}", other),
     }
@@ -129,13 +130,13 @@ fn changing_relationship_produces_relationship_changed_event() {
 
     rt.choose_option(&option, &mut state);
 
-    assert_eq!(state.events.len(), 2);
-    match &state.events[1].kind {
+    check!(state.events().len() == 2);
+    match &state.events()[1].kind {
         EventKind::RelationshipChanged { a, b, axis, delta } => {
-            assert_eq!(*a, source);
-            assert_eq!(*b, target);
-            assert_eq!(axis.0.as_ref(), "trust");
-            assert_eq!(*delta, 15);
+            check!(*a == source);
+            check!(*b == target);
+            check!(axis.0.as_ref() == "trust");
+            check!(*delta == 15);
         }
         other => panic!("expected RelationshipChanged, got {:?}", other),
     }
@@ -182,10 +183,10 @@ fn event_ids_are_monotonically_increasing() {
 
     rt.choose_option(&option2, &mut state);
 
-    assert_eq!(state.events.len(), 5);
-    let ids: Vec<u64> = state.events.iter().map(|e| e.id.0).collect();
+    check!(state.events().len() == 5);
+    let ids: Vec<u64> = state.events().iter().map(|e| e.id.0).collect();
     for i in 1..ids.len() {
-        assert!(
+        check!(
             ids[i] > ids[i - 1],
             "Event IDs should be monotonically increasing"
         );
@@ -219,16 +220,16 @@ fn emit_event_outcome_still_works() {
 
     rt.choose_option(&option, &mut state);
 
-    assert_eq!(state.events.len(), 3);
-    assert!(matches!(
-        &state.events[0].kind,
+    check!(state.events().len() == 3);
+    check!(matches!(
+        &state.events()[0].kind,
         EventKind::DialogOptionChosen { .. }
     ));
-    assert!(matches!(
-        &state.events[1].kind,
+    check!(matches!(
+        &state.events()[1].kind,
         EventKind::FactLearned { .. }
     ));
-    assert_eq!(state.events[2].kind, custom_kind);
+    check!(state.events()[2].kind == custom_kind);
 }
 
 #[test]
@@ -262,20 +263,20 @@ fn event_queries_return_correct_results() {
     );
     rt.choose_option(&option2, &mut state);
 
-    assert_eq!(state.events.len(), 4);
+    check!(state.events().len() == 4);
 
     let chosen = state.events_of_kind("DialogOptionChosen");
-    assert_eq!(chosen.len(), 2);
+    check!(chosen.len() == 2);
 
     let learned = state.events_of_kind("FactLearned");
-    assert_eq!(learned.len(), 1);
+    check!(learned.len() == 1);
 
     let alignment = state.events_of_kind("AlignmentChanged");
-    assert_eq!(alignment.len(), 1);
+    check!(alignment.len() == 1);
 
     let recent = state.recent_events(1);
-    assert_eq!(recent.len(), 1);
-    assert!(matches!(
+    check!(recent.len() == 1);
+    check!(matches!(
         &recent[0].kind,
         EventKind::AlignmentChanged { .. }
     ));
@@ -283,7 +284,7 @@ fn event_queries_return_correct_results() {
     let found = state.find_events(|e| {
         matches!(&e.kind, EventKind::FactLearned { fact_id, .. } if fact_id.0.as_ref() == "met_npc")
     });
-    assert_eq!(found.len(), 1);
+    check!(found.len() == 1);
 }
 
 #[test]
@@ -303,14 +304,14 @@ fn start_quest_produces_custom_event() {
 
     rt.choose_option(&option, &mut state);
 
-    assert_eq!(state.events.len(), 2);
-    match &state.events[1].kind {
+    check!(state.events().len() == 2);
+    match &state.events()[1].kind {
         EventKind::Custom { kind } => {
-            assert_eq!(kind.as_ref(), "quest_started_main_quest_1");
+            check!(kind.as_ref() == "quest_started_main_quest_1");
         }
         other => panic!("expected Custom event, got {:?}", other),
     }
-    assert!(state.fact_exists(
+    check!(state.fact_exists(
         &FactScope::World,
         &dramaturge_model::FactId::new("quest_started_main_quest_1")
     ));
@@ -334,10 +335,10 @@ fn advance_quest_produces_custom_event() {
 
     rt.choose_option(&option, &mut state);
 
-    assert_eq!(state.events.len(), 2);
-    match &state.events[1].kind {
+    check!(state.events().len() == 2);
+    match &state.events()[1].kind {
         EventKind::Custom { kind } => {
-            assert_eq!(kind.as_ref(), "quest_advanced_main_quest_1_complete");
+            check!(kind.as_ref() == "quest_advanced_main_quest_1_complete");
         }
         other => panic!("expected Custom event, got {:?}", other),
     }
