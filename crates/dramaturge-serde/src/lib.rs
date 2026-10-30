@@ -21,6 +21,14 @@
 //!
 //! See `crates/dramaturge/examples/dialogue.yaml` for the full YAML format.
 //!
+//! # Model and State Serialization
+//!
+//! [`dto`] has a lossless serde DTO for every public model type and for
+//! `DialogWorldState`. Host structs use the `with` modules
+//! ([`world_state`], [`condition`], [`outcome`], [`dialogue_graph`],
+//! [`symbol_table`]). [`save::SavedWorldState`] stores keys next to the
+//! state so saves survive content changes.
+//!
 //! # Why a Separate Crate?
 //!
 //! `dramaturge-model` intentionally has no serde dependency so that game
@@ -30,6 +38,11 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub use serde;
+
+pub mod dto;
+pub mod save;
+mod with;
+pub use with::{condition, dialogue_graph, outcome, symbol_table, world_state};
 
 #[cfg(feature = "yaml")]
 #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]

@@ -27,6 +27,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 - `Ord` on all id and key types (`EntityId`, `FactScope`, `FactId`, axis and
   pole ids, `CustomDialogTag` by axis/key); `Hash` on `Memory` (#59).
 - A criterion benchmark for world-state lookups (`cargo bench -p dramaturge-runtime`).
+- `dramaturge_serde::dto`: lossless serde DTOs for every public model type and
+  `DialogWorldState`, with `IntoModel` conversions and an `IdMap` hook (#57).
+- `with` modules `dramaturge_serde::{world_state, condition, outcome,
+  dialogue_graph, symbol_table}` for host structs (#57).
+- `dramaturge_serde::save::SavedWorldState`: saves store keys and re-resolve ids
+  against the current `SymbolTable` on restore (#57).
+- `DialogWorldState::set_next_event_id` (#57).
+- CI builds `dramaturge-serde` and `dramaturge-runtime` for `wasm32-unknown-unknown`.
 - `partial_eq_values` is public (epsilon float comparison used by the evaluator).
 - CI lints GitHub Actions workflows with actionlint and zizmor.
 
@@ -51,5 +59,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   in ordered maps; lookups are `O(log n)` instead of linear scans and
   iteration order is deterministic. Its fields are private; use the
   iterator methods. `get_memories` returns `&[Memory]` (#59).
+- `dramaturge-serde` depends on `dramaturge-runtime` (#57).
 - `available_tags` is a set: adding the same tag twice stores it once (#59).
 - Validator messages print ids as `'key'` or `#<number>` instead of `ID <number>`.

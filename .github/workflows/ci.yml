@@ -23,6 +23,7 @@ jobs:
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -32,6 +33,9 @@ jobs:
 
       - name: Tests
         run: cargo test --workspace --all-features --all-targets
+
+      - name: Build for wasm32
+        run: cargo build -p dramaturge-serde -p dramaturge-runtime --all-features --target wasm32-unknown-unknown
 
   workflow-lint:
     name: Workflow Lint

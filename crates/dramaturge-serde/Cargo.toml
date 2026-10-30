@@ -19,8 +19,11 @@ yaml = ["dep:serde_yaml"]
 
 [dependencies]
 dramaturge-model = { workspace = true }
+dramaturge-runtime = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { version = "0.9", optional = true }
 
 [dev-dependencies]
 assert2 = { workspace = true }
+proptest = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }

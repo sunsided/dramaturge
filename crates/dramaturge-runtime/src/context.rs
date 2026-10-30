@@ -245,6 +245,15 @@ impl DialogWorldState {
         (self.event_id_counter != 0).then_some(self.event_id_counter)
     }
 
+    /// Sets the next event ID that [`emit_event`](Self::emit_event) allocates.
+    ///
+    /// `None` marks the ID space as exhausted. Used when restoring a saved
+    /// state whose log was drained. Never set it at or below an ID that is
+    /// still in the log, or emitted IDs will repeat.
+    pub fn set_next_event_id(&mut self, next: Option<u64>) {
+        self.event_id_counter = next.unwrap_or(0);
+    }
+
     /// Allocates a new event ID and appends an event with the given kind.
     ///
     /// Returns `None` when the event ID space is exhausted.
