@@ -1,0 +1,14 @@
+# cargo-release configuration for the whole workspace.
+# Usage: `task release:dry -- minor`, then `task release -- minor`.
+
+# Release only from main; all crates share one version and one tag.
+allow-branch = ["main"]
+shared-version = true
+consolidate-commits = true
+tag-name = "v{{version}}"
+pre-release-commit-message = "Release {{version}}"
+tag-message = "Release {{version}}"
+
+# Crates are published in dependency order; push the commit and tag afterwards.
+publish = true
+push = true

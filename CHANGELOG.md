@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — 0.2.0
+## [Unreleased]
 
 ### Added
 
@@ -82,3 +82,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 - `dramaturge-serde` depends on `dramaturge-runtime` (#57).
 - `available_tags` is a set: adding the same tag twice stores it once (#59).
 - Validator messages print ids as `'key'` or `#<number>` instead of `ID <number>`.
+
+## [0.1.0] - 2026-05-15
+
+Initial release.
+
+[Unreleased]: https://github.com/sunsided/dramaturge/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/sunsided/dramaturge/releases/tag/v0.1.0
