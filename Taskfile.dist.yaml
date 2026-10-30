@@ -126,3 +126,13 @@ tasks:
       - example:the-broken-seal
     cmds:
       - "{{.CARGO}} run --example the_broken_seal --features=yaml"
+
+  release:dry:
+    desc: Dry-run a workspace release (pass the level, e.g. `task release:dry -- minor`)
+    cmds:
+      - "{{.CARGO}} release {{.CLI_ARGS}}"
+
+  release:
+    desc: Release, publish and tag the workspace (pass the level, e.g. `task release -- minor`)
+    cmds:
+      - "{{.CARGO}} release --execute {{.CLI_ARGS}}"

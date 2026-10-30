@@ -14,6 +14,13 @@ categories.workspace = true
 features = ["yaml"]
 rustdoc-args = ["--cfg", "docsrs"]
 
+# The workspace changelog is rotated once, with the facade crate's release.
+[package.metadata.release]
+pre-release-replacements = [
+    { file = "../../CHANGELOG.md", search = "## \\[Unreleased\\]", replace = "## [Unreleased]\n\n## [{{version}}] - {{date}}", exactly = 1 },
+    { file = "../../CHANGELOG.md", search = "\\[Unreleased\\]: (https://github.com/sunsided/dramaturge/compare)/(v[^ ]+?)\\.\\.\\.HEAD", replace = "[Unreleased]: ${1}/v{{version}}...HEAD\n[{{version}}]: ${1}/${2}...v{{version}}", exactly = 1 },
+]
+
 [features]
 serde = ["dep:dramaturge-serde"]
 yaml = ["dep:dramaturge-serde", "dramaturge-serde/yaml"]
