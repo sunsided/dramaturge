@@ -134,7 +134,7 @@ impl GameState {
     }
 
     fn available_options(&self) -> Vec<&DialogueOption> {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         let node = match self.current_node() {
             Some(n) => n,
             None => return vec![],
@@ -193,7 +193,7 @@ impl GameState {
         };
 
         let (option_id, tags, intentions, outcomes, target) = option_data;
-        let mut applier = DefaultOutcomeApplier;
+        let mut applier = DefaultOutcomeApplier::new();
 
         for outcome in &outcomes {
             applier.apply(outcome, &mut self.world);
@@ -235,7 +235,7 @@ impl GameState {
             .node_key(self.current_node)
             .is_some_and(|key| key.starts_with("mara."));
         if in_mara_scene {
-            let mut applier = DefaultOutcomeApplier;
+            let mut applier = DefaultOutcomeApplier::new();
             applier.apply(
                 &set_hidden_fact(self.entities.orren, "OrrenOverheardMaraConversation"),
                 &mut self.world,

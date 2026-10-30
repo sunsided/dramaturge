@@ -2,74 +2,49 @@
 //!
 //! This module defines the [`ConditionEvaluator`] and [`OutcomeApplier`]
 //! traits that bridge the domain model ([`Condition`], [`Outcome`]) with
-//! the mutable world state ([`DialogWorldState`]).
+//! narrative state. Both traits are generic over the state type `S`, which
+//! defaults to [`DialogWorldState`]. Any [`NarrativeState`] works, including
+//! a host type that embeds a `DialogWorldState`.
+//!
 //! Default implementations ([`DefaultConditionEvaluator`], [`DefaultOutcomeApplier`])
-//! are provided for all condition and outcome variants.
+//! handle every built-in variant and hand `Custom` variants to a
+//! [`CustomHandler`]. The default evaluator recurses through `All`, `Any`
+//! and `Not` itself, so a `Custom` condition nested anywhere in the tree
+//! reaches the handler.
 //!
-//! # Implementing a Custom Evaluator
-//!
-//! Wrap [`DefaultConditionEvaluator`] and handle only your custom keys:
+//! # Handling Custom Conditions and Outcomes
 //!
 //! ```rust
-//! use dramaturge_runtime::{ConditionEvaluator, DefaultConditionEvaluator, DialogWorldState};
+//! use dramaturge_runtime::{
+//!     ConditionEvaluator, CustomHandler, DefaultConditionEvaluator, DialogWorldState,
+//! };
 //! use dramaturge_model::{Condition, FactValue};
 //!
-//! struct GameEvaluator {
-//!     inner: DefaultConditionEvaluator,
+//! struct Daytime {
+//!     hour: u8,
 //! }
 //!
-//! impl ConditionEvaluator for GameEvaluator {
-//!     fn evaluate(&self, condition: &Condition, ctx: &DialogWorldState) -> bool {
-//!         match condition {
-//!             Condition::Custom { key, .. } if key == "is_daytime" => {
-//!                 // Your game engine call goes here.
-//!                 false
-//!             }
-//!             Condition::Custom { key, args } if key == "has_gold" => {
-//!                 let _min = args.first()
-//!                     .and_then(|v| if let FactValue::Int(n) = v { Some(*n) } else { None })
-//!                     .unwrap_or(0);
-//!                 // Query your game's gold counter here.
-//!                 false
-//!             }
-//!             // Recurse through composites using self so nested Custom
-//!             // conditions reach this evaluator, not the default.
-//!             Condition::All(cs) => cs.iter().all(|c| self.evaluate(c, ctx)),
-//!             Condition::Any(cs) => cs.iter().any(|c| self.evaluate(c, ctx)),
-//!             Condition::Not(c) => !self.evaluate(c, ctx),
-//!             other => self.inner.evaluate(other, ctx),
-//!         }
+//! impl<S: ?Sized> CustomHandler<S> for Daytime {
+//!     fn condition(&self, key: &str, _args: &[FactValue], _state: &S) -> bool {
+//!         key == "is_daytime" && (6..18).contains(&self.hour)
 //!     }
 //! }
+//!
+//! let evaluator = DefaultConditionEvaluator::with_custom(Daytime { hour: 9 });
+//! let nested = Condition::All(vec![
+//!     Condition::Always,
+//!     Condition::Custom { key: "is_daytime".into(), args: vec![] },
+//! ]);
+//! assert!(evaluator.evaluate(&nested, &DialogWorldState::new()));
 //! ```
 //!
-//! # Implementing a Custom Outcome Applier
-//!
-//! Wrap [`DefaultOutcomeApplier`] and handle only your custom keys:
-//!
-//! ```rust
-//! use dramaturge_runtime::{OutcomeApplier, DefaultOutcomeApplier, DialogWorldState};
-//! use dramaturge_model::Outcome;
-//!
-//! struct GameApplier {
-//!     inner: DefaultOutcomeApplier,
-//! }
-//!
-//! impl OutcomeApplier for GameApplier {
-//!     fn apply(&mut self, outcome: &Outcome, state: &mut DialogWorldState) {
-//!         match outcome {
-//!             Outcome::Custom { key, .. } if key == "unlock_achievement" => {
-//!                 // Fire your achievement system here.
-//!             }
-//!             other => self.inner.apply(other, state),
-//!         }
-//!     }
-//! }
-//! ```
+//! For handlers that need host state, implement [`CustomHandler`] for your
+//! state type and use it as `S`; see the `host_state` example.
 
-use dramaturge_model::{Condition, Outcome};
+use dramaturge_model::{Condition, EventKind, Fact, FactScope, FactValue, Outcome};
 
 use crate::context::DialogWorldState;
+use crate::state::NarrativeState;
 
 /// Legacy result enum kept for backward compatibility.
 ///
@@ -82,48 +57,99 @@ pub enum EvaluationResult {
     Err(String),
 }
 
-/// Trait for evaluating conditions against world state.
-pub trait ConditionEvaluator {
-    /// Evaluates a condition against the given world state.
+/// Trait for evaluating conditions against narrative state.
+///
+/// `S` defaults to [`DialogWorldState`], so `impl ConditionEvaluator for X`
+/// evaluates against the built-in state.
+pub trait ConditionEvaluator<S: NarrativeState + ?Sized = DialogWorldState> {
+    /// Evaluates a condition against the given state.
     ///
     /// Returns `true` if the condition is satisfied, `false` otherwise.
-    fn evaluate(&self, condition: &Condition, context: &DialogWorldState) -> bool;
+    fn evaluate(&self, condition: &Condition, state: &S) -> bool;
 }
 
-/// Trait for applying outcomes to world state.
-pub trait OutcomeApplier {
-    /// Applies an outcome to the given world state, mutating it.
-    fn apply(&mut self, outcome: &Outcome, state: &mut DialogWorldState);
+/// Trait for applying outcomes to narrative state.
+///
+/// `S` defaults to [`DialogWorldState`].
+pub trait OutcomeApplier<S: NarrativeState + ?Sized = DialogWorldState> {
+    /// Applies an outcome to the given state, mutating it.
+    fn apply(&mut self, outcome: &Outcome, state: &mut S);
 }
 
-/// Reference implementation handling all 14 condition variants.
+/// Host hook for [`Condition::Custom`] and [`Outcome::Custom`].
+///
+/// Both methods have defaults: unknown custom conditions are `false` and
+/// unknown custom outcomes do nothing.
+pub trait CustomHandler<S: ?Sized> {
+    /// Answers a custom condition.
+    fn condition(&self, key: &str, args: &[FactValue], state: &S) -> bool {
+        let _ = (key, args, state);
+        false
+    }
+
+    /// Applies a custom outcome.
+    fn outcome(&mut self, key: &str, args: &[FactValue], state: &mut S) {
+        let _ = (key, args, state);
+    }
+}
+
+/// The default [`CustomHandler`]: every custom condition is `false`, every
+/// custom outcome is a no-op.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NoCustom;
+
+impl<S: ?Sized> CustomHandler<S> for NoCustom {}
+
+/// Reference implementation handling all built-in condition variants.
 ///
 /// This evaluator provides the default semantics for each condition:
 /// `Always`/`Never` return constant booleans, `All`/`Any`/`Not` perform
-/// logical composition, fact checks query the world state, and `Custom`
-/// returns `false` (game-specific implementations should provide their own).
+/// logical composition, fact checks query the state, and `Custom` is
+/// answered by the [`CustomHandler`] `H` (by default [`NoCustom`], which
+/// returns `false`).
 #[derive(Debug, Clone, Default)]
-pub struct DefaultConditionEvaluator;
+pub struct DefaultConditionEvaluator<H = NoCustom> {
+    /// Handler for `Condition::Custom`.
+    pub custom: H,
+}
 
-impl ConditionEvaluator for DefaultConditionEvaluator {
-    fn evaluate(&self, condition: &Condition, context: &DialogWorldState) -> bool {
+impl DefaultConditionEvaluator {
+    /// Creates an evaluator that answers every custom condition with `false`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl<H> DefaultConditionEvaluator<H> {
+    /// Creates an evaluator that hands custom conditions to `custom`.
+    pub fn with_custom(custom: H) -> Self {
+        Self { custom }
+    }
+}
+
+impl<S, H> ConditionEvaluator<S> for DefaultConditionEvaluator<H>
+where
+    S: NarrativeState + ?Sized,
+    H: CustomHandler<S>,
+{
+    fn evaluate(&self, condition: &Condition, state: &S) -> bool {
         match condition {
             Condition::Always => true,
             Condition::Never => false,
-            Condition::All(conds) => conds.iter().all(|c| self.evaluate(c, context)),
-            Condition::Any(conds) => conds.iter().any(|c| self.evaluate(c, context)),
-            Condition::Not(c) => !self.evaluate(c, context),
+            Condition::All(conds) => conds.iter().all(|c| self.evaluate(c, state)),
+            Condition::Any(conds) => conds.iter().any(|c| self.evaluate(c, state)),
+            Condition::Not(c) => !self.evaluate(c, state),
             Condition::FactEquals {
                 scope,
                 fact_id,
                 value,
-            } => match context.get_fact(scope, fact_id) {
+            } => match state.fact(scope, fact_id) {
                 Some(existing) => partial_eq_values(existing, value),
                 None => false,
             },
-            Condition::FactExists { scope, fact_id } => context.fact_exists(scope, fact_id),
-            Condition::AlignmentAtLeast { axis, pole, value } => context
-                .get_alignment(axis, pole)
+            Condition::FactExists { scope, fact_id } => state.fact(scope, fact_id).is_some(),
+            Condition::AlignmentAtLeast { axis, pole, value } => state
+                .alignment(axis, pole)
                 .map(|v| v >= *value)
                 .unwrap_or(false),
             Condition::RelationshipAtLeast {
@@ -131,12 +157,12 @@ impl ConditionEvaluator for DefaultConditionEvaluator {
                 target,
                 axis,
                 value,
-            } => context
-                .get_relationship(*source, *target, axis)
+            } => state
+                .relationship(*source, *target, axis)
                 .map(|v| v >= *value)
                 .unwrap_or(false),
-            Condition::AlignmentAtMost { axis, pole, value } => context
-                .get_alignment(axis, pole)
+            Condition::AlignmentAtMost { axis, pole, value } => state
+                .alignment(axis, pole)
                 .map(|v| v <= *value)
                 .unwrap_or(false),
             Condition::RelationshipAtMost {
@@ -144,29 +170,29 @@ impl ConditionEvaluator for DefaultConditionEvaluator {
                 target,
                 axis,
                 value,
-            } => context
-                .get_relationship(*source, *target, axis)
+            } => state
+                .relationship(*source, *target, axis)
                 .map(|v| v <= *value)
                 .unwrap_or(false),
             Condition::FactAtLeast {
                 scope,
                 fact_id,
                 value,
-            } => context
-                .get_fact(scope, fact_id)
-                .map(|v| matches!(v, dramaturge_model::FactValue::Int(v) if *v >= *value))
+            } => state
+                .fact(scope, fact_id)
+                .map(|v| matches!(v, FactValue::Int(v) if *v >= *value))
                 .unwrap_or(false),
             Condition::FactAtMost {
                 scope,
                 fact_id,
                 value,
-            } => context
-                .get_fact(scope, fact_id)
-                .map(|v| matches!(v, dramaturge_model::FactValue::Int(v) if *v <= *value))
+            } => state
+                .fact(scope, fact_id)
+                .map(|v| matches!(v, FactValue::Int(v) if *v <= *value))
                 .unwrap_or(false),
-            Condition::HasMemory { owner, query } => context.matches_memory_query(*owner, query),
-            Condition::HasTagAvailable { tag } => context.has_tag_available(tag),
-            Condition::Custom { .. } => false,
+            Condition::HasMemory { owner, query } => state.matches_memory_query(*owner, query),
+            Condition::HasTagAvailable { tag } => state.has_tag_available(tag),
+            Condition::Custom { key, args } => self.custom.condition(key, args, state),
         }
     }
 }
@@ -176,16 +202,14 @@ impl ConditionEvaluator for DefaultConditionEvaluator {
 /// This exists because `FactValue::Float(f64)` prevents `Eq` derivation
 /// on the type. Float comparison uses `(*x - *y).abs() < f64::EPSILON`
 /// to handle floating-point precision issues in game state evaluation.
-fn partial_eq_values(a: &dramaturge_model::FactValue, b: &dramaturge_model::FactValue) -> bool {
+pub fn partial_eq_values(a: &FactValue, b: &FactValue) -> bool {
     match (a, b) {
-        (dramaturge_model::FactValue::Bool(x), dramaturge_model::FactValue::Bool(y)) => x == y,
-        (dramaturge_model::FactValue::Int(x), dramaturge_model::FactValue::Int(y)) => x == y,
-        (dramaturge_model::FactValue::Float(x), dramaturge_model::FactValue::Float(y)) => {
-            (*x - *y).abs() < f64::EPSILON
-        }
-        (dramaturge_model::FactValue::Text(x), dramaturge_model::FactValue::Text(y)) => x == y,
-        (dramaturge_model::FactValue::Entity(x), dramaturge_model::FactValue::Entity(y)) => x == y,
-        (dramaturge_model::FactValue::Set(xs), dramaturge_model::FactValue::Set(ys)) => {
+        (FactValue::Bool(x), FactValue::Bool(y)) => x == y,
+        (FactValue::Int(x), FactValue::Int(y)) => x == y,
+        (FactValue::Float(x), FactValue::Float(y)) => (*x - *y).abs() < f64::EPSILON,
+        (FactValue::Text(x), FactValue::Text(y)) => x == y,
+        (FactValue::Entity(x), FactValue::Entity(y)) => x == y,
+        (FactValue::Set(xs), FactValue::Set(ys)) => {
             xs.len() == ys.len()
                 && xs
                     .iter()
@@ -196,21 +220,43 @@ fn partial_eq_values(a: &dramaturge_model::FactValue, b: &dramaturge_model::Fact
     }
 }
 
-/// Reference implementation handling all 9 outcome variants.
+/// Reference implementation handling all built-in outcome variants.
 ///
 /// This applier provides the default semantics for each outcome:
-/// fact operations mutate the world state directly, alignment and
-/// relationship adjustments delegate to the world state methods,
-/// quest management uses fact-based placeholders, and `Custom` is a no-op.
+/// fact operations mutate the state directly, alignment and
+/// relationship adjustments delegate to the state methods,
+/// quest management uses fact-based placeholders, and `Custom` goes to
+/// the [`CustomHandler`] `H` (by default [`NoCustom`], a no-op).
 #[derive(Debug, Clone, Default)]
-pub struct DefaultOutcomeApplier;
+pub struct DefaultOutcomeApplier<H = NoCustom> {
+    /// Handler for `Outcome::Custom`.
+    pub custom: H,
+}
 
-impl OutcomeApplier for DefaultOutcomeApplier {
-    fn apply(&mut self, outcome: &Outcome, state: &mut DialogWorldState) {
+impl DefaultOutcomeApplier {
+    /// Creates an applier that ignores custom outcomes.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl<H> DefaultOutcomeApplier<H> {
+    /// Creates an applier that hands custom outcomes to `custom`.
+    pub fn with_custom(custom: H) -> Self {
+        Self { custom }
+    }
+}
+
+impl<S, H> OutcomeApplier<S> for DefaultOutcomeApplier<H>
+where
+    S: NarrativeState + ?Sized,
+    H: CustomHandler<S>,
+{
+    fn apply(&mut self, outcome: &Outcome, state: &mut S) {
         match outcome {
             Outcome::SetFact { scope, fact } => {
                 state.set_fact(scope.clone(), fact.clone());
-                state.emit_event(dramaturge_model::EventKind::FactLearned {
+                state.emit_event(EventKind::FactLearned {
                     scope: scope.clone(),
                     fact_id: fact.id.clone(),
                 });
@@ -220,7 +266,7 @@ impl OutcomeApplier for DefaultOutcomeApplier {
             }
             Outcome::AddAlignment { axis, pole, delta } => {
                 state.add_alignment(axis.clone(), pole.clone(), *delta);
-                state.emit_event(dramaturge_model::EventKind::AlignmentChanged {
+                state.emit_event(EventKind::AlignmentChanged {
                     axis: axis.clone(),
                     pole: pole.clone(),
                     delta: *delta,
@@ -233,7 +279,7 @@ impl OutcomeApplier for DefaultOutcomeApplier {
                 delta,
             } => {
                 state.add_relationship(*source, *target, axis.clone(), *delta);
-                state.emit_event(dramaturge_model::EventKind::RelationshipChanged {
+                state.emit_event(EventKind::RelationshipChanged {
                     a: *source,
                     b: *target,
                     axis: axis.clone(),
@@ -251,23 +297,23 @@ impl OutcomeApplier for DefaultOutcomeApplier {
             }
             Outcome::StartQuest { quest_id } => {
                 state.set_fact(
-                    dramaturge_model::FactScope::World,
-                    dramaturge_model::Fact::bool(format!("quest_started_{quest_id}"), true),
+                    FactScope::World,
+                    Fact::bool(format!("quest_started_{quest_id}"), true),
                 );
-                state.emit_event(dramaturge_model::EventKind::Custom {
+                state.emit_event(EventKind::Custom {
                     kind: format!("quest_started_{quest_id}").into(),
                 });
             }
             Outcome::AdvanceQuest { quest_id, stage } => {
                 state.set_fact(
-                    dramaturge_model::FactScope::World,
-                    dramaturge_model::Fact::text(format!("quest_stage_{quest_id}"), stage.as_str()),
+                    FactScope::World,
+                    Fact::text(format!("quest_stage_{quest_id}"), stage.as_str()),
                 );
-                state.emit_event(dramaturge_model::EventKind::Custom {
+                state.emit_event(EventKind::Custom {
                     kind: format!("quest_advanced_{quest_id}_{stage}").into(),
                 });
             }
-            Outcome::Custom { .. } => {}
+            Outcome::Custom { key, args } => self.custom.outcome(key, args, state),
         }
     }
 }
@@ -288,21 +334,21 @@ mod tests {
 
     #[test]
     fn default_evaluator_always() {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         let ctx = DialogWorldState::new();
         check!(evaluator.evaluate(&Condition::Always, &ctx));
     }
 
     #[test]
     fn default_evaluator_never() {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         let ctx = DialogWorldState::new();
         check!(!evaluator.evaluate(&Condition::Never, &ctx));
     }
 
     #[test]
     fn default_evaluator_all() {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         let ctx = DialogWorldState::new();
         let cond = Condition::All(vec![Condition::Always, Condition::Always]);
         check!(evaluator.evaluate(&cond, &ctx));
@@ -312,7 +358,7 @@ mod tests {
 
     #[test]
     fn default_evaluator_any() {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         let ctx = DialogWorldState::new();
         let cond = Condition::Any(vec![Condition::Never, Condition::Always]);
         check!(evaluator.evaluate(&cond, &ctx));
@@ -322,7 +368,7 @@ mod tests {
 
     #[test]
     fn default_evaluator_not() {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         let ctx = DialogWorldState::new();
         check!(!evaluator.evaluate(&Condition::Not(Box::new(Condition::Always)), &ctx));
         check!(evaluator.evaluate(&Condition::Not(Box::new(Condition::Never)), &ctx));
@@ -330,7 +376,7 @@ mod tests {
 
     #[test]
     fn default_evaluator_fact_equals() {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         let mut ctx = DialogWorldState::new();
         ctx.set_fact(FactScope::World, Fact::bool("met_hero", true));
         let cond = Condition::FactEquals {
@@ -349,7 +395,7 @@ mod tests {
 
     #[test]
     fn default_evaluator_fact_exists() {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         let mut ctx = DialogWorldState::new();
         ctx.set_fact(FactScope::World, Fact::bool("met_hero", true));
         let cond = Condition::FactExists {
@@ -366,7 +412,7 @@ mod tests {
 
     #[test]
     fn default_evaluator_has_tag_available() {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         use dramaturge_model::DialogTagKind;
         let mut ctx = DialogWorldState::new();
         let cond = Condition::HasTagAvailable {
@@ -379,7 +425,7 @@ mod tests {
 
     #[test]
     fn default_evaluator_has_memory_with_query() {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         use dramaturge_model::{Memory, MemoryId, MemoryTag};
         let owner = dramaturge_model::character::EntityId::new(1);
         let mut ctx = DialogWorldState::new();
@@ -405,7 +451,7 @@ mod tests {
 
     #[test]
     fn default_evaluator_custom() {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         let ctx = DialogWorldState::new();
         let cond = Condition::Custom {
             key: "custom".to_string(),
@@ -414,9 +460,94 @@ mod tests {
         check!(!evaluator.evaluate(&cond, &ctx));
     }
 
+    struct InRoom;
+
+    struct Host {
+        room: &'static str,
+        dialog: DialogWorldState,
+        log: Vec<String>,
+    }
+
+    impl crate::HasDialogWorldState for Host {
+        fn dialog(&self) -> &DialogWorldState {
+            &self.dialog
+        }
+        fn dialog_mut(&mut self) -> &mut DialogWorldState {
+            &mut self.dialog
+        }
+    }
+
+    impl CustomHandler<Host> for InRoom {
+        fn condition(&self, key: &str, args: &[FactValue], state: &Host) -> bool {
+            key == "in_room" && matches!(args, [FactValue::Text(r)] if r == state.room)
+        }
+        fn outcome(&mut self, key: &str, _args: &[FactValue], state: &mut Host) {
+            state.log.push(key.to_string());
+        }
+    }
+
+    fn in_room(room: &str) -> Condition {
+        Condition::Custom {
+            key: "in_room".into(),
+            args: vec![FactValue::Text(room.into())],
+        }
+    }
+
+    #[test]
+    fn custom_handler_reached_inside_composites() {
+        let mut host = Host {
+            room: "shore",
+            dialog: DialogWorldState::new(),
+            log: vec![],
+        };
+        host.dialog
+            .set_fact(FactScope::World, Fact::bool("lamp_lit", true));
+        let evaluator = DefaultConditionEvaluator::with_custom(InRoom);
+        let lamp = Condition::FactExists {
+            scope: FactScope::World,
+            fact_id: FactId::new("lamp_lit"),
+        };
+        check!(evaluator.evaluate(&Condition::All(vec![lamp.clone(), in_room("shore")]), &host));
+        check!(!evaluator.evaluate(&Condition::All(vec![lamp, in_room("cottage")]), &host));
+        check!(evaluator.evaluate(&Condition::Not(Box::new(in_room("cottage"))), &host));
+        check!(evaluator.evaluate(
+            &Condition::Any(vec![Condition::Never, in_room("shore")]),
+            &host
+        ));
+    }
+
+    #[test]
+    fn custom_handler_applies_outcomes_on_host_state() {
+        let mut host = Host {
+            room: "shore",
+            dialog: DialogWorldState::new(),
+            log: vec![],
+        };
+        let mut applier = DefaultOutcomeApplier::with_custom(InRoom);
+        applier.apply(
+            &Outcome::Custom {
+                key: "ring_bell".into(),
+                args: vec![],
+            },
+            &mut host,
+        );
+        applier.apply(
+            &Outcome::SetFact {
+                scope: FactScope::World,
+                fact: Fact::bool("bell_rung", true),
+            },
+            &mut host,
+        );
+        check!(host.log == vec!["ring_bell".to_string()]);
+        check!(
+            host.dialog
+                .fact_exists(&FactScope::World, &FactId::new("bell_rung"))
+        );
+    }
+
     #[test]
     fn default_applier_set_fact() {
-        let mut applier = DefaultOutcomeApplier;
+        let mut applier = DefaultOutcomeApplier::new();
         let mut ctx = DialogWorldState::new();
         let fact = Fact::bool("met_hero", true);
         let outcome = Outcome::SetFact {
@@ -429,7 +560,7 @@ mod tests {
 
     #[test]
     fn default_applier_remove_fact() {
-        let mut applier = DefaultOutcomeApplier;
+        let mut applier = DefaultOutcomeApplier::new();
         let mut ctx = DialogWorldState::new();
         ctx.set_fact(FactScope::World, Fact::bool("met_hero", true));
         let outcome = Outcome::RemoveFact {
@@ -442,7 +573,7 @@ mod tests {
 
     #[test]
     fn default_applier_custom_noop() {
-        let mut applier = DefaultOutcomeApplier;
+        let mut applier = DefaultOutcomeApplier::new();
         let mut ctx = DialogWorldState::new();
         let outcome = Outcome::Custom {
             key: "custom".to_string(),
@@ -455,7 +586,7 @@ mod tests {
     #[test]
     fn default_applier_remove_memory() {
         use dramaturge_model::{Memory, MemoryId, MemoryTag};
-        let mut applier = DefaultOutcomeApplier;
+        let mut applier = DefaultOutcomeApplier::new();
         let mut ctx = DialogWorldState::new();
         let owner = EntityId::new(1);
         let memory_id = MemoryId::new(42);
@@ -470,7 +601,7 @@ mod tests {
 
     #[test]
     fn default_evaluator_relationship_at_least() {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         let mut ctx = DialogWorldState::new();
         let source = EntityId::new(1);
         let target = EntityId::new(2);
@@ -495,7 +626,7 @@ mod tests {
 
     #[test]
     fn default_evaluator_relationship_at_most() {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
 
         // No relationship set returns false (via unwrap_or)
         {
@@ -566,7 +697,7 @@ mod tests {
 
     #[test]
     fn default_evaluator_alignment_at_most() {
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
 
         // No alignment set returns false (via unwrap_or)
         {
@@ -630,7 +761,7 @@ mod tests {
 
     #[test]
     fn default_applier_add_relationship() {
-        let mut applier = DefaultOutcomeApplier;
+        let mut applier = DefaultOutcomeApplier::new();
         let mut ctx = DialogWorldState::new();
         let source = EntityId::new(1);
         let target = EntityId::new(2);
@@ -874,7 +1005,7 @@ mod proptests {
             let ctx = DialogWorldState::new();
             let not_all = Condition::Not(Box::new(Condition::All(vec![a.clone(), b.clone()])));
             let any_not = Condition::Any(vec![Condition::Not(Box::new(a)), Condition::Not(Box::new(b))]);
-            let evaluator = DefaultConditionEvaluator;
+            let evaluator = DefaultConditionEvaluator::new();
             prop_assert_eq!(evaluator.evaluate(&not_all, &ctx), evaluator.evaluate(&any_not, &ctx));
         });
     }
@@ -885,7 +1016,7 @@ mod proptests {
             let ctx = DialogWorldState::new();
             let not_any = Condition::Not(Box::new(Condition::Any(vec![a.clone(), b.clone()])));
             let all_not = Condition::All(vec![Condition::Not(Box::new(a)), Condition::Not(Box::new(b))]);
-            let evaluator = DefaultConditionEvaluator;
+            let evaluator = DefaultConditionEvaluator::new();
             prop_assert_eq!(evaluator.evaluate(&not_any, &ctx), evaluator.evaluate(&all_not, &ctx));
         });
     }
@@ -895,7 +1026,7 @@ mod proptests {
         proptest!(|(c in arb_condition_shrink())| {
             let ctx = DialogWorldState::new();
             let wrapped = Condition::All(vec![c.clone()]);
-            let evaluator = DefaultConditionEvaluator;
+            let evaluator = DefaultConditionEvaluator::new();
             prop_assert_eq!(evaluator.evaluate(&wrapped, &ctx), evaluator.evaluate(&c, &ctx));
         });
     }
@@ -905,7 +1036,7 @@ mod proptests {
         proptest!(|(c in arb_condition_shrink())| {
             let ctx = DialogWorldState::new();
             let wrapped = Condition::Any(vec![c.clone()]);
-            let evaluator = DefaultConditionEvaluator;
+            let evaluator = DefaultConditionEvaluator::new();
             prop_assert_eq!(evaluator.evaluate(&wrapped, &ctx), evaluator.evaluate(&c, &ctx));
         });
     }
@@ -913,14 +1044,14 @@ mod proptests {
     #[test]
     fn prop_all_empty_true() {
         let ctx = DialogWorldState::new();
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         assert!(evaluator.evaluate(&Condition::All(vec![]), &ctx));
     }
 
     #[test]
     fn prop_any_empty_false() {
         let ctx = DialogWorldState::new();
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         assert!(!evaluator.evaluate(&Condition::Any(vec![]), &ctx));
     }
 
@@ -929,7 +1060,7 @@ mod proptests {
         proptest!(|(c in arb_condition_shrink())| {
             let ctx = DialogWorldState::new();
             let double = Condition::Not(Box::new(Condition::Not(Box::new(c.clone()))));
-            let evaluator = DefaultConditionEvaluator;
+            let evaluator = DefaultConditionEvaluator::new();
             prop_assert_eq!(evaluator.evaluate(&double, &ctx), evaluator.evaluate(&c, &ctx));
         });
     }
@@ -937,7 +1068,7 @@ mod proptests {
     #[test]
     fn prop_not_always_is_never() {
         let ctx = DialogWorldState::new();
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         let not_always = Condition::Not(Box::new(Condition::Always));
         assert_eq!(
             evaluator.evaluate(&not_always, &ctx),
@@ -948,7 +1079,7 @@ mod proptests {
     #[test]
     fn prop_not_never_is_always() {
         let ctx = DialogWorldState::new();
-        let evaluator = DefaultConditionEvaluator;
+        let evaluator = DefaultConditionEvaluator::new();
         let not_never = Condition::Not(Box::new(Condition::Never));
         assert_eq!(
             evaluator.evaluate(&not_never, &ctx),

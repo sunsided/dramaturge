@@ -3,20 +3,25 @@
 //! The [`DialogueRuntime`] trait defines the interface for driving a
 //! dialogue session: filtering available options by conditions and
 //! applying outcomes when an option is chosen. [`DefaultRuntime`]
-//! combines the default condition evaluator and outcome applier.
+//! combines a condition evaluator and an outcome applier (by default
+//! [`DefaultConditionEvaluator`] and [`DefaultOutcomeApplier`]).
+//!
+//! Both the trait and the default runtime are generic over the state type
+//! `S`, which defaults to [`DialogWorldState`].
 
-use dramaturge_model::{DialogTarget, DialogueNode, DialogueOption};
+use dramaturge_model::{DialogTarget, DialogueNode, DialogueOption, EventKind};
 
 use crate::context::DialogWorldState;
 use crate::evaluation::{
     ConditionEvaluator, DefaultConditionEvaluator, DefaultOutcomeApplier, OutcomeApplier,
 };
+use crate::state::NarrativeState;
 
 /// Trait defining the interface for driving a dialogue session.
 ///
 /// Implementations determine which options are available at a given
 /// node and handle the consequences of choosing an option.
-pub trait DialogueRuntime {
+pub trait DialogueRuntime<S: NarrativeState + ?Sized = DialogWorldState> {
     /// The iterator type returned by [`available_options`](Self::available_options).
     ///
     /// This associated type allows implementors to choose their own iterator
@@ -25,7 +30,8 @@ pub trait DialogueRuntime {
     /// `Box<dyn Iterator>` as needed.
     type OptionsIter<'a>: Iterator<Item = &'a DialogueOption>
     where
-        Self: 'a;
+        Self: 'a,
+        S: 'a;
 
     /// Returns references to options whose conditions are satisfied.
     ///
@@ -35,46 +41,57 @@ pub trait DialogueRuntime {
     fn available_options<'a>(
         &'a self,
         node: &'a DialogueNode,
-        state: &'a DialogWorldState,
+        state: &'a S,
     ) -> Self::OptionsIter<'a>;
 
     /// Applies the option's outcomes and returns the target to transition to.
     ///
-    /// This mutates the world state by applying each outcome in order,
+    /// This mutates the state by applying each outcome in order,
     /// then returns the option's target for the next navigation step.
-    fn choose_option(
-        &mut self,
-        option: &DialogueOption,
-        state: &mut DialogWorldState,
-    ) -> DialogTarget;
+    fn choose_option(&mut self, option: &DialogueOption, state: &mut S) -> DialogTarget;
 }
 
-/// Combines [`DefaultConditionEvaluator`] and [`DefaultOutcomeApplier`]
-/// to provide a complete default runtime implementation.
+/// Combines a [`ConditionEvaluator`] and an [`OutcomeApplier`] into a
+/// complete runtime.
+///
+/// With the default type parameters this is the built-in runtime over
+/// [`DialogWorldState`]. Use [`DefaultRuntime::with_parts`] to plug in
+/// evaluators and appliers that carry a [`CustomHandler`](crate::CustomHandler).
 #[derive(Debug, Clone, Default)]
-pub struct DefaultRuntime {
+pub struct DefaultRuntime<E = DefaultConditionEvaluator, A = DefaultOutcomeApplier> {
     /// The condition evaluator used to filter available options.
-    pub evaluator: DefaultConditionEvaluator,
+    pub evaluator: E,
     /// The outcome applier used when an option is chosen.
-    pub applier: DefaultOutcomeApplier,
+    pub applier: A,
+}
+
+impl DefaultRuntime {
+    /// Creates a new runtime with the default evaluator and applier.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl<E, A> DefaultRuntime<E, A> {
+    /// Creates a runtime from the given evaluator and applier.
+    pub fn with_parts(evaluator: E, applier: A) -> Self {
+        Self { evaluator, applier }
+    }
 }
 
 /// Iterator over available dialogue options.
 ///
 /// This struct is returned by [`DefaultRuntime::available_options`] and
 /// yields references to options whose conditions are satisfied.
-pub struct AvailableOptionsIter<'a> {
+pub struct AvailableOptionsIter<'a, E, S: ?Sized = DialogWorldState> {
     inner: std::slice::Iter<'a, DialogueOption>,
-    evaluator: &'a DefaultConditionEvaluator,
-    state: &'a DialogWorldState,
+    evaluator: &'a E,
+    state: &'a S,
 }
 
-impl<'a> AvailableOptionsIter<'a> {
-    fn new(
-        node: &'a DialogueNode,
-        evaluator: &'a DefaultConditionEvaluator,
-        state: &'a DialogWorldState,
-    ) -> Self {
+impl<'a, E, S: ?Sized> AvailableOptionsIter<'a, E, S> {
+    /// Creates an iterator over the options of `node` that pass `evaluator`.
+    pub fn new(node: &'a DialogueNode, evaluator: &'a E, state: &'a S) -> Self {
         Self {
             inner: node.options.iter(),
             evaluator,
@@ -83,17 +100,20 @@ impl<'a> AvailableOptionsIter<'a> {
     }
 }
 
-impl<'a> Iterator for AvailableOptionsIter<'a> {
+impl<'a, E, S> Iterator for AvailableOptionsIter<'a, E, S>
+where
+    E: ConditionEvaluator<S>,
+    S: NarrativeState + ?Sized,
+{
     type Item = &'a DialogueOption;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let option = self.inner.next()?;
-            if option.conditions.is_empty()
-                || option
-                    .conditions
-                    .iter()
-                    .all(|c| self.evaluator.evaluate(c, self.state))
+            if option
+                .conditions
+                .iter()
+                .all(|c| self.evaluator.evaluate(c, self.state))
             {
                 return Some(option);
             }
@@ -107,30 +127,28 @@ impl<'a> Iterator for AvailableOptionsIter<'a> {
     }
 }
 
-impl DefaultRuntime {
-    /// Creates a new runtime with the default evaluator and applier.
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
-impl DialogueRuntime for DefaultRuntime {
-    type OptionsIter<'a> = AvailableOptionsIter<'a>;
+impl<S, E, A> DialogueRuntime<S> for DefaultRuntime<E, A>
+where
+    S: NarrativeState + ?Sized,
+    E: ConditionEvaluator<S>,
+    A: OutcomeApplier<S>,
+{
+    type OptionsIter<'a>
+        = AvailableOptionsIter<'a, E, S>
+    where
+        Self: 'a,
+        S: 'a;
 
     fn available_options<'a>(
         &'a self,
         node: &'a DialogueNode,
-        state: &'a DialogWorldState,
+        state: &'a S,
     ) -> Self::OptionsIter<'a> {
         AvailableOptionsIter::new(node, &self.evaluator, state)
     }
 
-    fn choose_option(
-        &mut self,
-        option: &DialogueOption,
-        state: &mut DialogWorldState,
-    ) -> DialogTarget {
-        state.emit_event(dramaturge_model::EventKind::DialogOptionChosen {
+    fn choose_option(&mut self, option: &DialogueOption, state: &mut S) -> DialogTarget {
+        state.emit_event(EventKind::DialogOptionChosen {
             node_id: option.source_node_id,
             option_id: option.id,
             tags: option.tags.clone(),
@@ -148,6 +166,7 @@ impl DialogueRuntime for DefaultRuntime {
 mod tests {
     use super::*;
     use crate::context::DialogWorldState;
+    use crate::evaluation::NoCustom;
     use assert2::check;
     use dramaturge_model::{
         CharacterId, Condition, DialogText, DialogueOption, DialogueOptionId, EntityId, Fact,
@@ -157,8 +176,8 @@ mod tests {
     #[test]
     fn default_runtime_construction() {
         let rt = DefaultRuntime::new();
-        check!(let DefaultConditionEvaluator = rt.evaluator);
-        check!(let DefaultOutcomeApplier = rt.applier);
+        check!(let DefaultConditionEvaluator { custom: NoCustom } = rt.evaluator);
+        check!(let DefaultOutcomeApplier { custom: NoCustom } = rt.applier);
     }
 
     #[test]

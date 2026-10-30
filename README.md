@@ -37,7 +37,7 @@ let condition = Condition::FactEquals {
     value: FactValue::Bool(true),
 };
 
-let evaluator = DefaultConditionEvaluator;
+let evaluator = DefaultConditionEvaluator::new();
 assert!(evaluator.evaluate(&condition, &world));
 ```
 

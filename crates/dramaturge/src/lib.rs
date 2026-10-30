@@ -41,12 +41,16 @@
 //! # Extending the System
 //!
 //! - **Custom conditions** — add `Condition::Custom { key, args }` to your graphs
-//!   and implement [`ConditionEvaluator`] to handle them. See
-//!   [`dramaturge_runtime::evaluation`] for the trait.
+//!   and answer them with a [`CustomHandler`] passed to
+//!   [`DefaultConditionEvaluator::with_custom`]. See
+//!   [`dramaturge_runtime::evaluation`] for details.
+//! - **Host state** — embed [`DialogWorldState`] in your own game state and
+//!   implement [`HasDialogWorldState`]; evaluators, appliers and the runtime
+//!   are generic over any [`NarrativeState`].
 //! - **Custom tags** — implement the [`DialogTag`] trait on your own enum or use
 //!   [`CustomDialogTag`] directly. See [`dramaturge_model::tag`] for details.
-//! - **Custom outcomes** — implement [`OutcomeApplier`] to handle `Outcome::Custom`
-//!   and apply game-specific side effects.
+//! - **Custom outcomes** — handle `Outcome::Custom` in the same
+//!   [`CustomHandler`], passed to [`DefaultOutcomeApplier::with_custom`].
 //!
 //! # Example
 //!
@@ -71,8 +75,9 @@ pub use dramaturge_model::{
 };
 
 pub use dramaturge_runtime::{
-    ConditionEvaluator, DefaultConditionEvaluator, DefaultOutcomeApplier, DefaultRuntime,
-    DialogWorldState, DialogueRuntime, EvaluationContext, EvaluationResult, OutcomeApplier,
+    ConditionEvaluator, CustomHandler, DefaultConditionEvaluator, DefaultOutcomeApplier,
+    DefaultRuntime, DialogWorldState, DialogueRuntime, EvaluationContext, EvaluationResult,
+    HasDialogWorldState, NarrativeState, NoCustom, OutcomeApplier,
 };
 
 #[cfg(test)]

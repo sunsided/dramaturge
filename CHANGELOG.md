@@ -11,6 +11,15 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 - `SymbolTable` and `Interner` in `dramaturge-model`: stable author keys mapped
   to dense runtime ids, one namespace per id kind (#55).
 - `GraphValidator::validate_with_symbols` names nodes and options by key (#55).
+- `NarrativeState` trait in `dramaturge-runtime` with the operations the default
+  evaluator and applier use; `HasDialogWorldState` gives any host type that
+  embeds a `DialogWorldState` a forwarding implementation (#56).
+- `CustomHandler` hook (default `NoCustom`) for `Condition::Custom` and
+  `Outcome::Custom`. The default evaluator keeps recursing through
+  `All`/`Any`/`Not`, so nested custom conditions reach the handler (#56).
+- `DefaultRuntime::with_parts`, `DefaultConditionEvaluator::with_custom`,
+  `DefaultOutcomeApplier::with_custom`, and a `host_state` example (#56).
+- `partial_eq_values` is public (epsilon float comparison used by the evaluator).
 - CI lints GitHub Actions workflows with actionlint and zizmor.
 
 ### Changed
@@ -20,4 +29,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   for one release with a deprecation warning (#55).
 - **Breaking:** `YamlDialogueGraph::to_model` returns `LoadedDialogue
   { graph, symbols, warnings }` (#55).
+- **Breaking:** `ConditionEvaluator<S>`, `OutcomeApplier<S>` and
+  `DialogueRuntime<S>` are generic over the state. `S` defaults to
+  `DialogWorldState`, so most `impl` blocks and annotations compile unchanged (#56).
+- **Breaking:** `DefaultConditionEvaluator` and `DefaultOutcomeApplier` are no
+  longer unit structs; construct them with `::new()` / `::default()`.
+  `DefaultRuntime<E, A>` and `AvailableOptionsIter<'a, E, S>` gained type
+  parameters with defaults (#56).
+- **Breaking:** `DialogWorldState::remove_fact` returns `bool` (#56).
+- Custom evaluators that wrapped the default and re-implemented the
+  `All`/`Any`/`Not` recursion can become a `CustomHandler` instead (#56).
 - Validator messages print ids as `'key'` or `#<number>` instead of `ID <number>`.

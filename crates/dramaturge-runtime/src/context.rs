@@ -93,14 +93,16 @@ impl DialogWorldState {
         }
     }
 
-    /// Removes a scoped fact if present.
+    /// Removes a scoped fact if present. Returns `true` if it was present.
     pub fn remove_fact(
         &mut self,
         scope: &dramaturge_model::FactScope,
         fact_id: &dramaturge_model::FactId,
-    ) {
+    ) -> bool {
+        let before = self.facts.len();
         self.facts
             .retain(|sf| !(sf.scope == *scope && sf.fact.id == *fact_id));
+        self.facts.len() < before
     }
 
     /// Convenience check for whether a scoped fact is present.
