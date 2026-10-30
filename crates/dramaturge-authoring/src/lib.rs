@@ -18,6 +18,7 @@
 //! 7. **Orphaned fact references** — Facts referenced in conditions but never set by any outcome
 //! 8. **Mismatched source node IDs** — Options whose `source_node_id` does not match their parent `DialogueNode`
 //! 9. **Possibly empty text** — Fragment texts where no fragment is guaranteed to show
+//! 10. **Unkeyed progress fragments** — `Once`/`Cycle`/`Sticky` fragments without a key, whose progress resets when a fragment is inserted before them
 //!
 //! # When to Use
 //!
@@ -104,7 +105,7 @@ impl ValidationIssue {
 
 /// Validates a [`DialogueGraph`] for structural correctness.
 ///
-/// Runs nine validation checks covering graph integrity, reachability,
+/// Runs ten validation checks covering graph integrity, reachability,
 /// condition validity, and fact reference consistency.
 #[derive(Debug, Clone, Default)]
 pub struct GraphValidator;
@@ -115,7 +116,7 @@ impl GraphValidator {
         Self
     }
 
-    /// Runs all nine validation checks and returns the list of issues found.
+    /// Runs all ten validation checks and returns the list of issues found.
     ///
     /// Messages show raw numeric ids (`#3`). Use
     /// [`validate_with_symbols`](Self::validate_with_symbols) to show author keys.
@@ -123,7 +124,7 @@ impl GraphValidator {
         self.validate_with_symbols(graph, &SymbolTable::new())
     }
 
-    /// Runs all nine validation checks, naming nodes and options by the
+    /// Runs all ten validation checks, naming nodes and options by the
     /// keys in `symbols` (falling back to `#<number>` for unknown ids).
     pub fn validate_with_symbols(
         &self,
@@ -144,6 +145,7 @@ impl GraphValidator {
         self.check_orphaned_fact_references(graph, &mut issues);
         self.check_source_node_ids(graph, symbols, &mut issues);
         self.check_possibly_empty_text(graph, symbols, &mut issues);
+        self.check_unkeyed_progress_fragments(graph, symbols, &mut issues);
 
         issues
     }
@@ -667,6 +669,65 @@ impl GraphValidator {
         }
     }
 
+    /// Detects `Once`, `Cycle` and `Sticky` fragments without a key. Their
+    /// progress is tracked by position, so inserting a fragment before them
+    /// resets it.
+    fn check_unkeyed_progress_fragments(
+        &self,
+        graph: &DialogueGraph,
+        symbols: &SymbolTable,
+        issues: &mut Vec<ValidationIssue>,
+    ) {
+        fn count_unkeyed(text: &DialogText) -> usize {
+            match text {
+                DialogText::Inline(_) | DialogText::LocalizedKey(_) => 0,
+                DialogText::Fragments(fragments) => fragments
+                    .iter()
+                    .map(|f| {
+                        let tracked = matches!(
+                            f.mode,
+                            FragmentMode::Once | FragmentMode::Cycle | FragmentMode::Sticky
+                        );
+                        usize::from(tracked && f.key.is_none())
+                            + f.variants.iter().map(count_unkeyed).sum::<usize>()
+                    })
+                    .sum(),
+            }
+        }
+
+        const HINT: &str = "has no key; inserting a fragment before it resets its progress";
+        for node in &graph.nodes {
+            for _ in 0..count_unkeyed(&node.text) {
+                issues.push(
+                    ValidationIssue::new(
+                        ValidationSeverity::Warning,
+                        format!(
+                            "A fragment in the text of node {} {HINT}",
+                            symbols.display_node(node.id)
+                        ),
+                    )
+                    .with_node(node.id),
+                );
+            }
+            for option in &node.options {
+                for _ in 0..count_unkeyed(&option.text) {
+                    issues.push(
+                        ValidationIssue::new(
+                            ValidationSeverity::Warning,
+                            format!(
+                                "A fragment in the text of option {} in node {} {HINT}",
+                                symbols.display_option(option.id),
+                                symbols.display_node(node.id)
+                            ),
+                        )
+                        .with_node(node.id)
+                        .with_option(option.id),
+                    );
+                }
+            }
+        }
+    }
+
     /// Detects options whose `source_node_id` does not match their parent node's ID.
     /// A mismatch corrupts runtime event history recorded by `DefaultRuntime::choose_option`.
     fn check_source_node_ids(
@@ -773,6 +834,29 @@ mod tests {
         check!(empty.len() == 1);
         check!(empty[0].node_id == Some(DialogueNodeId::new(1)));
         check!(empty[0].severity == ValidationSeverity::Warning);
+    }
+
+    #[test]
+    fn warns_about_unkeyed_progress_fragments() {
+        use dramaturge_model::TextFragment;
+        let mut node = make_node(1, vec![]);
+        node.text = DialogText::fragments(vec![
+            TextFragment::always(DialogText::inline("Fine without a key.")),
+            TextFragment::with_mode(FragmentMode::Cycle, vec![DialogText::inline("a")]),
+            TextFragment::with_mode(FragmentMode::Once, vec![DialogText::inline("b")])
+                .keyed("greeting"),
+        ]);
+        let graph = DialogueGraph {
+            nodes: vec![node],
+            entry_node: Some(DialogueNodeId::new(1)),
+        };
+        let unkeyed: Vec<_> = GraphValidator::new()
+            .validate(&graph)
+            .into_iter()
+            .filter(|i| i.message.contains("has no key"))
+            .collect();
+        check!(unkeyed.len() == 1);
+        check!(unkeyed[0].severity == ValidationSeverity::Warning);
     }
 
     #[test]

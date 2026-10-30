@@ -45,6 +45,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 - YAML `text:` accepts fragment lists; YAML conditions gain `fact_at_least` and
   `fact_at_most` (#58).
 - Validator warning for fragment texts that can resolve to empty text (#58).
+- Validator warning for `Once`/`Cycle`/`Sticky` fragments without a key, whose
+  progress resets when a fragment is inserted before them (#58).
 - `TextProgressDto` and the `text_progress` `with` module (#58).
 - `partial_eq_values` is public (epsilon float comparison used by the evaluator).
 - CI lints GitHub Actions workflows with actionlint and zizmor.
