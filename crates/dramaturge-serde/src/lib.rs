@@ -13,10 +13,11 @@
 //! use dramaturge_serde::loader::YamlDialogueGraph;
 //!
 //! let raw = std::fs::read_to_string("dialogue.yaml").unwrap();
-//! let graph = YamlDialogueGraph::from_yaml(&raw)
+//! let loaded = YamlDialogueGraph::from_yaml(&raw)
 //!     .expect("invalid YAML")
 //!     .to_model()
 //!     .expect("invalid graph structure");
+//! let graph = loaded.graph;
 //! ```
 //!
 //! See `crates/dramaturge/examples/dialogue.yaml` for the full YAML format.
