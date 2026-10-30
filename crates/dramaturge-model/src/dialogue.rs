@@ -37,10 +37,7 @@ impl DialogueOptionId {
 
 /// Text content that can be inline, localized, or assembled from
 /// state-dependent fragments.
-///
-/// This enum is `#[non_exhaustive]`: match it with a wildcard arm.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub enum DialogText {
     /// Direct string text.
     Inline(String),

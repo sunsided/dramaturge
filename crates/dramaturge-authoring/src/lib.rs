@@ -631,7 +631,6 @@ impl GraphValidator {
                         && !f.variants.is_empty()
                         && f.variants.iter().all(never_empty)
                 }),
-                _ => true,
             }
         }
 

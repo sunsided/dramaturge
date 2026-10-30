@@ -268,8 +268,6 @@ where
                     self.fragment(fragment, path, index, out);
                 }
             }
-            // Text kinds added in later versions contribute nothing here.
-            _ => {}
         }
     }
 

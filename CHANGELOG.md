@@ -69,8 +69,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   in ordered maps; lookups are `O(log n)` instead of linear scans and
   iteration order is deterministic. Its fields are private; use the
   iterator methods. `get_memories` returns `&[Memory]` (#59).
-- **Breaking:** `DialogText` is `#[non_exhaustive]` and no longer `Eq`/`Hash`
-  (fragments carry conditions); match it with a wildcard arm (#58).
+- **Breaking:** `DialogText` is no longer `Eq`/`Hash` (fragments carry
+  conditions), and exhaustive matches need a `Fragments` arm (#58).
 - **Breaking:** `YamlNode::text` is a `YamlText`, `YamlOption::text` an
   `Option<YamlText>` (#58).
 - **Breaking:** the `yaml` feature uses `serde-saphyr` instead of the

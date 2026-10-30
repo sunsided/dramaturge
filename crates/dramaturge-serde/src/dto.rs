@@ -1414,8 +1414,6 @@ impl From<&model::DialogText> for DialogTextDto {
             T::Inline(s) => Self::Inline(s.clone()),
             T::LocalizedKey(k) => Self::LocalizedKey(k.to_string()),
             T::Fragments(fs) => Self::Fragments(dtos(fs)),
-            // `DialogText` is non-exhaustive; a new variant needs a DTO here.
-            other => unimplemented!("dramaturge-serde cannot serialize {other:?} yet"),
         }
     }
 }
