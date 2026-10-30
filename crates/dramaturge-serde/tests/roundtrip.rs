@@ -12,7 +12,7 @@ use dramaturge_runtime::{DialogWorldState, FragmentProgress, TextProgress};
 use dramaturge_serde::dto::{
     ConditionDto, DialogueGraphDto, IntoModel, OutcomeDto, TextProgressDto, WorldStateDto,
 };
-use dramaturge_serde::save::SavedWorldState;
+use dramaturge_serde::save::{OrphanedKey, SavedWorldState, SymbolKind};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -515,7 +515,22 @@ fn saved_state_survives_reordered_content() {
     let mara2 = v2.intern_entity("mara");
 
     let saved: SavedWorldState = serde_json::from_str(&json).unwrap();
-    let restored = saved.restore(&mut v2);
+    let (restored, report) = saved.restore(&mut v2);
+    // v2 does not define Mara's scene, so its node, option and memory keys
+    // are orphaned (and still restored with fresh ids).
+    let orphaned: Vec<_> = report
+        .orphaned
+        .iter()
+        .map(|o| (o.kind, o.key.as_str()))
+        .collect();
+    check!(
+        orphaned
+            == vec![
+                (SymbolKind::Node, "mara.intro"),
+                (SymbolKind::Option, "mara.intro.comfort"),
+                (SymbolKind::Memory, "mara.remembers_kindness"),
+            ]
+    );
 
     check!(
         restored.get_relationship(player2, mara2, &RelationshipAxisId::new("trust")) == Some(10)
@@ -538,4 +553,31 @@ fn saved_state_survives_reordered_content() {
     };
     check!(v2.node_key(*node_id) == Some("mara.intro"));
     check!(v2.option_key(*option_id) == Some("mara.intro.comfort"));
+}
+
+#[test]
+fn restore_reports_orphaned_keys() {
+    let mut v1 = SymbolTable::new();
+    let player = v1.intern_entity("player");
+    let ghost = v1.intern_entity("ghost");
+    let mut state = DialogWorldState::new();
+    state.add_relationship(player, ghost, RelationshipAxisId::new("fear"), 3);
+    state.add_relationship(ghost, player, RelationshipAxisId::new("fear"), 1);
+    let saved = SavedWorldState::new(&state, &v1);
+
+    // The ghost was removed from the content.
+    let mut v2 = SymbolTable::new();
+    let player2 = v2.intern_entity("player");
+    let (restored, report) = saved.restore(&mut v2);
+
+    check!(
+        report.orphaned
+            == vec![OrphanedKey {
+                kind: SymbolKind::Entity,
+                key: "ghost".into(),
+            }]
+    );
+    let ghost2 = v2.entity("ghost").expect("orphan is interned");
+    check!(ghost2 != player2);
+    check!(restored.get_relationship(player2, ghost2, &RelationshipAxisId::new("fear")) == Some(3));
 }

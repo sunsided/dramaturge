@@ -29,9 +29,12 @@
 //! let mara2 = v2.intern_entity("mara");
 //!
 //! let saved: SavedWorldState = serde_json::from_str(&json).unwrap();
-//! let restored = saved.restore(&mut v2);
+//! let (restored, report) = saved.restore(&mut v2);
+//! assert!(report.orphaned.is_empty());
 //! assert_eq!(restored.get_relationship(player2, mara2, &RelationshipAxisId::new("trust")), Some(10));
 //! ```
+
+use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
@@ -50,6 +53,37 @@ pub struct SavedWorldState {
     pub state: WorldStateDto,
 }
 
+/// The id namespace a [`OrphanedKey`] belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SymbolKind {
+    /// An entity key.
+    Entity,
+    /// A dialogue node key.
+    Node,
+    /// A dialogue option key.
+    Option,
+    /// A memory key.
+    Memory,
+}
+
+/// A key the saved state references but the current content does not define.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct OrphanedKey {
+    /// The namespace of the key.
+    pub kind: SymbolKind,
+    /// The key.
+    pub key: String,
+}
+
+/// What [`SavedWorldState::restore`] could not match to current content.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RestoreReport {
+    /// Keys the save references that the current symbol table did not know.
+    /// They were interned with fresh ids, so the state stays loadable.
+    /// Sorted and without duplicates.
+    pub orphaned: Vec<OrphanedKey>,
+}
+
 impl SavedWorldState {
     /// Captures `state` together with the keys in `symbols`.
     pub fn new(state: &DialogWorldState, symbols: &SymbolTable) -> Self {
@@ -61,54 +95,85 @@ impl SavedWorldState {
 
     /// Rebuilds the state, re-resolving every id by key against `current`.
     ///
-    /// Keys that `current` does not know yet (content removed since the
-    /// save) are interned, so they get fresh ids that do not collide with
-    /// current content. Ids that had no key at save time are kept as they
-    /// were.
-    pub fn restore(self, current: &mut SymbolTable) -> DialogWorldState {
-        let saved: SymbolTable = self.symbols.into_model();
-        self.state.into_model_with(&mut KeyRemap {
-            saved: &saved,
-            current,
-        })
+    /// Keys that `current` does not know (content removed since the save)
+    /// are interned, so they get fresh ids that do not collide with current
+    /// content, and are listed in the returned [`RestoreReport`]. A host that
+    /// wants strict loading rejects the save when `report.orphaned` is not
+    /// empty. Ids that had no key at save time are kept as they were.
+    pub fn restore(&self, current: &mut SymbolTable) -> (DialogWorldState, RestoreReport) {
+        let saved: SymbolTable = self.symbols.clone().into_model();
+        let mut remap = KeyRemap::new(&saved, current);
+        let state = self.state.clone().into_model_with(&mut remap);
+        (state, remap.into_report())
     }
 }
 
 /// An [`IdMap`] that translates ids from one symbol table to another by key.
 #[derive(Debug)]
 pub struct KeyRemap<'a> {
-    /// The table the ids come from.
-    pub saved: &'a SymbolTable,
-    /// The table the ids go to. Unknown keys are interned here.
-    pub current: &'a mut SymbolTable,
+    saved: &'a SymbolTable,
+    current: &'a mut SymbolTable,
+    orphaned: BTreeSet<OrphanedKey>,
+}
+
+impl<'a> KeyRemap<'a> {
+    /// Maps ids from `saved` to `current`. Unknown keys are interned into
+    /// `current` and recorded as orphaned.
+    pub fn new(saved: &'a SymbolTable, current: &'a mut SymbolTable) -> Self {
+        Self {
+            saved,
+            current,
+            orphaned: BTreeSet::new(),
+        }
+    }
+
+    /// Returns the keys that were missing from the current table.
+    pub fn into_report(self) -> RestoreReport {
+        RestoreReport {
+            orphaned: self.orphaned.into_iter().collect(),
+        }
+    }
+
+    fn note_orphan(&mut self, kind: SymbolKind, key: &str, known: bool) {
+        if !known {
+            self.orphaned.insert(OrphanedKey {
+                kind,
+                key: key.to_string(),
+            });
+        }
+    }
 }
 
 impl IdMap for KeyRemap<'_> {
     fn entity(&mut self, raw: u64) -> EntityId {
-        match self.saved.entity_key(EntityId::new(raw)) {
-            Some(key) => self.current.intern_entity(key),
-            None => EntityId::new(raw),
-        }
+        let Some(key) = self.saved.entity_key(EntityId::new(raw)) else {
+            return EntityId::new(raw);
+        };
+        self.note_orphan(SymbolKind::Entity, key, self.current.entity(key).is_some());
+        self.current.intern_entity(key)
     }
 
     fn node(&mut self, raw: u64) -> DialogueNodeId {
-        match self.saved.node_key(DialogueNodeId::new(raw)) {
-            Some(key) => self.current.intern_node(key),
-            None => DialogueNodeId::new(raw),
-        }
+        let Some(key) = self.saved.node_key(DialogueNodeId::new(raw)) else {
+            return DialogueNodeId::new(raw);
+        };
+        self.note_orphan(SymbolKind::Node, key, self.current.node(key).is_some());
+        self.current.intern_node(key)
     }
 
     fn option(&mut self, raw: u64) -> DialogueOptionId {
-        match self.saved.option_key(DialogueOptionId::new(raw)) {
-            Some(key) => self.current.intern_option(key),
-            None => DialogueOptionId::new(raw),
-        }
+        let Some(key) = self.saved.option_key(DialogueOptionId::new(raw)) else {
+            return DialogueOptionId::new(raw);
+        };
+        self.note_orphan(SymbolKind::Option, key, self.current.option(key).is_some());
+        self.current.intern_option(key)
     }
 
     fn memory(&mut self, raw: u64) -> MemoryId {
-        match self.saved.memory_key(model::MemoryId::new(raw)) {
-            Some(key) => self.current.intern_memory(key),
-            None => MemoryId::new(raw),
-        }
+        let Some(key) = self.saved.memory_key(model::MemoryId::new(raw)) else {
+            return MemoryId::new(raw);
+        };
+        self.note_orphan(SymbolKind::Memory, key, self.current.memory(key).is_some());
+        self.current.intern_memory(key)
     }
 }

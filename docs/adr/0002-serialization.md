@@ -33,7 +33,10 @@ DTO pattern in `dramaturge-serde`:
 - `save::SavedWorldState` stores the state together with the `SymbolTable` keys
   of the ids it references. `restore(&mut current)` maps every id through its
   key into the current table, so saves stay valid when content is added,
-  removed or reordered (ADR 0001).
+  removed or reordered (ADR 0001). Restoring is lenient: keys the current
+  content no longer defines are interned with fresh ids and listed in a
+  `RestoreReport`; a host that wants strict loading rejects the save when the
+  report is not empty.
 - `DialogWorldState::set_next_event_id` lets a restored state keep its event id
   sequence even when the log was drained.
 

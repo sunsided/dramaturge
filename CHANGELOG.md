@@ -32,7 +32,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 - `with` modules `dramaturge_serde::{world_state, condition, outcome,
   dialogue_graph, symbol_table}` for host structs (#57).
 - `dramaturge_serde::save::SavedWorldState`: saves store keys and re-resolve ids
-  against the current `SymbolTable` on restore (#57).
+  against the current `SymbolTable` on restore. `restore` returns a
+  `RestoreReport` listing keys the current content no longer defines (#57).
 - `DialogWorldState::set_next_event_id` (#57).
 - CI builds `dramaturge-serde` and `dramaturge-runtime` for `wasm32-unknown-unknown`.
 - `DialogText::Fragments` with `TextFragment` and `FragmentMode` (`Always`,
