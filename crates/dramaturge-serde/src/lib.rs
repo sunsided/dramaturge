@@ -13,13 +13,22 @@
 //! use dramaturge_serde::loader::YamlDialogueGraph;
 //!
 //! let raw = std::fs::read_to_string("dialogue.yaml").unwrap();
-//! let graph = YamlDialogueGraph::from_yaml(&raw)
+//! let loaded = YamlDialogueGraph::from_yaml(&raw)
 //!     .expect("invalid YAML")
 //!     .to_model()
 //!     .expect("invalid graph structure");
+//! let graph = loaded.graph;
 //! ```
 //!
 //! See `crates/dramaturge/examples/dialogue.yaml` for the full YAML format.
+//!
+//! # Model and State Serialization
+//!
+//! [`dto`] has a lossless serde DTO for every public model type and for
+//! `DialogWorldState`. Host structs use the `with` modules
+//! ([`world_state`], [`condition`], [`outcome`], [`dialogue_graph`],
+//! [`symbol_table`], [`text_progress`]). [`save::SavedWorldState`] stores keys next to the
+//! state so saves survive content changes.
 //!
 //! # Why a Separate Crate?
 //!
@@ -31,10 +40,14 @@
 
 pub use serde;
 
+pub mod dto;
+pub mod save;
+mod with;
+pub use with::{condition, dialogue_graph, outcome, symbol_table, text_progress, world_state};
+
 #[cfg(feature = "yaml")]
 #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
 pub mod loader;
-
 use dramaturge_model as model;
 
 /// Re-export the model crate for downstream convenience.

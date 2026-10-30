@@ -75,6 +75,13 @@
 //! (e.g., `Persuade`, `Threaten`, `Comfort`). Complements [`DialogTag`] by
 //! capturing *why* an option exists, not just *what category* it belongs to.
 //!
+//! ## Symbols
+//!
+//! Authors refer to content by stable string keys (`npc.mara`,
+//! `dlg.mara.intro`); the runtime uses dense numeric ids. A [`SymbolTable`]
+//! interns each key once and maps ids back to keys for diagnostics and save
+//! games. Loaders return the table together with the model.
+//!
 //! ## Tags
 //!
 //! [`DialogTag`] is a trait for axis/key annotation on dialogue options.
@@ -93,6 +100,7 @@ pub mod intent;
 pub mod memory;
 pub mod outcome;
 pub mod relationship;
+pub mod symbol;
 pub mod tag;
 
 // Re-exports: alignment
@@ -106,7 +114,7 @@ pub use condition::Condition;
 // Re-exports: dialogue graph
 pub use dialogue::{
     DialogTarget, DialogText, DialogueGraph, DialogueNode, DialogueNodeId, DialogueOption,
-    DialogueOptionId, NavigationHint,
+    DialogueOptionId, FragmentMode, NavigationHint, TextFragment,
 };
 // Re-exports: events
 pub use event::{Event, EventContext, EventId, EventKind};
@@ -120,15 +128,16 @@ pub use memory::{Confidence, Memory, MemoryId, MemoryQuery, MemoryTag};
 pub use outcome::Outcome;
 // Re-exports: relationships
 pub use relationship::{RelationshipAxis, RelationshipAxisId, RelationshipScore};
+// Re-exports: symbol tables
+pub use symbol::{Interner, SymbolId, SymbolTable};
 // Re-exports: tags
 pub use tag::{CustomDialogTag, DialogTag, DialogTagKind};
 
 #[cfg(test)]
 mod macro_tests {
+    use crate::{Condition, EntityId, FactScope};
     use assert2::check;
     use dramaturge_macros::{ConditionBuilder, FactValue};
-
-    use crate::{Condition, EntityId, FactScope};
 
     #[derive(FactValue)]
     #[allow(dead_code)]

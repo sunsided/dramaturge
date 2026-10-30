@@ -14,9 +14,10 @@
 //! # Custom Conditions
 //!
 //! When built-in variants don't cover a game mechanic, use
-//! `Condition::Custom { key, args }`. The default evaluator always returns
-//! `false` for custom conditions — you supply the logic by implementing
-//! [`ConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/trait.ConditionEvaluator.html).
+//! `Condition::Custom { key, args }`. The default evaluator hands custom
+//! conditions to a
+//! [`CustomHandler`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/trait.CustomHandler.html),
+//! which answers `false` unless you supply one.
 //!
 //! ```rust
 //! use dramaturge_model::{Condition, FactValue};
@@ -34,12 +35,11 @@
 //! };
 //! ```
 //!
-//! In your evaluator, match on `key`, explicitly recurse through
-//! `All`/`Any`/`Not` using `self.evaluate()` (so nested `Custom` conditions
-//! reach your evaluator), and delegate everything else to
-//! [`DefaultConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/struct.DefaultConditionEvaluator.html).
-//! See [`ConditionEvaluator`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/trait.ConditionEvaluator.html)
-//! for the full pattern with composite recursion.
+//! Implement `CustomHandler` for your state type, match on `key`, and pass
+//! the handler to
+//! [`DefaultConditionEvaluator::with_custom`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/struct.DefaultConditionEvaluator.html).
+//! The default evaluator recurses through `All`/`Any`/`Not` itself, so
+//! nested `Custom` conditions reach the handler.
 
 use crate::alignment::{AlignmentAxisId, AlignmentPoleId};
 use crate::character::EntityId;
@@ -154,7 +154,7 @@ pub enum Condition {
         tag: DialogTagKind,
     },
     /// User-defined custom condition with arbitrary key and arguments.
-    /// Always returns `false` in the default evaluator.
+    /// The default evaluator hands it to its `CustomHandler` (`false` by default).
     Custom {
         /// Custom condition identifier.
         key: String,

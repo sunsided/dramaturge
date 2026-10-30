@@ -5,8 +5,6 @@
 //! unique [`EventId`], a classified [`EventKind`], and optional actor
 //! and target entities.
 
-use std::sync::Arc;
-
 use crate::alignment::{AlignmentAxisId, AlignmentPoleId};
 use crate::character::EntityId;
 use crate::dialogue::{DialogueNodeId, DialogueOptionId};
@@ -14,9 +12,10 @@ use crate::fact::{FactId, FactScope};
 use crate::intent::DialogIntentions;
 use crate::relationship::RelationshipAxisId;
 use crate::tag::DialogTagKind;
+use std::sync::Arc;
 
 /// Unique numeric identifier for an event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EventId(pub u64);
 
 impl EventId {

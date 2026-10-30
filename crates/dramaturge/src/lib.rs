@@ -41,12 +41,16 @@
 //! # Extending the System
 //!
 //! - **Custom conditions** — add `Condition::Custom { key, args }` to your graphs
-//!   and implement [`ConditionEvaluator`] to handle them. See
-//!   [`dramaturge_runtime::evaluation`] for the trait.
+//!   and answer them with a [`CustomHandler`] passed to
+//!   [`DefaultConditionEvaluator::with_custom`]. See
+//!   [`dramaturge_runtime::evaluation`] for details.
+//! - **Host state** — embed [`DialogWorldState`] in your own game state and
+//!   implement [`HasDialogWorldState`]; evaluators, appliers and the runtime
+//!   are generic over any [`NarrativeState`].
 //! - **Custom tags** — implement the [`DialogTag`] trait on your own enum or use
 //!   [`CustomDialogTag`] directly. See [`dramaturge_model::tag`] for details.
-//! - **Custom outcomes** — implement [`OutcomeApplier`] to handle `Outcome::Custom`
-//!   and apply game-specific side effects.
+//! - **Custom outcomes** — handle `Outcome::Custom` in the same
+//!   [`CustomHandler`], passed to [`DefaultOutcomeApplier::with_custom`].
 //!
 //! # Example
 //!
@@ -65,13 +69,15 @@ pub use dramaturge_model::{
     CharacterId, CharacterKey, CharacterTrait, Condition, Confidence, CustomDialogTag,
     DialogIntentions, DialogTag, DialogTagKind, DialogTarget, DialogText, DialogueGraph,
     DialogueNode, DialogueNodeId, DialogueOption, DialogueOptionId, EntityId, Event, EventContext,
-    EventId, EventKind, Fact, FactId, FactScope, FactValue, Intention, Memory, MemoryId,
-    MemoryQuery, MemoryTag, Outcome, RelationshipAxisId, RelationshipScore, ScopedFact,
+    EventId, EventKind, Fact, FactId, FactScope, FactValue, FragmentMode, Intention, Memory,
+    MemoryId, MemoryQuery, MemoryTag, Outcome, RelationshipAxisId, RelationshipScore, ScopedFact,
+    SymbolTable, TextFragment,
 };
-
 pub use dramaturge_runtime::{
-    ConditionEvaluator, DefaultConditionEvaluator, DefaultOutcomeApplier, DefaultRuntime,
-    DialogWorldState, DialogueRuntime, EvaluationContext, EvaluationResult, OutcomeApplier,
+    ConditionEvaluator, CustomHandler, DefaultConditionEvaluator, DefaultOutcomeApplier,
+    DefaultRuntime, DialogWorldState, DialogueRuntime, EvaluationContext, EvaluationResult,
+    FragmentProgress, HasDialogWorldState, NarrativeState, NoCustom, OutcomeApplier, ResolvedPiece,
+    ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text,
 };
 
 #[cfg(test)]

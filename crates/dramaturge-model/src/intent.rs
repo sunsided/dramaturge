@@ -6,9 +6,8 @@
 //! utterance. Intentions can be explicit (set by the authoring tool) or
 //! implicit (inferred by the runtime or other systems).
 
-use std::sync::Arc;
-
 use crate::fact::FactId;
+use std::sync::Arc;
 
 /// What a character aims to achieve through a dialogue option.
 ///

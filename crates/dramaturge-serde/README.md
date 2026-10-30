@@ -10,8 +10,26 @@ Serialization goes through DTO types defined in this crate — `dramaturge-model
 
 | Feature | What it enables |
 |---|---|
-| *(default)* | DTO types with `Serialize`/`Deserialize`; `pub use serde` and `pub use model::*` re-exports |
-| `yaml` | YAML dialogue graph loader |
+| *(default)* | Lossless DTOs (`dto`) for every model type and `DialogWorldState`, `with` modules, keyed save games (`save`); `pub use serde` and `pub use model::*` re-exports |
+| `yaml` | YAML dialogue graph loader (backed by `serde-saphyr`) |
+
+## Saving state
+
+```rust
+use dramaturge_runtime::DialogWorldState;
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+struct GameState {
+    room: String,
+    #[serde(with = "dramaturge_serde::world_state")]
+    dialog: DialogWorldState,
+}
+```
+
+The `with` modules store raw ids. `save::SavedWorldState` also stores the
+`SymbolTable` keys and re-resolves ids on restore, so saves survive content
+changes. See `docs/adr/0002-serialization.md`.
 
 ## YAML loader
 
@@ -24,11 +42,18 @@ dramaturge-serde = { version = "...", features = ["yaml"] }
 use dramaturge_serde::loader::YamlDialogueGraph;
 
 let raw = std::fs::read_to_string("dialogue.yaml").unwrap();
-let graph = YamlDialogueGraph::from_yaml(&raw)
-    .expect("invalid YAML")
+let loaded = YamlDialogueGraph::from_yaml(&raw)
+    .expect("invalid YAML") // YamlError carries line and column
     .to_model()
     .expect("invalid graph structure");
+
+// `loaded.graph` is the model, `loaded.symbols` maps keys such as
+// `mara.intro` to ids, and `loaded.warnings` lists deprecated syntax.
 ```
+
+All references in the YAML format are stable keys (`target: mara.confession.soft`,
+`source: player`); see `docs/adr/0001-id-representation.md`. Node and option
+`text` can be a string or a list of fragments.
 
 See [`crates/dramaturge/examples/dialogue.yaml`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge/examples/dialogue.yaml) in the repository for the full YAML schema.
 

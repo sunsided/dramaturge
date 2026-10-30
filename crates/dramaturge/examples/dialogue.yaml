@@ -1,27 +1,24 @@
 # The Broken Seal - Dialogue Configuration
 # A dramaturge example demonstrating branching dialogue with hidden observations
 
-version: "1.0"
-entry_node: 1
+version: "2.0"
+entry_node: mara.intro
 
 characters:
   player:
-    id: 1
     name: "Player"
   mara:
-    id: 2
     name: "Mara Vey"
   orren:
-    id: 3
     name: "Captain Orren Vale"
 
 nodes:
   # Scene 1: Mara Intro
-  - id: 1
+  - id: mara.intro
     speaker: mara
     text: "If you came about the missing shipment, I already told the Wardens everything I can."
     options:
-      - id: 1
+      - id: mara.intro.comfort
         text: "You treated someone with that medicine, didn't you? I'm not here to punish that."
         tags:
           - { axis: "moral", key: "paragon" }
@@ -31,15 +28,15 @@ nodes:
         intentions_implicit: ["ProtectVulnerable", "ExtractConfessionSoftly"]
         outcomes:
           - type: add_relationship
-            source: 1
-            target: 2
+            source: player
+            target: mara
             axis: "trust"
             delta: 15
           - type: set_fact
             fact: "PlayerComfortedMara"
             value: true
-        target: "2"
-      - id: 2
+        target: mara.confession.soft
+      - id: mara.intro.ledger
         text: "The ledger says three crates vanished after your signature."
         tags:
           - { axis: "moral", key: "pragmatic" }
@@ -47,8 +44,8 @@ nodes:
           - { axis: "speech", key: "ask" }
         intentions_explicit: ["ExtractInformation"]
         intentions_implicit: ["PressureWitness"]
-        target: "3"
-      - id: 3
+        target: mara.confession.guarded
+      - id: mara.intro.threaten
         text: "Don't waste my time. Tell me where the crates went."
         tags:
           - { axis: "moral", key: "renegade" }
@@ -58,15 +55,15 @@ nodes:
         intentions_implicit: ["CloseCaseQuickly"]
         outcomes:
           - type: add_relationship
-            source: 1
-            target: 2
+            source: player
+            target: mara
             axis: "trust"
             delta: -15
           - type: set_fact
             fact: "PlayerThreatenedMara"
             value: true
-        target: "4"
-      - id: 20
+        target: mara.confession.forced
+      - id: mara.intro.accuse
         text: "You're a thief and a liar. I should drag you to the stocks right now."
         tags:
           - { axis: "moral", key: "renegade" }
@@ -75,17 +72,17 @@ nodes:
         intentions_implicit: ["ForceConfession"]
         outcomes:
           - type: add_relationship
-            source: 1
-            target: 2
+            source: player
+            target: mara
             axis: "trust"
             delta: -25
           - type: set_fact
             fact: "PlayerThreatenedMara"
             value: true
-        target: "6"
+        target: mara.refused
 
-  # Node 2: Mara Confession Soft (comfort path)
-  - id: 2
+  # Mara Confession Soft (comfort path)
+  - id: mara.confession.soft
     speaker: mara
     text: "*sighs* Yes. The refugee camp beyond the east wall. Three children with fever. Their parents begged me... I couldn't just watch them die."
     outcomes:
@@ -99,7 +96,7 @@ nodes:
         fact: "MedicineDivertedToRefugees"
         value: true
     options:
-      - id: 4
+      - id: mara.confession.soft.promise
         text: "I'll speak carefully. The truth matters, but so do the people you saved."
         tags:
           - { axis: "moral", key: "paragon" }
@@ -109,15 +106,15 @@ nodes:
         intentions_implicit: ["Comfort"]
         outcomes:
           - type: add_relationship
-            source: 1
-            target: 2
+            source: player
+            target: mara
             axis: "trust"
             delta: 10
           - type: set_fact
             fact: "PlayerPromisedMaraDiscretion"
             value: true
-        target: "5"
-      - id: 5
+        target: mara.promise
+      - id: mara.confession.soft.honest
         text: "I won't hide this. Orren needs to know what happened."
         tags:
           - { axis: "moral", key: "pragmatic" }
@@ -126,17 +123,17 @@ nodes:
         intentions_explicit: ["Reveal"]
         outcomes:
           - type: add_relationship
-            source: 1
-            target: 2
+            source: player
+            target: mara
             axis: "trust"
             delta: -5
           - type: set_fact
             fact: "PlayerRefusedDiscretion"
             value: true
-        target: "5"
+        target: mara.promise
 
-  # Node 3: Mara Confession Guarded (investigator path)
-  - id: 3
+  # Mara Confession Guarded (investigator path)
+  - id: mara.confession.guarded
     speaker: mara
     text: "The ledgers... *clenches jaw* The Civic Wardens would have let those children die for paperwork. I made a choice. The crates are at the east wall camp."
     outcomes:
@@ -150,12 +147,12 @@ nodes:
         fact: "MedicineDivertedToRefugees"
         value: true
     options:
-      - id: 6
+      - id: mara.confession.guarded.continue
         navigation_hint: continue
-        target: "5"
+        target: mara.promise
 
-  # Node 4: Mara Confession Forced (intimidation path)
-  - id: 4
+  # Mara Confession Forced (intimidation path)
+  - id: mara.confession.forced
     speaker: mara
     text: "*voice trembling* The east wall. The refugee camp. Take what you want, just... leave me be."
     outcomes:
@@ -169,22 +166,26 @@ nodes:
         fact: "MedicineDivertedToRefugees"
         value: true
     options:
-      - id: 7
+      - id: mara.confession.forced.continue
         navigation_hint: leave
-        target: "5"
+        target: mara.promise
 
-  # Node 5: Mara Promise Choice (transition to Orren)
-  - id: 5
+  # Mara Promise Choice (transition to Orren)
+  - id: mara.promise
     speaker: mara
-    text: "Whatever happens... thank you for hearing me out. Captain Vale is waiting in the council room."
+    text:
+      - "Whatever happens... thank you for hearing me out."
+      - when: { type: fact_exists, fact: "PlayerPromisedMaraDiscretion" }
+        text: "And thank you for your discretion."
+      - "Captain Vale is waiting in the council room."
     options:
-      - id: 8
+      - id: mara.promise.go_to_orren
         navigation_hint: go_to
         go_to_target: "Captain Vale"
-        target: "10"
+        target: orren.intro
 
-  # Node 6: Mara Refused (aggressive accusation path)
-  - id: 6
+  # Mara Refused (aggressive accusation path)
+  - id: mara.refused
     speaker: mara
     text: "*goes pale, then stiffens* I have nothing to say to you. If you have accusations, take them to Captain Vale. I'm done here."
     outcomes:
@@ -198,17 +199,20 @@ nodes:
         fact: "PlayerLearnedNothing"
         value: true
     options:
-      - id: 21
+      - id: mara.refused.go_to_orren
         navigation_hint: leave
         text: "Fine. I'll talk to Vale directly."
-        target: "10"
+        target: orren.intro
 
   # Scene 2: Orren Intro
-  - id: 10
+  - id: orren.intro
     speaker: orren
-    text: "You spoke to Mara Vey. Good. Then you know whether my missing medicine is a theft, a clerical error, or something worse."
+    text:
+      - mode: first_time
+        text: "*Captain Vale looks up from a stack of ledgers.*"
+      - "You spoke to Mara Vey. Good. Then you know whether my missing medicine is a theft, a clerical error, or something worse."
     options:
-      - id: 10
+      - id: orren.intro.truth
         text: "Mara diverted the medicine to refugees outside the wall. She saved three children with fever."
         tags:
           - { axis: "moral", key: "paragon" }
@@ -224,8 +228,8 @@ nodes:
             fact: "MedicineDivertedToRefugees"
         outcomes:
           - type: add_relationship
-            source: 1
-            target: 3
+            source: player
+            target: orren
             axis: "trust"
             delta: 10
           - type: set_fact
@@ -237,8 +241,8 @@ nodes:
           - type: set_fact
             fact: "OrrenSoftensReport"
             value: true
-        target: "11"
-      - id: 11
+        target: orren.truth
+      - id: orren.intro.lie
         text: "Mara found the crates already missing. She had nothing to do with it."
         tags:
           - { axis: "moral", key: "renegade" }
@@ -252,15 +256,15 @@ nodes:
             fact: "MedicineDivertedToRefugees"
         outcomes:
           - type: add_relationship
-            source: 1
-            target: 3
+            source: player
+            target: orren
             axis: "trust"
             delta: -20
           - type: set_fact
             fact: "PlayerLiedToOrren"
             value: true
-        target: "12"
-      - id: 16
+        target: orren.lie
+      - id: orren.intro.half_truth
         text: "Mara did find the crates missing... after signing for them. She was trying to help someone."
         tags:
           - { axis: "moral", key: "pragmatic" }
@@ -276,8 +280,8 @@ nodes:
           - type: set_fact
             fact: "PlayerGaveHalfTruthToOrren"
             value: true
-        target: "14"
-      - id: 22
+        target: orren.pretends
+      - id: orren.intro.bluff
         text: "She clammed up when I pressed her. My guess? Bandits hit the shipment before it reached the clinic."
         tags:
           - { axis: "moral", key: "renegade" }
@@ -290,15 +294,15 @@ nodes:
             fact: "MaraRefusedToTalk"
         outcomes:
           - type: add_relationship
-            source: 1
-            target: 3
+            source: player
+            target: orren
             axis: "trust"
             delta: -25
           - type: set_fact
             fact: "PlayerBluffedOrren"
             value: true
-        target: "15"
-      - id: 12
+        target: orren.bluff
+      - id: orren.intro.refuse
         text: "I gave Mara my word. Ask me what I saw, not what she trusted me with."
         tags:
           - { axis: "moral", key: "paragon" }
@@ -311,69 +315,69 @@ nodes:
             fact: "PlayerPromisedMaraDiscretion"
         outcomes:
           - type: add_relationship
-            source: 1
-            target: 3
+            source: player
+            target: orren
             axis: "trust"
             delta: 5
           - type: add_relationship
-            source: 1
-            target: 2
+            source: player
+            target: mara
             axis: "trust"
             delta: 5
           - type: set_fact
             fact: "PlayerRefusedToBetrayMara"
             value: true
-        target: "13"
+        target: orren.refuse
 
-  # Node 11: Orren Truth Response
-  - id: 11
+  # Orren Truth Response
+  - id: orren.truth
     speaker: orren
     text: "*nods slowly* I had my suspicions. Mercy is a virtue, but so is order. I'll... soften my report. The Free Clinic will make restitution. Mara keeps her position."
     outcomes:
       - type: add_relationship
-        source: 1
-        target: 3
+        source: player
+        target: orren
         axis: "trust"
         delta: 5
     options:
-      - id: 13
+      - id: orren.truth.thanks
         navigation_hint: end
         text: "Thank you, Captain."
-        target: "end"
+        target: end
 
-  # Node 12: Orren Lie Response
-  - id: 12
+  # Orren Lie Response
+  - id: orren.lie
     speaker: orren
     text: "*eyes narrow* I see. Then perhaps you can explain why I overheard her confession not an hour ago. You protect a thief and lie to my face?"
     options:
-      - id: 14
+      - id: orren.lie.leave
         navigation_hint: end
-        target: "end"
+        target: end
 
-  # Node 13: Orren Refuse Response
-  - id: 13
+  # Orren Refuse Response
+  - id: orren.refuse
     speaker: orren
     text: "*studies you for a long moment* A person who keeps their word, even when it's inconvenient. That's rare in Greyford. I won't press you further."
     outcomes:
       - type: add_relationship
-        source: 1
-        target: 3
+        source: player
+        target: orren
         axis: "trust"
         delta: 5
     options:
-      - id: 15
+      - id: orren.refuse.thanks
         navigation_hint: end
         text: "Thank you for understanding, Captain."
-        target: "end"
+        target: end
 
-  # Node 14: Orren Pretends Belief
-  - id: 14
+  # Orren Pretends Belief
+  - id: orren.pretends
     speaker: orren
     text: "*nods, expression unreadable* I appreciate your candor. These are difficult times, and difficult choices must be made. I'll... look into the matter personally."
     outcomes:
       - type: add_relationship
-        source: 1
-        target: 3
+        source: player
+        target: orren
         axis: "trust"
         delta: 5
       - type: set_fact
@@ -383,19 +387,19 @@ nodes:
         fact: "OrrenPlottingToTestPlayer"
         value: true
     options:
-      - id: 17
+      - id: orren.pretends.thanks
         navigation_hint: end
         text: "Thank you, Captain. I knew you'd understand."
-        target: "end"
+        target: end
 
-  # Node 15: Orren Bluff Response (when player claims Mara clammed up)
-  - id: 15
+  # Orren Bluff Response (when player claims Mara clammed up)
+  - id: orren.bluff
     speaker: orren
     text: "*chuckles dryly* Bandits. Of course. And I suppose the Wardens just happened to miss any sign of forced entry. You expect me to believe Mara Vey - who once talked her way out of a hanging - simply 'clammed up'?"
     outcomes:
       - type: add_relationship
-        source: 1
-        target: 3
+        source: player
+        target: orren
         axis: "trust"
         delta: -30
       - type: set_fact
@@ -405,6 +409,6 @@ nodes:
         fact: "OrrenKnowsPlayerLying"
         value: true
     options:
-      - id: 23
+      - id: orren.bluff.leave
         navigation_hint: end
-        target: "end"
+        target: end

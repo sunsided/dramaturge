@@ -5,32 +5,49 @@
 //! is mutated by [`OutcomeApplier`](crate::OutcomeApplier) implementations
 //! and queried by [`ConditionEvaluator`](crate::ConditionEvaluator)
 //! implementations during dialogue evaluation.
+//!
+//! # Storage
+//!
+//! Facts, alignments and relationships live in ordered maps, so lookups
+//! are `O(log n)` and iteration order is deterministic: it depends only on
+//! the keys, not on insertion order. Memories are grouped by owner and keep
+//! their insertion order per owner. The event log is a `Vec` in
+//! chronological order.
+//!
+//! # Fingerprints
+//!
+//! [`DialogWorldState::fingerprint`] hashes the *logical* state — facts,
+//! alignments, relationships, memories and available tags — and ignores the
+//! event log, which is history rather than state. Two states with the same
+//! fingerprint are (with overwhelming probability) indistinguishable to
+//! conditions. Automated explorers use it to detect states they have
+//! already visited.
 
 use dramaturge_model::tag::DialogTagKind;
 use dramaturge_model::{
-    AlignmentScore, EntityId, Event, EventId, EventKind, Memory, MemoryId, MemoryQuery,
-    RelationshipScore, ScopedFact,
+    AlignmentAxisId, AlignmentPoleId, EntityId, Event, EventId, EventKind, Fact, FactId, FactScope,
+    FactValue, Memory, MemoryId, MemoryQuery, RelationshipAxisId,
 };
+use std::collections::{BTreeMap, BTreeSet};
+use std::hash::{Hash, Hasher};
 
 /// Complete snapshot of the narrative world state.
 ///
 /// This struct holds all mutable state that the dialogue system interacts
 /// with during evaluation. Facts are scoped, alignments and relationships
 /// are directional, and memories are owned by entities.
+///
+/// `PartialEq` compares everything, including the event log. Use
+/// [`fingerprint`](Self::fingerprint) or [`same_state`](Self::same_state)
+/// to compare only the logical state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DialogWorldState {
-    /// Scoped facts known in the world.
-    pub facts: Vec<ScopedFact>,
-    /// Alignment scores across various axes.
-    pub alignments: Vec<AlignmentScore>,
-    /// Directional relationship scores between entities.
-    pub relationships: Vec<RelationshipScore>,
-    /// Memories owned by entities (owner, memory) tuples.
-    pub memories: Vec<(EntityId, Memory)>,
-    /// Timeline of recorded narrative events.
-    pub events: Vec<Event>,
-    /// Tags currently available in the world.
-    pub available_tags: Vec<DialogTagKind>,
+    facts: BTreeMap<FactScope, BTreeMap<FactId, FactValue>>,
+    alignments: BTreeMap<AlignmentAxisId, BTreeMap<AlignmentPoleId, i32>>,
+    relationships: BTreeMap<(EntityId, EntityId), BTreeMap<RelationshipAxisId, i32>>,
+    memories: BTreeMap<EntityId, Vec<Memory>>,
+    available_tags: BTreeSet<DialogTagKind>,
+    events: Vec<Event>,
     /// Next event ID to allocate via [`emit_event`](Self::emit_event).
     ///
     /// Zero means the counter has wrapped around and the ID space is exhausted.
@@ -40,12 +57,12 @@ pub struct DialogWorldState {
 impl Default for DialogWorldState {
     fn default() -> Self {
         Self {
-            facts: Vec::new(),
-            alignments: Vec::new(),
-            relationships: Vec::new(),
-            memories: Vec::new(),
+            facts: BTreeMap::new(),
+            alignments: BTreeMap::new(),
+            relationships: BTreeMap::new(),
+            memories: BTreeMap::new(),
+            available_tags: BTreeSet::new(),
             events: Vec::new(),
-            available_tags: Vec::new(),
             event_id_counter: 1,
         }
     }
@@ -66,85 +83,73 @@ impl DialogWorldState {
     /// Looks up a fact by scope and ID.
     ///
     /// Returns `None` if the fact is not found in the given scope.
-    pub fn get_fact(
-        &self,
-        scope: &dramaturge_model::FactScope,
-        fact_id: &dramaturge_model::FactId,
-    ) -> Option<&dramaturge_model::FactValue> {
-        self.facts
-            .iter()
-            .find(|sf| &sf.scope == scope && sf.fact.id == *fact_id)
-            .map(|sf| &sf.fact.value)
+    pub fn get_fact(&self, scope: &FactScope, fact_id: &FactId) -> Option<&FactValue> {
+        self.facts.get(scope)?.get(fact_id)
     }
 
     /// Inserts or replaces a scoped fact.
-    ///
-    /// If a fact with the same scope and ID already exists, its value is
-    /// updated. Otherwise, a new scoped fact is appended.
-    pub fn set_fact(&mut self, scope: dramaturge_model::FactScope, fact: dramaturge_model::Fact) {
-        if let Some(sf) = self
-            .facts
-            .iter_mut()
-            .find(|sf| sf.scope == scope && sf.fact.id == fact.id)
-        {
-            sf.fact = fact;
-        } else {
-            self.facts.push(ScopedFact { scope, fact });
-        }
+    pub fn set_fact(&mut self, scope: FactScope, fact: Fact) {
+        self.facts
+            .entry(scope)
+            .or_default()
+            .insert(fact.id, fact.value);
     }
 
-    /// Removes a scoped fact if present.
-    pub fn remove_fact(
-        &mut self,
-        scope: &dramaturge_model::FactScope,
-        fact_id: &dramaturge_model::FactId,
-    ) {
-        self.facts
-            .retain(|sf| !(sf.scope == *scope && sf.fact.id == *fact_id));
+    /// Removes a scoped fact if present. Returns `true` if it was present.
+    pub fn remove_fact(&mut self, scope: &FactScope, fact_id: &FactId) -> bool {
+        let Some(scoped) = self.facts.get_mut(scope) else {
+            return false;
+        };
+        let removed = scoped.remove(fact_id).is_some();
+        if scoped.is_empty() {
+            self.facts.remove(scope);
+        }
+        removed
     }
 
     /// Convenience check for whether a scoped fact is present.
-    pub fn fact_exists(
-        &self,
-        scope: &dramaturge_model::FactScope,
-        fact_id: &dramaturge_model::FactId,
-    ) -> bool {
+    pub fn fact_exists(&self, scope: &FactScope, fact_id: &FactId) -> bool {
         self.get_fact(scope, fact_id).is_some()
     }
 
-    /// Returns the current alignment score, or `None` if untracked.
-    pub fn get_alignment(
-        &self,
-        axis: &dramaturge_model::AlignmentAxisId,
-        pole: &dramaturge_model::AlignmentPoleId,
-    ) -> Option<i32> {
-        self.alignments
+    /// Iterates over all facts as `(scope, id, value)`, ordered by scope, then id.
+    pub fn facts(&self) -> impl Iterator<Item = (&FactScope, &FactId, &FactValue)> {
+        self.facts
             .iter()
-            .find(|a| a.axis == *axis && a.pole == *pole)
-            .map(|a| a.value)
+            .flat_map(|(scope, facts)| facts.iter().map(move |(id, value)| (scope, id, value)))
+    }
+
+    /// Iterates over the facts of one scope as `(id, value)`, ordered by id.
+    pub fn facts_in(&self, scope: &FactScope) -> impl Iterator<Item = (&FactId, &FactValue)> {
+        self.facts.get(scope).into_iter().flatten()
+    }
+
+    /// Returns the number of facts across all scopes.
+    pub fn fact_count(&self) -> usize {
+        self.facts.values().map(BTreeMap::len).sum()
+    }
+
+    /// Returns the current alignment score, or `None` if untracked.
+    pub fn get_alignment(&self, axis: &AlignmentAxisId, pole: &AlignmentPoleId) -> Option<i32> {
+        self.alignments.get(axis)?.get(pole).copied()
     }
 
     /// Increments an existing alignment score, or initializes it to the
     /// given delta if not yet tracked.
-    pub fn add_alignment(
-        &mut self,
-        axis: dramaturge_model::AlignmentAxisId,
-        pole: dramaturge_model::AlignmentPoleId,
-        delta: i32,
-    ) {
-        if let Some(a) = self
+    pub fn add_alignment(&mut self, axis: AlignmentAxisId, pole: AlignmentPoleId, delta: i32) {
+        *self
             .alignments
-            .iter_mut()
-            .find(|a| a.axis == axis && a.pole == pole)
-        {
-            a.value += delta;
-        } else {
-            self.alignments.push(AlignmentScore {
-                axis,
-                pole,
-                value: delta,
-            });
-        }
+            .entry(axis)
+            .or_default()
+            .entry(pole)
+            .or_insert(0) += delta;
+    }
+
+    /// Iterates over all alignment scores as `(axis, pole, value)`.
+    pub fn alignments(&self) -> impl Iterator<Item = (&AlignmentAxisId, &AlignmentPoleId, i32)> {
+        self.alignments
+            .iter()
+            .flat_map(|(axis, poles)| poles.iter().map(move |(pole, v)| (axis, pole, *v)))
     }
 
     /// Returns the relationship score, or `None` if untracked.
@@ -152,12 +157,12 @@ impl DialogWorldState {
         &self,
         source: EntityId,
         target: EntityId,
-        axis: &dramaturge_model::RelationshipAxisId,
+        axis: &RelationshipAxisId,
     ) -> Option<i32> {
         self.relationships
-            .iter()
-            .find(|r| r.source == source && r.target == target && r.axis == *axis)
-            .map(|r| r.value)
+            .get(&(source, target))?
+            .get(axis)
+            .copied()
     }
 
     /// Increments an existing relationship score, or initializes it to
@@ -166,46 +171,59 @@ impl DialogWorldState {
         &mut self,
         source: EntityId,
         target: EntityId,
-        axis: dramaturge_model::RelationshipAxisId,
+        axis: RelationshipAxisId,
         delta: i32,
     ) {
-        if let Some(r) = self
+        *self
             .relationships
-            .iter_mut()
-            .find(|r| r.source == source && r.target == target && r.axis == axis)
-        {
-            r.value += delta;
-        } else {
-            self.relationships.push(RelationshipScore {
-                source,
-                target,
-                axis,
-                value: delta,
-            });
-        }
+            .entry((source, target))
+            .or_default()
+            .entry(axis)
+            .or_insert(0) += delta;
     }
 
-    /// Returns all memories owned by the given entity.
-    pub fn get_memories(&self, owner: EntityId) -> Vec<&Memory> {
-        self.memories
+    /// Iterates over all relationship scores as `(source, target, axis, value)`.
+    pub fn relationships(
+        &self,
+    ) -> impl Iterator<Item = (EntityId, EntityId, &RelationshipAxisId, i32)> {
+        self.relationships
             .iter()
-            .filter(|(o, _)| *o == owner)
-            .map(|(_, m)| m)
-            .collect()
+            .flat_map(|((source, target), axes)| {
+                axes.iter()
+                    .map(move |(axis, v)| (*source, *target, axis, *v))
+            })
     }
 
-    /// Appends a memory tuple for the given owner entity.
+    /// Returns all memories owned by the given entity, in insertion order.
+    pub fn get_memories(&self, owner: EntityId) -> &[Memory] {
+        self.memories.get(&owner).map_or(&[], Vec::as_slice)
+    }
+
+    /// Appends a memory for the given owner entity.
     pub fn add_memory(&mut self, owner: EntityId, memory: Memory) {
-        self.memories.push((owner, memory));
+        self.memories.entry(owner).or_default().push(memory);
     }
 
     /// Removes a memory by ID from the given owner entity.
     /// Returns `true` if a memory was found and removed.
     pub fn remove_memory(&mut self, owner: EntityId, memory_id: MemoryId) -> bool {
-        let before = self.memories.len();
+        let Some(owned) = self.memories.get_mut(&owner) else {
+            return false;
+        };
+        let before = owned.len();
+        owned.retain(|m| m.id != memory_id);
+        let removed = owned.len() < before;
+        if owned.is_empty() {
+            self.memories.remove(&owner);
+        }
+        removed
+    }
+
+    /// Iterates over all memories as `(owner, memory)`, ordered by owner.
+    pub fn memories(&self) -> impl Iterator<Item = (EntityId, &Memory)> {
         self.memories
-            .retain(|(o, m)| !(*o == owner && m.id == memory_id));
-        self.memories.len() < before
+            .iter()
+            .flat_map(|(owner, ms)| ms.iter().map(move |m| (*owner, m)))
     }
 
     /// Appends an event to the timeline.
@@ -227,6 +245,15 @@ impl DialogWorldState {
         (self.event_id_counter != 0).then_some(self.event_id_counter)
     }
 
+    /// Sets the next event ID that [`emit_event`](Self::emit_event) allocates.
+    ///
+    /// `None` marks the ID space as exhausted. Used when restoring a saved
+    /// state whose log was drained. Never set it at or below an ID that is
+    /// still in the log, or emitted IDs will repeat.
+    pub fn set_next_event_id(&mut self, next: Option<u64>) {
+        self.event_id_counter = next.unwrap_or(0);
+    }
+
     /// Allocates a new event ID and appends an event with the given kind.
     ///
     /// Returns `None` when the event ID space is exhausted.
@@ -241,6 +268,14 @@ impl DialogWorldState {
     /// Returns all events in chronological order.
     pub fn events(&self) -> &[Event] {
         &self.events
+    }
+
+    /// Removes all events and returns them, keeping the id counter.
+    ///
+    /// Event ids stay unique after a drain: the next emitted event continues
+    /// the sequence.
+    pub fn drain_events(&mut self) -> Vec<Event> {
+        std::mem::take(&mut self.events)
     }
 
     /// Returns events matching the given kind variant name.
@@ -281,7 +316,12 @@ impl DialogWorldState {
 
     /// Adds a tag to the set of available tags.
     pub fn add_available_tag(&mut self, tag: DialogTagKind) {
-        self.available_tags.push(tag);
+        self.available_tags.insert(tag);
+    }
+
+    /// Removes a tag from the set of available tags. Returns `true` if it was present.
+    pub fn remove_available_tag(&mut self, tag: &DialogTagKind) -> bool {
+        self.available_tags.remove(tag)
     }
 
     /// Checks if a specific tag is available.
@@ -289,9 +329,121 @@ impl DialogWorldState {
         self.available_tags.contains(tag)
     }
 
+    /// Iterates over the available tags in order.
+    pub fn available_tags(&self) -> impl Iterator<Item = &DialogTagKind> {
+        self.available_tags.iter()
+    }
+
     /// Checks if any memory owned by the given entity matches the query.
     pub fn matches_memory_query(&self, owner: EntityId, query: &MemoryQuery) -> bool {
         self.get_memories(owner).iter().any(|m| query.matches(m))
+    }
+
+    /// Hashes the logical state into a 64-bit fingerprint.
+    ///
+    /// Covers facts, alignments, relationships, memories and available tags.
+    /// The event log and the event id counter are excluded: they record
+    /// history, not state.
+    ///
+    /// Floats are hashed by bit pattern after mapping `-0.0` to `0.0` and
+    /// every NaN to one canonical NaN. Untracked and zero-valued scores are
+    /// distinct (a score of `0` is still tracked).
+    ///
+    /// The value is deterministic for a given build: it does not depend on
+    /// insertion order or on the process. It is not guaranteed to be stable
+    /// across Rust or dramaturge versions, so do not persist it.
+    pub fn fingerprint(&self) -> u64 {
+        // `DefaultHasher::new()` uses fixed keys, unlike `RandomState`, so the
+        // result does not change between processes.
+        let mut hasher = std::hash::DefaultHasher::new();
+        self.hash_logical(&mut hasher);
+        hasher.finish()
+    }
+
+    /// Feeds the logical state (everything except the event log) into `hasher`.
+    ///
+    /// Use this to combine the dialog state into a host's own fingerprint.
+    pub fn hash_logical<H: Hasher>(&self, hasher: &mut H) {
+        self.facts.len().hash(hasher);
+        for (scope, facts) in &self.facts {
+            scope.hash(hasher);
+            facts.len().hash(hasher);
+            for (id, value) in facts {
+                id.hash(hasher);
+                hash_fact_value(value, hasher);
+            }
+        }
+        self.alignments.hash(hasher);
+        self.relationships.hash(hasher);
+        self.memories.hash(hasher);
+        self.available_tags.hash(hasher);
+    }
+
+    /// Returns `true` if both states have the same logical state.
+    ///
+    /// Like [`fingerprint`](Self::fingerprint), this ignores the event log,
+    /// and it treats floats the same way: `-0.0` equals `0.0`, and all NaNs
+    /// equal each other. So `same_state` implies equal fingerprints, and a
+    /// state is always the same as itself.
+    pub fn same_state(&self, other: &Self) -> bool {
+        self.facts.len() == other.facts.len()
+            && self
+                .facts
+                .iter()
+                .zip(&other.facts)
+                .all(|((sa, fa), (sb, fb))| {
+                    sa == sb
+                        && fa.len() == fb.len()
+                        && fa
+                            .iter()
+                            .zip(fb)
+                            .all(|((ia, va), (ib, vb))| ia == ib && same_fact_value(va, vb))
+                })
+            && self.alignments == other.alignments
+            && self.relationships == other.relationships
+            && self.memories == other.memories
+            && self.available_tags == other.available_tags
+    }
+}
+
+/// Hashes a [`FactValue`] consistently with its `PartialEq`.
+fn hash_fact_value<H: Hasher>(value: &FactValue, hasher: &mut H) {
+    std::mem::discriminant(value).hash(hasher);
+    match value {
+        FactValue::Bool(b) => b.hash(hasher),
+        FactValue::Int(i) => i.hash(hasher),
+        FactValue::Float(f) => canonical_float_bits(*f).hash(hasher),
+        FactValue::Text(t) => t.hash(hasher),
+        FactValue::Entity(e) => e.hash(hasher),
+        FactValue::Set(values) => {
+            values.len().hash(hasher);
+            for v in values {
+                hash_fact_value(v, hasher);
+            }
+        }
+    }
+}
+
+/// Compares [`FactValue`]s consistently with [`hash_fact_value`].
+fn same_fact_value(a: &FactValue, b: &FactValue) -> bool {
+    match (a, b) {
+        (FactValue::Float(x), FactValue::Float(y)) => {
+            canonical_float_bits(*x) == canonical_float_bits(*y)
+        }
+        (FactValue::Set(xs), FactValue::Set(ys)) => {
+            xs.len() == ys.len() && xs.iter().zip(ys).all(|(x, y)| same_fact_value(x, y))
+        }
+        _ => a == b,
+    }
+}
+
+fn canonical_float_bits(f: f64) -> u64 {
+    if f == 0.0 {
+        0.0_f64.to_bits()
+    } else if f.is_nan() {
+        f64::NAN.to_bits()
+    } else {
+        f.to_bits()
     }
 }
 
@@ -309,11 +461,99 @@ mod tests {
             EventId::new(100),
             EventKind::Custom { kind: "x".into() },
         ));
-        assert_eq!(state.next_event_id(), Some(101));
+        check!(state.next_event_id() == Some(101));
         let emitted = state
             .emit_event(EventKind::Custom { kind: "y".into() })
             .unwrap();
-        assert_eq!(emitted.id.0, 101);
+        check!(emitted.id.0 == 101);
+    }
+
+    fn sample_state(reverse: bool) -> DialogWorldState {
+        use dramaturge_model::{AlignmentAxisId, AlignmentPoleId, RelationshipAxisId};
+        let mut facts = vec![
+            (FactScope::World, Fact::bool("a", true)),
+            (FactScope::Player, Fact::int("b", 3)),
+            (FactScope::World, Fact::float("c", 1.5)),
+        ];
+        if reverse {
+            facts.reverse();
+        }
+        let mut state = DialogWorldState::new();
+        for (scope, fact) in facts {
+            state.set_fact(scope, fact);
+        }
+        state.add_alignment(AlignmentAxisId::new("moral"), AlignmentPoleId::new("p"), 2);
+        state.add_relationship(
+            EntityId::new(1),
+            EntityId::new(2),
+            RelationshipAxisId::new("trust"),
+            5,
+        );
+        state
+    }
+
+    #[test]
+    fn fingerprint_ignores_insertion_order() {
+        let a = sample_state(false);
+        let b = sample_state(true);
+        check!(a.fingerprint() == b.fingerprint());
+        check!(a.same_state(&b));
+        let order_a: Vec<_> = a.facts().map(|(_, id, _)| id.clone()).collect();
+        let order_b: Vec<_> = b.facts().map(|(_, id, _)| id.clone()).collect();
+        check!(order_a == order_b);
+    }
+
+    #[test]
+    fn fingerprint_ignores_events() {
+        let a = sample_state(false);
+        let mut b = sample_state(false);
+        b.emit_event(EventKind::Custom { kind: "x".into() });
+        check!(a.fingerprint() == b.fingerprint());
+        check!(a.same_state(&b));
+        check!(a != b);
+    }
+
+    #[test]
+    fn fingerprint_changes_with_state() {
+        let a = sample_state(false);
+        let mut b = sample_state(false);
+        b.set_fact(FactScope::World, Fact::bool("a", false));
+        check!(a.fingerprint() != b.fingerprint());
+        check!(!a.same_state(&b));
+    }
+
+    #[test]
+    fn fingerprint_treats_negative_zero_as_zero() {
+        let mut a = DialogWorldState::new();
+        let mut b = DialogWorldState::new();
+        a.set_fact(FactScope::World, Fact::float("f", 0.0));
+        b.set_fact(FactScope::World, Fact::float("f", -0.0));
+        check!(a.fingerprint() == b.fingerprint());
+    }
+
+    #[test]
+    fn same_state_agrees_with_fingerprint_on_nan() {
+        let mut a = DialogWorldState::new();
+        let mut b = DialogWorldState::new();
+        a.set_fact(FactScope::World, Fact::float("f", f64::NAN));
+        b.set_fact(FactScope::World, Fact::float("f", -f64::NAN));
+        check!(a.same_state(&a));
+        check!(a.same_state(&b));
+        check!(a.fingerprint() == b.fingerprint());
+        b.set_fact(FactScope::World, Fact::float("f", 1.0));
+        check!(!a.same_state(&b));
+    }
+
+    #[test]
+    fn drain_events_keeps_counter() {
+        let mut state = DialogWorldState::new();
+        state.emit_event(EventKind::Custom { kind: "x".into() });
+        check!(state.drain_events().len() == 1);
+        check!(state.events().is_empty());
+        let next = state
+            .emit_event(EventKind::Custom { kind: "y".into() })
+            .unwrap();
+        check!(next.id.0 == 2);
     }
 
     #[test]
@@ -565,13 +805,12 @@ mod tests {
 
 #[cfg(test)]
 mod proptests {
-    use proptest::prelude::*;
-
     use super::*;
     use dramaturge_model::fact::{Fact, FactScope, FactValue};
     use dramaturge_model::{
         AlignmentAxisId, AlignmentPoleId, Event, EventKind, Memory, MemoryId, RelationshipAxisId,
     };
+    use proptest::prelude::*;
 
     fn arb_entity_id() -> impl Strategy<Value = EntityId> {
         any::<u64>().prop_map(EntityId::new)
@@ -733,7 +972,7 @@ mod proptests {
             ctx.add_memory(owner, memory.clone());
             let memories = ctx.get_memories(owner);
             prop_assert!(!memories.is_empty());
-            prop_assert!(memories.contains(&&memory));
+            prop_assert!(memories.contains(&memory));
         });
     }
 

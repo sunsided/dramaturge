@@ -17,6 +17,8 @@
 //! 6. **Always-false conditions** — Options with conditions that evaluate to always false via constant folding
 //! 7. **Orphaned fact references** — Facts referenced in conditions but never set by any outcome
 //! 8. **Mismatched source node IDs** — Options whose `source_node_id` does not match their parent `DialogueNode`
+//! 9. **Possibly empty text** — Fragment texts where no fragment is guaranteed to show
+//! 10. **Unkeyed progress fragments** — `Once`/`Cycle`/`Sticky` fragments without a key, whose progress resets when a fragment is inserted before them
 //!
 //! # When to Use
 //!
@@ -47,11 +49,11 @@
 //! assert!(issues.is_empty());
 //! ```
 
-use std::collections::{HashMap, HashSet, VecDeque};
-
 use dramaturge_model::{
-    Condition, DialogTarget, DialogueGraph, DialogueNode, DialogueNodeId, DialogueOptionId,
+    Condition, DialogTarget, DialogText, DialogueGraph, DialogueNode, DialogueNodeId,
+    DialogueOptionId, FragmentMode, SymbolTable,
 };
+use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Classification of issue importance.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,7 +105,7 @@ impl ValidationIssue {
 
 /// Validates a [`DialogueGraph`] for structural correctness.
 ///
-/// Runs eight validation checks covering graph integrity, reachability,
+/// Runs ten validation checks covering graph integrity, reachability,
 /// condition validity, and fact reference consistency.
 #[derive(Debug, Clone, Default)]
 pub struct GraphValidator;
@@ -114,21 +116,36 @@ impl GraphValidator {
         Self
     }
 
-    /// Runs all eight validation checks and returns the list of issues found.
+    /// Runs all ten validation checks and returns the list of issues found.
+    ///
+    /// Messages show raw numeric ids (`#3`). Use
+    /// [`validate_with_symbols`](Self::validate_with_symbols) to show author keys.
     pub fn validate(&self, graph: &DialogueGraph) -> Vec<ValidationIssue> {
+        self.validate_with_symbols(graph, &SymbolTable::new())
+    }
+
+    /// Runs all ten validation checks, naming nodes and options by the
+    /// keys in `symbols` (falling back to `#<number>` for unknown ids).
+    pub fn validate_with_symbols(
+        &self,
+        graph: &DialogueGraph,
+        symbols: &SymbolTable,
+    ) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
 
         let node_map: HashMap<DialogueNodeId, &DialogueNode> =
             graph.nodes.iter().map(|n| (n.id, n)).collect();
 
-        self.check_missing_targets(graph, &node_map, &mut issues);
-        self.check_unreachable_nodes(graph, &node_map, &mut issues);
-        self.check_dead_end_nodes(graph, &node_map, &mut issues);
-        self.check_self_loops(graph, &node_map, &mut issues);
-        self.check_cycles(graph, &node_map, &mut issues);
-        self.check_always_false_conditions(graph, &node_map, &mut issues);
+        self.check_missing_targets(graph, symbols, &node_map, &mut issues);
+        self.check_unreachable_nodes(graph, symbols, &node_map, &mut issues);
+        self.check_dead_end_nodes(graph, symbols, &node_map, &mut issues);
+        self.check_self_loops(graph, symbols, &node_map, &mut issues);
+        self.check_cycles(graph, symbols, &node_map, &mut issues);
+        self.check_always_false_conditions(graph, symbols, &node_map, &mut issues);
         self.check_orphaned_fact_references(graph, &mut issues);
-        self.check_source_node_ids(graph, &mut issues);
+        self.check_source_node_ids(graph, symbols, &mut issues);
+        self.check_possibly_empty_text(graph, symbols, &mut issues);
+        self.check_unkeyed_progress_fragments(graph, symbols, &mut issues);
 
         issues
     }
@@ -138,6 +155,7 @@ impl GraphValidator {
     fn check_missing_targets(
         &self,
         graph: &DialogueGraph,
+        symbols: &SymbolTable,
         node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -151,7 +169,12 @@ impl GraphValidator {
                     issues.push(
                         ValidationIssue::new(
                             ValidationSeverity::Error,
-                            format!("Option targets nonexistent node ID {}", target_id.0),
+                            format!(
+                                "Option {} in node {} targets nonexistent node {}",
+                                symbols.display_option(option.id),
+                                symbols.display_node(node.id),
+                                symbols.display_node(*target_id)
+                            ),
                         )
                         .with_node(node.id)
                         .with_option(option.id),
@@ -165,6 +188,7 @@ impl GraphValidator {
     fn check_unreachable_nodes(
         &self,
         graph: &DialogueGraph,
+        symbols: &SymbolTable,
         node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -184,7 +208,10 @@ impl GraphValidator {
         if !node_map.contains_key(&entry_id) {
             issues.push(ValidationIssue::new(
                 ValidationSeverity::Error,
-                format!("Entry node ID {} does not exist in the graph", entry_id.0),
+                format!(
+                    "Entry node {} does not exist in the graph",
+                    symbols.display_node(entry_id)
+                ),
             ));
             return;
         }
@@ -212,7 +239,10 @@ impl GraphValidator {
                 issues.push(
                     ValidationIssue::new(
                         ValidationSeverity::Warning,
-                        format!("Node {} is unreachable from the entry node", node.id.0),
+                        format!(
+                            "Node {} is unreachable from the entry node",
+                            symbols.display_node(node.id)
+                        ),
                     )
                     .with_node(node.id),
                 );
@@ -225,6 +255,7 @@ impl GraphValidator {
     fn check_dead_end_nodes(
         &self,
         graph: &DialogueGraph,
+        symbols: &SymbolTable,
         node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -265,7 +296,7 @@ impl GraphValidator {
                             ValidationSeverity::Info,
                             format!(
                                 "Node {} has no options or enter outcomes (potential dead end)",
-                                node.id.0
+                                symbols.display_node(node.id)
                             ),
                         )
                         .with_node(node.id),
@@ -279,6 +310,7 @@ impl GraphValidator {
     fn check_self_loops(
         &self,
         graph: &DialogueGraph,
+        symbols: &SymbolTable,
         _node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -292,7 +324,8 @@ impl GraphValidator {
                             ValidationSeverity::Warning,
                             format!(
                                 "Option {} in node {} targets the same node (self-loop)",
-                                option.id.0, node.id.0
+                                symbols.display_option(option.id),
+                                symbols.display_node(node.id)
                             ),
                         )
                         .with_node(node.id)
@@ -308,6 +341,7 @@ impl GraphValidator {
     fn check_cycles(
         &self,
         graph: &DialogueGraph,
+        symbols: &SymbolTable,
         node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -374,7 +408,7 @@ impl GraphValidator {
                 issues.push(
                     ValidationIssue::new(
                         ValidationSeverity::Warning,
-                        format!("Node {} is part of a cycle", node.id.0),
+                        format!("Node {} is part of a cycle", symbols.display_node(node.id)),
                     )
                     .with_node(node.id),
                 );
@@ -388,6 +422,7 @@ impl GraphValidator {
     fn check_always_false_conditions(
         &self,
         graph: &DialogueGraph,
+        symbols: &SymbolTable,
         _node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -421,7 +456,8 @@ impl GraphValidator {
                             ValidationSeverity::Warning,
                             format!(
                                 "Option {} in node {} has an always-false condition (unreachable option)",
-                                option.id.0, node.id.0
+                                symbols.display_option(option.id),
+                                symbols.display_node(node.id)
                             ),
                         )
                         .with_node(node.id)
@@ -562,9 +598,144 @@ impl GraphValidator {
         }
     }
 
+    /// Detects fragment texts that can resolve to no text at all: no fragment
+    /// is guaranteed to show (unconditional, repeatable mode) with non-empty text.
+    fn check_possibly_empty_text(
+        &self,
+        graph: &DialogueGraph,
+        symbols: &SymbolTable,
+        issues: &mut Vec<ValidationIssue>,
+    ) {
+        fn always_true(cond: &Condition) -> bool {
+            match cond {
+                Condition::Always => true,
+                Condition::All(conds) => conds.iter().all(always_true),
+                Condition::Any(conds) => conds.iter().any(always_true),
+                _ => false,
+            }
+        }
+
+        /// Returns `true` if `text` always resolves to some non-empty text.
+        fn never_empty(text: &DialogText) -> bool {
+            match text {
+                DialogText::Inline(s) => !s.is_empty(),
+                DialogText::LocalizedKey(_) => true,
+                DialogText::Fragments(fragments) => fragments.iter().any(|f| {
+                    let repeatable = matches!(
+                        f.mode,
+                        FragmentMode::Always
+                            | FragmentMode::Cycle
+                            | FragmentMode::Shuffle
+                            | FragmentMode::Sticky
+                    );
+                    repeatable
+                        && f.condition.as_ref().is_none_or(always_true)
+                        && !f.variants.is_empty()
+                        && f.variants.iter().all(never_empty)
+                }),
+            }
+        }
+
+        let is_fragments = |t: &DialogText| matches!(t, DialogText::Fragments(_));
+        for node in &graph.nodes {
+            if is_fragments(&node.text) && !never_empty(&node.text) {
+                issues.push(
+                    ValidationIssue::new(
+                        ValidationSeverity::Warning,
+                        format!(
+                            "Text of node {} can resolve to empty text",
+                            symbols.display_node(node.id)
+                        ),
+                    )
+                    .with_node(node.id),
+                );
+            }
+            for option in &node.options {
+                if is_fragments(&option.text) && !never_empty(&option.text) {
+                    issues.push(
+                        ValidationIssue::new(
+                            ValidationSeverity::Warning,
+                            format!(
+                                "Text of option {} in node {} can resolve to empty text",
+                                symbols.display_option(option.id),
+                                symbols.display_node(node.id)
+                            ),
+                        )
+                        .with_node(node.id)
+                        .with_option(option.id),
+                    );
+                }
+            }
+        }
+    }
+
+    /// Detects `Once`, `Cycle` and `Sticky` fragments without a key. Their
+    /// progress is tracked by position, so inserting a fragment before them
+    /// resets it.
+    fn check_unkeyed_progress_fragments(
+        &self,
+        graph: &DialogueGraph,
+        symbols: &SymbolTable,
+        issues: &mut Vec<ValidationIssue>,
+    ) {
+        fn count_unkeyed(text: &DialogText) -> usize {
+            match text {
+                DialogText::Inline(_) | DialogText::LocalizedKey(_) => 0,
+                DialogText::Fragments(fragments) => fragments
+                    .iter()
+                    .map(|f| {
+                        let tracked = matches!(
+                            f.mode,
+                            FragmentMode::Once | FragmentMode::Cycle | FragmentMode::Sticky
+                        );
+                        usize::from(tracked && f.key.is_none())
+                            + f.variants.iter().map(count_unkeyed).sum::<usize>()
+                    })
+                    .sum(),
+            }
+        }
+
+        const HINT: &str = "has no key; inserting a fragment before it resets its progress";
+        for node in &graph.nodes {
+            for _ in 0..count_unkeyed(&node.text) {
+                issues.push(
+                    ValidationIssue::new(
+                        ValidationSeverity::Warning,
+                        format!(
+                            "A fragment in the text of node {} {HINT}",
+                            symbols.display_node(node.id)
+                        ),
+                    )
+                    .with_node(node.id),
+                );
+            }
+            for option in &node.options {
+                for _ in 0..count_unkeyed(&option.text) {
+                    issues.push(
+                        ValidationIssue::new(
+                            ValidationSeverity::Warning,
+                            format!(
+                                "A fragment in the text of option {} in node {} {HINT}",
+                                symbols.display_option(option.id),
+                                symbols.display_node(node.id)
+                            ),
+                        )
+                        .with_node(node.id)
+                        .with_option(option.id),
+                    );
+                }
+            }
+        }
+    }
+
     /// Detects options whose `source_node_id` does not match their parent node's ID.
     /// A mismatch corrupts runtime event history recorded by `DefaultRuntime::choose_option`.
-    fn check_source_node_ids(&self, graph: &DialogueGraph, issues: &mut Vec<ValidationIssue>) {
+    fn check_source_node_ids(
+        &self,
+        graph: &DialogueGraph,
+        symbols: &SymbolTable,
+        issues: &mut Vec<ValidationIssue>,
+    ) {
         for node in &graph.nodes {
             for option in &node.options {
                 if option.source_node_id != node.id {
@@ -573,7 +744,10 @@ impl GraphValidator {
                             ValidationSeverity::Error,
                             format!(
                                 "Option {} in node {} has wrong source node {} (parent is node {})",
-                                option.id.0, node.id.0, option.source_node_id.0, node.id.0
+                                symbols.display_option(option.id),
+                                symbols.display_node(node.id),
+                                symbols.display_node(option.source_node_id),
+                                symbols.display_node(node.id)
                             ),
                         )
                         .with_node(node.id)
@@ -629,6 +803,79 @@ mod tests {
         let graph = DialogueGraph::default();
         let issues = validator.validate(&graph);
         check!(issues.is_empty());
+    }
+
+    #[test]
+    fn detects_possibly_empty_fragment_text() {
+        use dramaturge_model::{FactId, FactScope, TextFragment};
+        let flag = Condition::FactExists {
+            scope: FactScope::World,
+            fact_id: FactId::new("flag"),
+        };
+        let mut risky = make_node(1, vec![]);
+        risky.text = DialogText::fragments(vec![
+            TextFragment::always(DialogText::inline("Only sometimes.")).when(flag),
+            TextFragment::with_mode(FragmentMode::Once, vec![DialogText::inline("Once.")]),
+        ]);
+        let mut safe = make_node(2, vec![]);
+        safe.text = DialogText::fragments(vec![
+            TextFragment::with_mode(FragmentMode::FirstTime, vec![DialogText::inline("Hi.")]),
+            TextFragment::always(DialogText::inline("Always.")),
+        ]);
+        let graph = DialogueGraph {
+            nodes: vec![risky, safe],
+            entry_node: Some(DialogueNodeId::new(1)),
+        };
+        let empty: Vec<_> = GraphValidator::new()
+            .validate(&graph)
+            .into_iter()
+            .filter(|i| i.message.contains("empty text"))
+            .collect();
+        check!(empty.len() == 1);
+        check!(empty[0].node_id == Some(DialogueNodeId::new(1)));
+        check!(empty[0].severity == ValidationSeverity::Warning);
+    }
+
+    #[test]
+    fn warns_about_unkeyed_progress_fragments() {
+        use dramaturge_model::TextFragment;
+        let mut node = make_node(1, vec![]);
+        node.text = DialogText::fragments(vec![
+            TextFragment::always(DialogText::inline("Fine without a key.")),
+            TextFragment::with_mode(FragmentMode::Cycle, vec![DialogText::inline("a")]),
+            TextFragment::with_mode(FragmentMode::Once, vec![DialogText::inline("b")])
+                .keyed("greeting"),
+        ]);
+        let graph = DialogueGraph {
+            nodes: vec![node],
+            entry_node: Some(DialogueNodeId::new(1)),
+        };
+        let unkeyed: Vec<_> = GraphValidator::new()
+            .validate(&graph)
+            .into_iter()
+            .filter(|i| i.message.contains("has no key"))
+            .collect();
+        check!(unkeyed.len() == 1);
+        check!(unkeyed[0].severity == ValidationSeverity::Warning);
+    }
+
+    #[test]
+    fn validate_with_symbols_names_keys() {
+        let mut symbols = SymbolTable::new();
+        let intro = symbols.intern_node("dlg.intro");
+        let missing = symbols.intern_node("dlg.missing");
+        let option = symbols.intern_option("dlg.intro.go");
+        let node = make_node(
+            intro.0,
+            vec![make_option(option.0, DialogTarget::Node(missing), intro)],
+        );
+        let graph = DialogueGraph {
+            nodes: vec![node],
+            entry_node: Some(intro),
+        };
+        let issues = GraphValidator::new().validate_with_symbols(&graph, &symbols);
+        check!(issues.iter().any(|i| i.message
+            == "Option 'dlg.intro.go' in node 'dlg.intro' targets nonexistent node 'dlg.missing'"));
     }
 
     #[test]

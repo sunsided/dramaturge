@@ -19,3 +19,8 @@ dramaturge-model = { workspace = true }
 [dev-dependencies]
 assert2 = { workspace = true }
 proptest = "1"
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "world_state"
+harness = false

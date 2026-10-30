@@ -8,36 +8,50 @@ This crate separates the domain model from its evaluation strategy. It defines t
 
 Most projects should depend on `dramaturge` (the facade crate) instead. Depend on `dramaturge-runtime` directly when:
 
-- you are implementing a custom `ConditionEvaluator` (e.g. to handle `Condition::Custom` for game-specific checks like time of day or quest state)
-- you are implementing a custom `OutcomeApplier` (e.g. to dispatch to your game engine on `Outcome::Custom`)
+- you are writing a `CustomHandler` that answers `Condition::Custom` and `Outcome::Custom` from your own game state (time of day, current room, inventory)
+- you are implementing a custom `ConditionEvaluator` or `OutcomeApplier`
 - you want to compose the runtime traits without importing the full facade
 
 ## Extension points
 
+Evaluators, appliers and the runtime are generic over the state type. Embed
+`DialogWorldState` in your own state, implement `HasDialogWorldState`, and
+answer `Custom` conditions and outcomes with a `CustomHandler`. The default
+evaluator recurses through `All`/`Any`/`Not`, so nested `Custom` nodes reach
+the handler.
+
 ```rust
-use dramaturge_runtime::{ConditionEvaluator, DefaultConditionEvaluator, DialogWorldState};
+use dramaturge_runtime::{
+    ConditionEvaluator, CustomHandler, DefaultConditionEvaluator, DialogWorldState,
+    HasDialogWorldState,
+};
 use dramaturge_model::{Condition, FactValue};
 
-struct MyEvaluator {
-    inner: DefaultConditionEvaluator,
+struct GameState {
+    current_room: String,
+    dialog: DialogWorldState,
 }
 
-impl ConditionEvaluator for MyEvaluator {
-    fn evaluate(&self, condition: &Condition, ctx: &DialogWorldState) -> bool {
-        match condition {
-            Condition::Custom { key, .. } if key == "is_daytime" => {
-                // delegate to your game engine here
-                false
-            }
-            // Recurse through composites via self so nested Custom conditions
-            // reach this evaluator, not the default.
-            Condition::All(cs) => cs.iter().all(|c| self.evaluate(c, ctx)),
-            Condition::Any(cs) => cs.iter().any(|c| self.evaluate(c, ctx)),
-            Condition::Not(c) => !self.evaluate(c, ctx),
-            other => self.inner.evaluate(other, ctx),
-        }
+impl HasDialogWorldState for GameState {
+    fn dialog(&self) -> &DialogWorldState { &self.dialog }
+    fn dialog_mut(&mut self) -> &mut DialogWorldState { &mut self.dialog }
+}
+
+struct Rooms;
+
+impl CustomHandler<GameState> for Rooms {
+    fn condition(&self, key: &str, args: &[FactValue], state: &GameState) -> bool {
+        key == "in_room" && matches!(args, [FactValue::Text(r)] if *r == state.current_room)
     }
 }
+
+let state = GameState { current_room: "shore".into(), dialog: DialogWorldState::new() };
+let evaluator = DefaultConditionEvaluator::with_custom(Rooms);
+let cond = Condition::All(vec![
+    Condition::Always,
+    Condition::Custom { key: "in_room".into(), args: vec![FactValue::Text("shore".into())] },
+]);
+assert!(evaluator.evaluate(&cond, &state));
 ```
 
 ## Key types
@@ -45,10 +59,13 @@ impl ConditionEvaluator for MyEvaluator {
 | Type | Purpose |
 |---|---|
 | `DialogWorldState` | Mutable game state evaluated against conditions |
-| `ConditionEvaluator` | Trait: `evaluate(&Condition, &DialogWorldState) -> bool` |
-| `DefaultConditionEvaluator` | Handles all built-in `Condition` variants; `Condition::Custom` returns `false` |
-| `OutcomeApplier` | Trait: applies an `Outcome` to mutable world state |
-| `DefaultOutcomeApplier` | Handles all built-in `Outcome` variants |
+| `NarrativeState` | Trait: the state operations evaluators and appliers use |
+| `HasDialogWorldState` | Trait: embed `DialogWorldState` in a host type and get `NarrativeState` for free |
+| `ConditionEvaluator<S>` | Trait: `evaluate(&Condition, &S) -> bool` (`S` defaults to `DialogWorldState`) |
+| `DefaultConditionEvaluator<H>` | Handles all built-in `Condition` variants; `Condition::Custom` goes to `H` |
+| `OutcomeApplier<S>` | Trait: applies an `Outcome` to mutable state |
+| `DefaultOutcomeApplier<H>` | Handles all built-in `Outcome` variants; `Outcome::Custom` goes to `H` |
+| `CustomHandler<S>` | Trait: host hook for `Custom` conditions and outcomes |
 | `DialogueRuntime` | Trait: filters options and drives a dialogue session |
 | `DefaultRuntime` | Composes evaluator + applier to drive sessions |
 
