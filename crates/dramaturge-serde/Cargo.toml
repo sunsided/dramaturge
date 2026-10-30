@@ -15,13 +15,13 @@ features = ["yaml"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
-yaml = ["dep:serde_yaml"]
+yaml = ["dep:serde-saphyr"]
 
 [dependencies]
 dramaturge-model = { workspace = true }
 dramaturge-runtime = { workspace = true }
 serde = { workspace = true }
-serde_yaml = { version = "0.9", optional = true }
+serde-saphyr = { version = "2", optional = true, default-features = false, features = ["deserialize"] }
 
 [dev-dependencies]
 assert2 = { workspace = true }

@@ -449,10 +449,63 @@ pub enum YamlOutcome {
     },
 }
 
+/// A YAML syntax or shape error, with its position in the input.
+///
+/// Wraps the YAML backend's error so that the backend can change without
+/// changing this crate's public API.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct YamlError {
+    message: String,
+    line: Option<u64>,
+    column: Option<u64>,
+}
+
+impl YamlError {
+    /// The error message, without position.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// The 1-based line of the error, if known.
+    pub fn line(&self) -> Option<u64> {
+        self.line
+    }
+
+    /// The 1-based column of the error, if known.
+    pub fn column(&self) -> Option<u64> {
+        self.column
+    }
+}
+
+impl std::fmt::Display for YamlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match (self.line, self.column) {
+            (Some(line), Some(column)) => {
+                write!(f, "line {line}, column {column}: {}", self.message)
+            }
+            (Some(line), None) => write!(f, "line {line}: {}", self.message),
+            _ => f.write_str(&self.message),
+        }
+    }
+}
+
+impl std::error::Error for YamlError {}
+
+impl From<serde_saphyr::Error> for YamlError {
+    fn from(e: serde_saphyr::Error) -> Self {
+        let location = e.location();
+        Self {
+            message: e.to_string(),
+            line: location.map(|l| l.line()),
+            column: location.map(|l| l.column()),
+        }
+    }
+}
+
 impl YamlDialogueGraph {
     /// Load a dialogue graph from a YAML string.
-    pub fn from_yaml(yaml: &str) -> Result<Self, serde_yaml::Error> {
-        serde_yaml::from_str(yaml)
+    pub fn from_yaml(yaml: &str) -> Result<Self, YamlError> {
+        serde_saphyr::from_str(yaml).map_err(YamlError::from)
     }
 
     /// Convert to a model [`DialogueGraph`](model::DialogueGraph).
@@ -1071,5 +1124,21 @@ nodes:
             .unwrap_err();
         check!(err.contains("'intro'"), "{err}");
         check!(err.contains("fragment 0"), "{err}");
+    }
+
+    #[test]
+    fn test_yaml_error_has_line_and_column() {
+        let yaml = "version: \"2.0\"\nentry_node: intro\ncharacters: {}\nnodes:\n  - id: intro\n    speaker: [unclosed\n";
+        let err = YamlDialogueGraph::from_yaml(yaml).unwrap_err();
+        check!(err.line().is_some(), "{err}");
+        check!(err.column().is_some(), "{err}");
+        check!(err.to_string().starts_with("line "), "{err}");
+    }
+
+    #[test]
+    fn test_type_error_has_line() {
+        let yaml = "version: \"2.0\"\nentry_node: intro\ncharacters:\n  mara:\n    name: [1, 2]\nnodes: []\n";
+        let err = YamlDialogueGraph::from_yaml(yaml).unwrap_err();
+        check!(err.line() == Some(5), "{err}");
     }
 }

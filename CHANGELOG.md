@@ -73,6 +73,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   (fragments carry conditions); match it with a wildcard arm (#58).
 - **Breaking:** `YamlNode::text` is a `YamlText`, `YamlOption::text` an
   `Option<YamlText>` (#58).
+- **Breaking:** the `yaml` feature uses `serde-saphyr` instead of the
+  deprecated `serde_yaml` 0.9. `YamlDialogueGraph::from_yaml` returns
+  `YamlError` (with `line()`/`column()`), which hides the backend (#60).
 - `dramaturge-serde` depends on `dramaturge-runtime` (#57).
 - `available_tags` is a set: adding the same tag twice stores it once (#59).
 - Validator messages print ids as `'key'` or `#<number>` instead of `ID <number>`.
