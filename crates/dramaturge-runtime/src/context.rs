@@ -381,10 +381,24 @@ impl DialogWorldState {
 
     /// Returns `true` if both states have the same logical state.
     ///
-    /// Like [`fingerprint`](Self::fingerprint), this ignores the event log.
-    /// Floats compare with `==`, so `-0.0` equals `0.0`.
+    /// Like [`fingerprint`](Self::fingerprint), this ignores the event log,
+    /// and it treats floats the same way: `-0.0` equals `0.0`, and all NaNs
+    /// equal each other. So `same_state` implies equal fingerprints, and a
+    /// state is always the same as itself.
     pub fn same_state(&self, other: &Self) -> bool {
-        self.facts == other.facts
+        self.facts.len() == other.facts.len()
+            && self
+                .facts
+                .iter()
+                .zip(&other.facts)
+                .all(|((sa, fa), (sb, fb))| {
+                    sa == sb
+                        && fa.len() == fb.len()
+                        && fa
+                            .iter()
+                            .zip(fb)
+                            .all(|((ia, va), (ib, vb))| ia == ib && same_fact_value(va, vb))
+                })
             && self.alignments == other.alignments
             && self.relationships == other.relationships
             && self.memories == other.memories
@@ -407,6 +421,19 @@ fn hash_fact_value<H: Hasher>(value: &FactValue, hasher: &mut H) {
                 hash_fact_value(v, hasher);
             }
         }
+    }
+}
+
+/// Compares [`FactValue`]s consistently with [`hash_fact_value`].
+fn same_fact_value(a: &FactValue, b: &FactValue) -> bool {
+    match (a, b) {
+        (FactValue::Float(x), FactValue::Float(y)) => {
+            canonical_float_bits(*x) == canonical_float_bits(*y)
+        }
+        (FactValue::Set(xs), FactValue::Set(ys)) => {
+            xs.len() == ys.len() && xs.iter().zip(ys).all(|(x, y)| same_fact_value(x, y))
+        }
+        _ => a == b,
     }
 }
 
@@ -502,6 +529,19 @@ mod tests {
         a.set_fact(FactScope::World, Fact::float("f", 0.0));
         b.set_fact(FactScope::World, Fact::float("f", -0.0));
         check!(a.fingerprint() == b.fingerprint());
+    }
+
+    #[test]
+    fn same_state_agrees_with_fingerprint_on_nan() {
+        let mut a = DialogWorldState::new();
+        let mut b = DialogWorldState::new();
+        a.set_fact(FactScope::World, Fact::float("f", f64::NAN));
+        b.set_fact(FactScope::World, Fact::float("f", -f64::NAN));
+        check!(a.same_state(&a));
+        check!(a.same_state(&b));
+        check!(a.fingerprint() == b.fingerprint());
+        b.set_fact(FactScope::World, Fact::float("f", 1.0));
+        check!(!a.same_state(&b));
     }
 
     #[test]
