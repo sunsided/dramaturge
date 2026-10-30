@@ -66,6 +66,8 @@ struct GameState {
     rng: SplitMix64,
     /// The resolved text of the current node, fixed when the node is entered.
     current_text: String,
+    /// The resolved text of each option of the current node.
+    option_texts: HashMap<DialogueOptionId, String>,
 }
 
 impl GameState {
@@ -134,33 +136,50 @@ impl GameState {
             text_progress: TextProgress::new(),
             rng: SplitMix64::new(0x5EA1),
             current_text: String::new(),
+            option_texts: HashMap::new(),
         };
         state.resolve_current_text();
         state
     }
 
-    /// Resolves the current node's text against the world state.
+    /// Resolves the current node's text and its options' texts against the
+    /// world state. Done once per node entry, so cycling fragments advance
+    /// per visit, not per screen redraw.
     fn resolve_current_text(&mut self) {
         let Some(node) = self.graph.nodes.iter().find(|n| n.id == self.current_node) else {
             return;
         };
-        let owner = self
+        let evaluator = DefaultConditionEvaluator::new();
+        let mut resolve = |text: &DialogText, owner: String| {
+            resolve_text(
+                text,
+                &owner,
+                &self.world,
+                &evaluator,
+                &mut self.text_progress,
+                &mut self.rng,
+            )
+            .iter()
+            .map(|p| p.text.as_str().to_string())
+            .collect::<Vec<_>>()
+            .join(" ")
+        };
+        let node_owner = self
             .symbols
             .node_key(node.id)
             .map_or_else(|| self.symbols.display_node(node.id), str::to_string);
-        let pieces = resolve_text(
-            &node.text,
-            &owner,
-            &self.world,
-            &DefaultConditionEvaluator::new(),
-            &mut self.text_progress,
-            &mut self.rng,
-        );
-        self.current_text = pieces
+        self.current_text = resolve(&node.text, node_owner);
+        self.option_texts = node
+            .options
             .iter()
-            .map(|p| p.text.as_str())
-            .collect::<Vec<_>>()
-            .join(" ");
+            .map(|opt| {
+                let owner = self
+                    .symbols
+                    .option_key(opt.id)
+                    .map_or_else(|| self.symbols.display_option(opt.id), str::to_string);
+                (opt.id, resolve(&opt.text, owner))
+            })
+            .collect();
     }
 
     fn current_node(&self) -> Option<&DialogueNode> {
@@ -385,13 +404,13 @@ fn capitalize_first(s: &str) -> String {
     }
 }
 
-/// Returns just the option text without any prefixes.
-fn format_option_text_only(opt: &DialogueOption) -> String {
-    match &opt.text {
-        DialogText::Inline(s) => s.clone(),
-        DialogText::LocalizedKey(key) => key.to_string(), // Use key as fallback
-        _ => "...".to_string(),
-    }
+/// Returns just the option text without any prefixes, as resolved on node entry.
+fn format_option_text_only(state: &GameState, opt: &DialogueOption) -> String {
+    state
+        .option_texts
+        .get(&opt.id)
+        .cloned()
+        .unwrap_or_else(|| "...".to_string())
 }
 
 /// Formats the tags for display underneath an option.
@@ -464,7 +483,7 @@ fn render_scene(state: &GameState) {
     } else {
         for (i, opt) in options.iter().enumerate() {
             // Show option text first (without prefixes)
-            let text_only = format_option_text_only(opt);
+            let text_only = format_option_text_only(state, opt);
             let lines = word_wrap(&text_only, 60);
             for (j, line) in lines.iter().enumerate() {
                 if j == 0 {
@@ -771,5 +790,37 @@ nodes:
                 .any(|i| i.severity == ValidationSeverity::Error),
             "{issues:?}"
         );
+    }
+
+    #[test]
+    fn option_fragment_text_is_resolved() {
+        let yaml = r#"
+version: "2.0"
+entry_node: hello
+characters:
+  player:
+    name: "Player"
+  mara:
+    name: "Mara"
+  orren:
+    name: "Orren"
+nodes:
+  - id: hello
+    speaker: mara
+    text: "Hello"
+    options:
+      - id: hello.bye
+        text:
+          - "Goodbye,"
+          - "Mara."
+        target: end
+"#;
+        let loaded = YamlDialogueGraph::from_yaml(yaml)
+            .unwrap()
+            .to_model()
+            .unwrap();
+        let state = GameState::new(loaded, false, false);
+        let option = &state.current_node().unwrap().options[0];
+        check!(format_option_text_only(&state, option) == "Goodbye, Mara.");
     }
 }
