@@ -59,6 +59,7 @@ pub trait TextRng {
 
     /// Returns a value in `0..n`. `n` must be non-zero.
     fn below(&mut self, n: u32) -> u32 {
+        debug_assert!(n > 0, "TextRng::below(0) has no valid result");
         // Multiply-shift: unbiased enough for picking text variants.
         (((self.next_u64() >> 32) * u64::from(n)) >> 32) as u32
     }
