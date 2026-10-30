@@ -6,6 +6,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-30
+
 ### Added
 
 - `SymbolTable` and `Interner` in `dramaturge-model`: stable author keys mapped
@@ -87,5 +89,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Initial release.
 
-[Unreleased]: https://github.com/sunsided/dramaturge/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sunsided/dramaturge/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sunsided/dramaturge/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sunsided/dramaturge/releases/tag/v0.1.0
