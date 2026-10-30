@@ -37,7 +37,7 @@ Option 2.
 - `GraphValidator::validate_with_symbols` prints keys (`'dlg.intro'`) and falls
   back to `#<number>` for ids the table does not know.
 - Save games store keys, not numbers (see ADR 0002), so a save stays valid
-  when content is added or removed.
+  when content is added or removed. Do not persist raw ids. Persist keys.
 - `EventId` stays numeric and is not interned: the runtime allocates event
   ids, authors never write them.
 
@@ -48,11 +48,15 @@ Option 2.
 - Rust code that builds models directly is unaffected.
 - The YAML format changes from 1.0 to 2.0. Numeric `id`, `target`,
   `entry_node`, relationship `source`/`target` and character `id` values are
-  still accepted for one release; each use adds a deprecation message to
-  `LoadedDialogue::warnings`. Numeric node and option ids become the key of
+  still accepted in 0.2; each use adds a deprecation message to
+  `LoadedDialogue::warnings`. Support is removed in 0.3. Numeric node and option ids become the key of
   their decimal string (`2` → `"2"`), so legacy targets keep resolving.
 - `YamlDialogueGraph::to_model` returns `LoadedDialogue` instead of
   `DialogueGraph` (breaking).
 - Ids are assigned in interning order. Characters are interned first, sorted
   by key, so entity ids do not depend on reference order. Ids are not stable
-  across content edits; only keys are.
+  across content edits; only keys are. Ids derived from a key hash were
+  rejected: they are not dense, and two keys can collide.
+- Relationship endpoints in YAML are character keys (the player is declared
+  as a character). A general `entities:` list for non-character entities is
+  deferred until a host needs it.

@@ -55,7 +55,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 - **Breaking:** the YAML format is now 2.0. All references are keys
   (`target: mara.confession.soft`, `source: player`). Numeric ids still load
-  for one release with a deprecation warning (#55).
+  in 0.2 with a deprecation warning; support is removed in 0.3 (#55).
 - **Breaking:** `YamlDialogueGraph::to_model` returns `LoadedDialogue
   { graph, symbols, warnings }` (#55).
 - **Breaking:** `ConditionEvaluator<S>`, `OutcomeApplier<S>` and
