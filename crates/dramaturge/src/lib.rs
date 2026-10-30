@@ -67,6 +67,7 @@ pub use dramaturge_model::{
     DialogueNode, DialogueNodeId, DialogueOption, DialogueOptionId, EntityId, Event, EventContext,
     EventId, EventKind, Fact, FactId, FactScope, FactValue, Intention, Memory, MemoryId,
     MemoryQuery, MemoryTag, Outcome, RelationshipAxisId, RelationshipScore, ScopedFact,
+    SymbolTable,
 };
 
 pub use dramaturge_runtime::{

@@ -18,7 +18,7 @@
 
 use dramaturge::*;
 use dramaturge_authoring::{GraphValidator, ValidationSeverity};
-use dramaturge_serde::loader::YamlDialogueGraph;
+use dramaturge_serde::loader::{LoadedDialogue, YamlDialogueGraph};
 use std::collections::HashMap;
 use std::io::{self, Write};
 
@@ -26,21 +26,26 @@ use std::io::{self, Write};
 // CHARACTER IDS
 // =============================================================================
 
-mod entities {
-    use dramaturge::EntityId;
+/// Entity ids of the cast, resolved from their keys in `dialogue.yaml`.
+#[derive(Clone, Copy)]
+struct Entities {
+    player: EntityId,
+    mara: EntityId,
+    orren: EntityId,
+}
 
-    pub const PLAYER: u64 = 1;
-    pub const MARA: u64 = 2;
-    pub const ORREN: u64 = 3;
-
-    pub fn player() -> EntityId {
-        EntityId::new(PLAYER)
-    }
-    pub fn mara() -> EntityId {
-        EntityId::new(MARA)
-    }
-    pub fn orren() -> EntityId {
-        EntityId::new(ORREN)
+impl Entities {
+    fn resolve(symbols: &SymbolTable) -> Self {
+        let get = |key: &str| {
+            symbols
+                .entity(key)
+                .unwrap_or_else(|| panic!("dialogue.yaml has no character '{key}'"))
+        };
+        Self {
+            player: get("player"),
+            mara: get("mara"),
+            orren: get("orren"),
+        }
     }
 }
 
@@ -53,11 +58,15 @@ struct GameState {
     current_node: DialogueNodeId,
     debug_mode: bool,
     graph: DialogueGraph,
-    character_names: HashMap<u64, &'static str>,
+    symbols: SymbolTable,
+    entities: Entities,
+    character_names: HashMap<EntityId, &'static str>,
 }
 
 impl GameState {
-    fn new(graph: DialogueGraph, has_medic: bool, has_intimidation: bool) -> Self {
+    fn new(loaded: LoadedDialogue, has_medic: bool, has_intimidation: bool) -> Self {
+        let LoadedDialogue { graph, symbols, .. } = loaded;
+        let entities = Entities::resolve(&symbols);
         let mut world = DialogWorldState::new();
 
         // Initialize player skills based on character configuration
@@ -73,45 +82,49 @@ impl GameState {
 
         // Initialize relationships
         world.add_relationship(
-            entities::player(),
-            entities::mara(),
+            entities.player,
+            entities.mara,
             RelationshipAxisId::new("trust"),
             0,
         );
         world.add_relationship(
-            entities::player(),
-            entities::orren(),
+            entities.player,
+            entities.orren,
             RelationshipAxisId::new("trust"),
             0,
         );
         world.add_relationship(
-            entities::player(),
-            entities::orren(),
+            entities.player,
+            entities.orren,
             RelationshipAxisId::new("standing"),
             0,
         );
         world.add_relationship(
-            entities::player(),
-            entities::mara(),
+            entities.player,
+            entities.mara,
             RelationshipAxisId::new("standing"),
             0,
         );
 
-        let character_names: HashMap<u64, &'static str> = [
-            (entities::PLAYER, "Player"),
-            (entities::MARA, "Mara Vey"),
-            (entities::ORREN, "Captain Orren Vale"),
+        let character_names: HashMap<EntityId, &'static str> = [
+            (entities.player, "Player"),
+            (entities.mara, "Mara Vey"),
+            (entities.orren, "Captain Orren Vale"),
         ]
         .into_iter()
         .collect();
 
-        let entry_node = graph.entry_node.unwrap_or(DialogueNodeId::new(1));
+        let entry_node = graph
+            .entry_node
+            .expect("dialogue.yaml defines an entry node");
 
         Self {
             world,
             current_node: entry_node,
             debug_mode: false,
             graph,
+            symbols,
+            entities,
             character_names,
         }
     }
@@ -158,7 +171,7 @@ impl GameState {
 
     fn get_speaker_name(&self, entity_id: EntityId) -> &'static str {
         self.character_names
-            .get(&entity_id.0)
+            .get(&entity_id)
             .copied()
             .unwrap_or("Unknown")
     }
@@ -216,11 +229,15 @@ impl GameState {
     }
 
     fn handle_hidden_observation(&mut self) {
-        // Orren overhears Mara conversations (nodes 1-9)
-        if self.current_node.0 >= 1 && self.current_node.0 <= 9 {
+        // Orren overhears Mara conversations (nodes keyed `mara.*`)
+        let in_mara_scene = self
+            .symbols
+            .node_key(self.current_node)
+            .is_some_and(|key| key.starts_with("mara."));
+        if in_mara_scene {
             let mut applier = DefaultOutcomeApplier;
             applier.apply(
-                &set_hidden_fact("OrrenOverheardMaraConversation"),
+                &set_hidden_fact(self.entities.orren, "OrrenOverheardMaraConversation"),
                 &mut self.world,
             );
         }
@@ -236,16 +253,16 @@ impl GameState {
         let mara_trust = self
             .world
             .get_relationship(
-                entities::player(),
-                entities::mara(),
+                self.entities.player,
+                self.entities.mara,
                 &RelationshipAxisId::new("trust"),
             )
             .unwrap_or(0);
         let orren_trust = self
             .world
             .get_relationship(
-                entities::player(),
-                entities::orren(),
+                self.entities.player,
+                self.entities.orren,
                 &RelationshipAxisId::new("trust"),
             )
             .unwrap_or(0);
@@ -298,9 +315,9 @@ impl GameState {
     }
 }
 
-fn set_hidden_fact(fact_id: &str) -> Outcome {
+fn set_hidden_fact(observer: EntityId, fact_id: &str) -> Outcome {
     Outcome::SetFact {
-        scope: FactScope::Character(CharacterId::new(entities::orren())),
+        scope: FactScope::Character(CharacterId::new(observer)),
         fact: Fact::bool(fact_id, true),
     }
 }
@@ -443,16 +460,16 @@ fn render_scene(state: &GameState) {
     let mara_trust = state
         .world
         .get_relationship(
-            entities::player(),
-            entities::mara(),
+            state.entities.player,
+            state.entities.mara,
             &RelationshipAxisId::new("trust"),
         )
         .unwrap_or(0);
     let orren_trust = state
         .world
         .get_relationship(
-            entities::player(),
-            entities::orren(),
+            state.entities.player,
+            state.entities.orren,
             &RelationshipAxisId::new("trust"),
         )
         .unwrap_or(0);
@@ -633,16 +650,19 @@ fn main() {
         }
     };
 
-    let graph = match yaml_graph.to_model() {
-        Ok(g) => g,
+    let loaded = match yaml_graph.to_model() {
+        Ok(loaded) => loaded,
         Err(e) => {
             eprintln!("Failed to convert to model: {}", e);
             std::process::exit(1);
         }
     };
+    for warning in &loaded.warnings {
+        eprintln!("  [WARN]  {warning}");
+    }
 
-    // Validate graph structure before running
-    let issues = GraphValidator::new().validate(&graph);
+    // Validate graph structure before running; messages name nodes by key
+    let issues = GraphValidator::new().validate_with_symbols(&loaded.graph, &loaded.symbols);
     if !issues.is_empty() {
         eprintln!("Graph validation:");
         for issue in &issues {
@@ -667,7 +687,7 @@ fn main() {
     let (has_medic, has_intimidation) = show_intro_and_configure();
 
     // Create game state with configured skills
-    let mut state = GameState::new(graph, has_medic, has_intimidation);
+    let mut state = GameState::new(loaded, has_medic, has_intimidation);
 
     loop {
         render_scene(&state);
@@ -683,23 +703,42 @@ mod tests {
     #[test]
     fn test_yaml_loads() {
         let yaml = r#"
-version: "1.0"
-entry_node: 1
+version: "2.0"
+entry_node: hello
 characters:
   player:
-    id: 1
     name: "Player"
 nodes:
-  - id: 1
+  - id: hello
     speaker: player
     text: "Hello"
     options:
-      - id: 1
+      - id: hello.end
         text: "End"
-        target: "end"
+        target: end
 "#;
 
         let yaml_graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
         assert_eq!(yaml_graph.nodes.len(), 1);
+    }
+
+    #[test]
+    fn bundled_dialogue_loads_with_keys_and_validates() {
+        let loaded = YamlDialogueGraph::from_yaml(include_str!("dialogue.yaml"))
+            .expect("Should parse")
+            .to_model()
+            .expect("Should convert");
+        assert!(loaded.warnings.is_empty(), "{:?}", loaded.warnings);
+        let entry = loaded.graph.entry_node.unwrap();
+        assert_eq!(loaded.symbols.node_key(entry), Some("mara.intro"));
+        Entities::resolve(&loaded.symbols);
+
+        let issues = GraphValidator::new().validate_with_symbols(&loaded.graph, &loaded.symbols);
+        assert!(
+            !issues
+                .iter()
+                .any(|i| i.severity == ValidationSeverity::Error),
+            "{issues:?}"
+        );
     }
 }

@@ -2,8 +2,38 @@
 //!
 //! This module provides functionality to load dialogue graphs from YAML files.
 //! It uses serde-friendly wrapper types that can be converted to the core model types.
+//!
+//! # Keys, not numbers
+//!
+//! Every reference in the YAML format is a stable author key: node ids,
+//! option ids, option targets, the entry node, speakers and relationship
+//! endpoints. [`YamlDialogueGraph::to_model`] interns each key into a
+//! [`SymbolTable`](model::SymbolTable) and returns it next to the graph, so
+//! diagnostics and save games can show keys instead of numbers.
+//!
+//! ```yaml
+//! version: "2.0"
+//! entry_node: mara.intro
+//! characters:
+//!   player: { name: "Player" }
+//!   mara: { name: "Mara Vey" }
+//! nodes:
+//!   - id: mara.intro
+//!     speaker: mara
+//!     text: "Hello."
+//!     options:
+//!       - id: mara.intro.bye
+//!         text: "Goodbye."
+//!         outcomes:
+//!           - { type: add_relationship, source: player, target: mara, axis: trust, delta: 5 }
+//!         target: end
+//! ```
+//!
+//! Numeric ids from the 1.0 format (`id: 2`, `source: 1`, character `id:`)
+//! are still accepted for one release. Each use adds a deprecation message
+//! to [`LoadedDialogue::warnings`].
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 
@@ -14,28 +44,74 @@ use dramaturge_model as model;
 pub struct YamlDialogueGraph {
     /// Schema version for compatibility.
     pub version: String,
-    /// Named characters referenced in the dialogue.
-    pub characters: HashMap<String, YamlCharacter>,
+    /// Named characters referenced in the dialogue, by key.
+    ///
+    /// Sorted by key so that interned entity ids are deterministic.
+    pub characters: BTreeMap<String, YamlCharacter>,
     /// All nodes in the graph.
     pub nodes: Vec<YamlNode>,
-    /// Entry point node ID.
-    pub entry_node: u64,
+    /// Entry point node key.
+    pub entry_node: YamlKey,
+}
+
+/// A stable author key, or a deprecated numeric id from the 1.0 format.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum YamlKey {
+    /// A readable key such as `dlg.mara.intro`.
+    Key(String),
+    /// A numeric id (deprecated; accepted for one release).
+    Number(u64),
+}
+
+impl YamlKey {
+    /// Returns the key text. Numbers become their decimal string.
+    pub fn as_key(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            YamlKey::Key(key) => std::borrow::Cow::Borrowed(key),
+            YamlKey::Number(n) => std::borrow::Cow::Owned(n.to_string()),
+        }
+    }
+
+    fn is_number(&self) -> bool {
+        matches!(self, YamlKey::Number(_))
+    }
+}
+
+impl From<&str> for YamlKey {
+    fn from(key: &str) -> Self {
+        YamlKey::Key(key.to_string())
+    }
 }
 
 /// A character definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YamlCharacter {
-    /// Character ID (numeric).
-    pub id: u64,
+    /// Legacy numeric character id (deprecated; the map key is the id).
+    ///
+    /// Only used to resolve numeric relationship endpoints from 1.0 files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<u64>,
     /// Character name for display.
     pub name: String,
+}
+
+/// The result of converting a [`YamlDialogueGraph`] into the model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadedDialogue {
+    /// The dialogue graph.
+    pub graph: model::DialogueGraph,
+    /// Keys for every entity, node and option id in the graph.
+    pub symbols: model::SymbolTable,
+    /// Non-fatal messages, such as deprecated numeric ids.
+    pub warnings: Vec<String>,
 }
 
 /// A dialogue node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YamlNode {
-    /// Unique node ID.
-    pub id: u64,
+    /// Unique node key.
+    pub id: YamlKey,
     /// Character key who speaks.
     pub speaker: String,
     /// Dialogue text.
@@ -51,8 +127,8 @@ pub struct YamlNode {
 /// A dialogue option.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YamlOption {
-    /// Unique option ID.
-    pub id: u64,
+    /// Unique option key.
+    pub id: YamlKey,
     /// Option text.
     #[serde(default)]
     pub text: String,
@@ -71,8 +147,8 @@ pub struct YamlOption {
     /// Outcomes when chosen.
     #[serde(default)]
     pub outcomes: Vec<YamlOutcome>,
-    /// Target node ID or special value "end".
-    pub target: String,
+    /// Target node key, or the special value `end`.
+    pub target: YamlKey,
     /// Navigation hint for this option.
     #[serde(default)]
     pub navigation_hint: Option<YamlNavigationHint>,
@@ -212,10 +288,10 @@ pub enum YamlOutcome {
     /// Add to a relationship.
     #[serde(rename = "add_relationship")]
     AddRelationship {
-        /// Source entity ID.
-        source: u64,
-        /// Target entity ID.
-        target: u64,
+        /// Source entity key (a character key).
+        source: YamlKey,
+        /// Target entity key (a character key).
+        target: YamlKey,
         /// Relationship axis.
         axis: String,
         /// Amount to add.
@@ -229,40 +305,54 @@ impl YamlDialogueGraph {
         serde_yaml::from_str(yaml)
     }
 
-    /// Convert to a model DialogueGraph.
-    pub fn to_model(&self) -> Result<model::DialogueGraph, String> {
+    /// Convert to a model [`DialogueGraph`](model::DialogueGraph).
+    ///
+    /// Interns every key into a [`SymbolTable`](model::SymbolTable). Load
+    /// errors name the offending keys.
+    pub fn to_model(&self) -> Result<LoadedDialogue, String> {
         use model::*;
 
-        let mut graph = DialogueGraph::new();
-        graph.entry_node = Some(DialogueNodeId::new(self.entry_node));
+        let mut ctx = ConvertContext::default();
 
-        // Build character lookup
-        let mut character_ids: HashMap<String, CharacterId> = HashMap::new();
+        // Characters are interned first, in key order, so their entity ids
+        // do not depend on where they are first referenced.
         for (key, character) in &self.characters {
-            let entity_id = EntityId::new(character.id);
-            character_ids.insert(key.clone(), CharacterId::new(entity_id));
+            let entity_id = ctx.symbols.intern_entity(key);
+            ctx.characters
+                .insert(key.clone(), CharacterId::new(entity_id));
+            if let Some(legacy) = character.id {
+                ctx.warnings.push(format!(
+                    "character '{key}': numeric `id: {legacy}` is deprecated; the map key is the id"
+                ));
+                ctx.legacy_entities.insert(legacy, entity_id);
+            }
         }
 
-        // Convert nodes
+        let mut graph = DialogueGraph::new();
+        graph.entry_node = Some(ctx.node(&self.entry_node, "entry_node"));
+
         for yaml_node in &self.nodes {
-            let speaker = character_ids
+            let node_id = ctx.node(&yaml_node.id, "node id");
+            let node_key = yaml_node.id.as_key();
+            let speaker = ctx
+                .characters
                 .get(&yaml_node.speaker)
                 .copied()
-                .ok_or_else(|| format!("Unknown speaker: {}", yaml_node.speaker))?;
+                .ok_or_else(|| {
+                    format!("node '{node_key}': unknown speaker '{}'", yaml_node.speaker)
+                })?;
 
             let mut node =
-                DialogueNode::new(yaml_node.id, speaker, DialogText::inline(&yaml_node.text));
+                DialogueNode::new(node_id.0, speaker, DialogText::inline(&yaml_node.text));
 
-            // Convert options
             for yaml_option in &yaml_node.options {
-                let target = if yaml_option.target == "end" {
-                    DialogTarget::End
-                } else {
-                    let target_id: u64 = yaml_option
-                        .target
-                        .parse()
-                        .map_err(|_| format!("Invalid target: {}", yaml_option.target))?;
-                    DialogTarget::Node(DialogueNodeId::new(target_id))
+                let option_id = ctx.option(&yaml_option.id);
+                let option_key = yaml_option.id.as_key();
+                let at = |msg: String| format!("option '{option_key}' in node '{node_key}': {msg}");
+
+                let target = match &yaml_option.target {
+                    YamlKey::Key(key) if key == "end" => DialogTarget::End,
+                    other => DialogTarget::Node(ctx.node(other, "target")),
                 };
 
                 // Determine the text for the option: use explicit text, or default from navigation hint
@@ -277,15 +367,16 @@ impl YamlDialogueGraph {
                 };
 
                 let mut option = DialogueOption::new(
-                    yaml_option.id,
+                    option_id.0,
                     DialogText::inline(&option_text),
                     target,
-                    DialogueNodeId::new(yaml_node.id),
+                    node_id,
                 );
 
                 // Convert navigation hint
                 if let Some(hint) = &yaml_option.navigation_hint {
-                    option.navigation_hint = Some(hint.to_model(&yaml_option.go_to_target)?);
+                    option.navigation_hint =
+                        Some(hint.to_model(&yaml_option.go_to_target).map_err(at)?);
                 }
 
                 // Convert tags
@@ -303,10 +394,6 @@ impl YamlDialogueGraph {
                     tag.requires_trait = yaml_tag
                         .requires_trait
                         .unwrap_or_else(|| yaml_tag.axis.as_str() == "skill");
-
-                    // Note: Previously, if tag.requires_trait was true, a HasSkill condition
-                    // was automatically added. This has been removed - users should now
-                    // explicitly add fact-based conditions if they want to gate options.
 
                     option.tags.push(tag);
                 }
@@ -327,12 +414,14 @@ impl YamlDialogueGraph {
                 for yaml_condition in &yaml_option.conditions {
                     option
                         .conditions
-                        .push(yaml_condition.to_model(&character_ids)?);
+                        .push(yaml_condition.to_model().map_err(at)?);
                 }
 
                 // Convert outcomes
                 for yaml_outcome in &yaml_option.outcomes {
-                    option.outcomes.push(yaml_outcome.to_model(&character_ids)?);
+                    option
+                        .outcomes
+                        .push(yaml_outcome.to_model(&mut ctx).map_err(at)?);
                 }
 
                 node.options.push(option);
@@ -340,23 +429,79 @@ impl YamlDialogueGraph {
 
             // Convert outcomes_on_enter
             for yaml_outcome in &yaml_node.outcomes {
-                node.outcomes_on_enter
-                    .push(yaml_outcome.to_model(&character_ids)?);
+                node.outcomes_on_enter.push(
+                    yaml_outcome
+                        .to_model(&mut ctx)
+                        .map_err(|msg| format!("node '{node_key}': {msg}"))?,
+                );
             }
 
             graph.nodes.push(node);
         }
 
-        Ok(graph)
+        Ok(LoadedDialogue {
+            graph,
+            symbols: ctx.symbols,
+            warnings: ctx.warnings,
+        })
+    }
+}
+
+/// Mutable state shared by the conversion of one graph.
+#[derive(Default)]
+struct ConvertContext {
+    symbols: model::SymbolTable,
+    characters: HashMap<String, model::CharacterId>,
+    legacy_entities: HashMap<u64, model::EntityId>,
+    warnings: Vec<String>,
+}
+
+impl ConvertContext {
+    fn node(&mut self, key: &YamlKey, what: &str) -> model::DialogueNodeId {
+        if key.is_number() {
+            self.warnings.push(format!(
+                "{what} {}: numeric node ids are deprecated; use a key",
+                key.as_key()
+            ));
+        }
+        self.symbols.intern_node(&key.as_key())
+    }
+
+    fn option(&mut self, key: &YamlKey) -> model::DialogueOptionId {
+        if key.is_number() {
+            self.warnings.push(format!(
+                "option id {}: numeric option ids are deprecated; use a key",
+                key.as_key()
+            ));
+        }
+        self.symbols.intern_option(&key.as_key())
+    }
+
+    fn entity(&mut self, key: &YamlKey) -> Result<model::EntityId, String> {
+        match key {
+            YamlKey::Key(key) => self
+                .characters
+                .get(key)
+                .map(|c| c.0)
+                .ok_or_else(|| format!("unknown entity '{key}'")),
+            YamlKey::Number(n) => {
+                let id = self
+                    .legacy_entities
+                    .get(n)
+                    .copied()
+                    .ok_or_else(|| format!("unknown numeric entity id {n}"))?;
+                self.warnings.push(format!(
+                    "entity {n}: numeric entity references are deprecated; use the character key"
+                ));
+                Ok(id)
+            }
+        }
     }
 }
 
 impl YamlCondition {
     /// Convert to a model Condition.
-    fn to_model(
-        &self,
-        _character_ids: &HashMap<String, model::CharacterId>,
-    ) -> Result<model::Condition, String> {
+    fn to_model(&self) -> Result<model::Condition, String> {
         use model::*;
 
         match self {
@@ -387,10 +532,7 @@ impl YamlCondition {
 
 impl YamlOutcome {
     /// Convert to a model Outcome.
-    fn to_model(
-        &self,
-        _character_ids: &HashMap<String, model::CharacterId>,
-    ) -> Result<model::Outcome, String> {
+    fn to_model(&self, ctx: &mut ConvertContext) -> Result<model::Outcome, String> {
         use model::*;
 
         match self {
@@ -416,8 +558,8 @@ impl YamlOutcome {
                 axis,
                 delta,
             } => Ok(Outcome::AddRelationship {
-                source: EntityId::new(*source),
-                target: EntityId::new(*target),
+                source: ctx.entity(source)?,
+                target: ctx.entity(target)?,
                 axis: RelationshipAxisId::new(axis.as_str()),
                 delta: *delta,
             }),
@@ -441,48 +583,54 @@ mod tests {
     #[test]
     fn test_parse_simple_yaml() {
         let yaml = r#"
-version: "1.0"
-entry_node: 1
+version: "2.0"
+entry_node: mara.intro
 characters:
   mara:
-    id: 2
     name: "Mara Vey"
 nodes:
-  - id: 1
+  - id: mara.intro
     speaker: mara
     text: "Hello, traveler."
     options:
-      - id: 1
+      - id: mara.intro.first
         text: "Tell me about the shipment."
         target: "end"
 "#;
 
         let graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
-        assert_eq!(graph.version, "1.0");
-        assert_eq!(graph.entry_node, 1);
+        assert_eq!(graph.version, "2.0");
+        assert_eq!(graph.entry_node, YamlKey::from("mara.intro"));
         assert_eq!(graph.nodes.len(), 1);
 
         // Test conversion to model
-        let model_graph = graph.to_model().expect("Should convert");
-        assert_eq!(model_graph.nodes.len(), 1);
-        assert!(model_graph.entry_node.is_some());
+        let loaded = graph.to_model().expect("Should convert");
+        assert_eq!(loaded.graph.nodes.len(), 1);
+        let entry = loaded.graph.entry_node.expect("entry node");
+        assert_eq!(loaded.symbols.node_key(entry), Some("mara.intro"));
+        assert_eq!(
+            loaded
+                .symbols
+                .option_key(loaded.graph.nodes[0].options[0].id),
+            Some("mara.intro.first")
+        );
+        assert!(loaded.warnings.is_empty());
     }
 
     #[test]
     fn test_goto_without_target_fails() {
         let yaml = r#"
-version: "1.0"
-entry_node: 1
+version: "2.0"
+entry_node: mara.intro
 characters:
   mara:
-    id: 2
     name: "Mara Vey"
 nodes:
-  - id: 1
+  - id: mara.intro
     speaker: mara
     text: "Hello, traveler."
     options:
-      - id: 1
+      - id: mara.intro.first
         text: "Go somewhere."
         navigation_hint: go_to
         target: "end"
@@ -498,18 +646,17 @@ nodes:
     #[test]
     fn test_goto_with_target_succeeds() {
         let yaml = r#"
-version: "1.0"
-entry_node: 1
+version: "2.0"
+entry_node: mara.intro
 characters:
   mara:
-    id: 2
     name: "Mara Vey"
 nodes:
-  - id: 1
+  - id: mara.intro
     speaker: mara
     text: "Hello, traveler."
     options:
-      - id: 1
+      - id: mara.intro.first
         text: "Go to the ship."
         navigation_hint: go_to
         go_to_target: "the ship"
@@ -517,7 +664,10 @@ nodes:
 "#;
 
         let graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
-        let model_graph = graph.to_model().expect("Should convert with go_to_target");
+        let model_graph = graph
+            .to_model()
+            .expect("Should convert with go_to_target")
+            .graph;
         assert_eq!(model_graph.nodes.len(), 1);
         let option = &model_graph.nodes[0].options[0];
         assert!(matches!(
@@ -529,18 +679,17 @@ nodes:
     #[test]
     fn test_skill_tag_sets_requires_trait_but_no_auto_condition() {
         let yaml = r#"
-version: "1.0"
-entry_node: 1
+version: "2.0"
+entry_node: mara.intro
 characters:
   mara:
-    id: 2
     name: "Mara Vey"
 nodes:
-  - id: 1
+  - id: mara.intro
     speaker: mara
     text: "Hello, traveler."
     options:
-      - id: 1
+      - id: mara.intro.first
         text: "Treat the wound."
         tags:
           - { axis: "skill", key: "medic" }
@@ -548,7 +697,7 @@ nodes:
 "#;
 
         let graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
-        let model_graph = graph.to_model().expect("Should convert");
+        let model_graph = graph.to_model().expect("Should convert").graph;
         let option = &model_graph.nodes[0].options[0];
 
         // Check that the tag has requires_trait set (by convention for skill axis)
@@ -563,18 +712,17 @@ nodes:
     #[test]
     fn test_non_skill_tag_without_requires_trait_does_not_add_condition() {
         let yaml = r#"
-version: "1.0"
-entry_node: 1
+version: "2.0"
+entry_node: mara.intro
 characters:
   mara:
-    id: 2
     name: "Mara Vey"
 nodes:
-  - id: 1
+  - id: mara.intro
     speaker: mara
     text: "Hello, traveler."
     options:
-      - id: 1
+      - id: mara.intro.first
         text: "Be nice."
         tags:
           - { axis: "moral", key: "paragon" }
@@ -582,7 +730,7 @@ nodes:
 "#;
 
         let graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
-        let model_graph = graph.to_model().expect("Should convert");
+        let model_graph = graph.to_model().expect("Should convert").graph;
         let option = &model_graph.nodes[0].options[0];
 
         // Check that the tag does not require trait
@@ -590,5 +738,120 @@ nodes:
 
         // Check that no HasSkill condition was added
         assert!(option.conditions.is_empty());
+    }
+
+    #[test]
+    fn test_targets_and_relationships_use_keys() {
+        let yaml = r#"
+version: "2.0"
+entry_node: intro
+characters:
+  player:
+    name: "Player"
+  mara:
+    name: "Mara Vey"
+nodes:
+  - id: intro
+    speaker: mara
+    text: "Hello."
+    options:
+      - id: intro.comfort
+        text: "Easy."
+        outcomes:
+          - { type: add_relationship, source: player, target: mara, axis: trust, delta: 5 }
+        target: confession
+  - id: confession
+    speaker: mara
+    text: "Fine."
+"#;
+        let loaded = YamlDialogueGraph::from_yaml(yaml)
+            .unwrap()
+            .to_model()
+            .unwrap();
+        let option = &loaded.graph.nodes[0].options[0];
+        let model::DialogTarget::Node(target) = option.target else {
+            panic!("expected node target");
+        };
+        assert_eq!(target, loaded.graph.nodes[1].id);
+        assert_eq!(loaded.symbols.node_key(target), Some("confession"));
+
+        let model::Outcome::AddRelationship { source, target, .. } = &option.outcomes[0] else {
+            panic!("expected relationship outcome");
+        };
+        assert_eq!(loaded.symbols.entity_key(*source), Some("player"));
+        assert_eq!(loaded.symbols.entity_key(*target), Some("mara"));
+        assert_eq!(
+            loaded.graph.nodes[0].speaker.0,
+            loaded.symbols.entity("mara").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_unknown_entity_names_key() {
+        let yaml = r#"
+version: "2.0"
+entry_node: intro
+characters:
+  mara:
+    name: "Mara Vey"
+nodes:
+  - id: intro
+    speaker: mara
+    text: "Hello."
+    options:
+      - id: intro.bye
+        outcomes:
+          - { type: add_relationship, source: nobody, target: mara, axis: trust, delta: 5 }
+        target: end
+"#;
+        let err = YamlDialogueGraph::from_yaml(yaml)
+            .unwrap()
+            .to_model()
+            .unwrap_err();
+        assert!(err.contains("'intro.bye'"), "{err}");
+        assert!(err.contains("'nobody'"), "{err}");
+    }
+
+    #[test]
+    fn test_legacy_numeric_ids_load_with_warnings() {
+        let yaml = r#"
+version: "1.0"
+entry_node: 1
+characters:
+  player:
+    id: 1
+    name: "Player"
+  mara:
+    id: 2
+    name: "Mara Vey"
+nodes:
+  - id: 1
+    speaker: mara
+    text: "Hello."
+    options:
+      - id: 1
+        outcomes:
+          - { type: add_relationship, source: 1, target: 2, axis: trust, delta: 5 }
+        target: "2"
+  - id: 2
+    speaker: mara
+    text: "Bye."
+"#;
+        let loaded = YamlDialogueGraph::from_yaml(yaml)
+            .unwrap()
+            .to_model()
+            .unwrap();
+        let model::DialogTarget::Node(target) = loaded.graph.nodes[0].options[0].target else {
+            panic!("expected node target");
+        };
+        assert_eq!(target, loaded.graph.nodes[1].id);
+        let model::Outcome::AddRelationship { source, .. } =
+            &loaded.graph.nodes[0].options[0].outcomes[0]
+        else {
+            panic!("expected relationship outcome");
+        };
+        assert_eq!(loaded.symbols.entity_key(*source), Some("player"));
+        assert!(!loaded.warnings.is_empty());
+        assert!(loaded.warnings.iter().all(|w| w.contains("deprecated")));
     }
 }

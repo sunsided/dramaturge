@@ -51,6 +51,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use dramaturge_model::{
     Condition, DialogTarget, DialogueGraph, DialogueNode, DialogueNodeId, DialogueOptionId,
+    SymbolTable,
 };
 
 /// Classification of issue importance.
@@ -115,20 +116,33 @@ impl GraphValidator {
     }
 
     /// Runs all eight validation checks and returns the list of issues found.
+    ///
+    /// Messages show raw numeric ids (`#3`). Use
+    /// [`validate_with_symbols`](Self::validate_with_symbols) to show author keys.
     pub fn validate(&self, graph: &DialogueGraph) -> Vec<ValidationIssue> {
+        self.validate_with_symbols(graph, &SymbolTable::new())
+    }
+
+    /// Runs all eight validation checks, naming nodes and options by the
+    /// keys in `symbols` (falling back to `#<number>` for unknown ids).
+    pub fn validate_with_symbols(
+        &self,
+        graph: &DialogueGraph,
+        symbols: &SymbolTable,
+    ) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
 
         let node_map: HashMap<DialogueNodeId, &DialogueNode> =
             graph.nodes.iter().map(|n| (n.id, n)).collect();
 
-        self.check_missing_targets(graph, &node_map, &mut issues);
-        self.check_unreachable_nodes(graph, &node_map, &mut issues);
-        self.check_dead_end_nodes(graph, &node_map, &mut issues);
-        self.check_self_loops(graph, &node_map, &mut issues);
-        self.check_cycles(graph, &node_map, &mut issues);
-        self.check_always_false_conditions(graph, &node_map, &mut issues);
+        self.check_missing_targets(graph, symbols, &node_map, &mut issues);
+        self.check_unreachable_nodes(graph, symbols, &node_map, &mut issues);
+        self.check_dead_end_nodes(graph, symbols, &node_map, &mut issues);
+        self.check_self_loops(graph, symbols, &node_map, &mut issues);
+        self.check_cycles(graph, symbols, &node_map, &mut issues);
+        self.check_always_false_conditions(graph, symbols, &node_map, &mut issues);
         self.check_orphaned_fact_references(graph, &mut issues);
-        self.check_source_node_ids(graph, &mut issues);
+        self.check_source_node_ids(graph, symbols, &mut issues);
 
         issues
     }
@@ -138,6 +152,7 @@ impl GraphValidator {
     fn check_missing_targets(
         &self,
         graph: &DialogueGraph,
+        symbols: &SymbolTable,
         node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -151,7 +166,12 @@ impl GraphValidator {
                     issues.push(
                         ValidationIssue::new(
                             ValidationSeverity::Error,
-                            format!("Option targets nonexistent node ID {}", target_id.0),
+                            format!(
+                                "Option {} in node {} targets nonexistent node {}",
+                                symbols.display_option(option.id),
+                                symbols.display_node(node.id),
+                                symbols.display_node(*target_id)
+                            ),
                         )
                         .with_node(node.id)
                         .with_option(option.id),
@@ -165,6 +185,7 @@ impl GraphValidator {
     fn check_unreachable_nodes(
         &self,
         graph: &DialogueGraph,
+        symbols: &SymbolTable,
         node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -184,7 +205,10 @@ impl GraphValidator {
         if !node_map.contains_key(&entry_id) {
             issues.push(ValidationIssue::new(
                 ValidationSeverity::Error,
-                format!("Entry node ID {} does not exist in the graph", entry_id.0),
+                format!(
+                    "Entry node {} does not exist in the graph",
+                    symbols.display_node(entry_id)
+                ),
             ));
             return;
         }
@@ -212,7 +236,10 @@ impl GraphValidator {
                 issues.push(
                     ValidationIssue::new(
                         ValidationSeverity::Warning,
-                        format!("Node {} is unreachable from the entry node", node.id.0),
+                        format!(
+                            "Node {} is unreachable from the entry node",
+                            symbols.display_node(node.id)
+                        ),
                     )
                     .with_node(node.id),
                 );
@@ -225,6 +252,7 @@ impl GraphValidator {
     fn check_dead_end_nodes(
         &self,
         graph: &DialogueGraph,
+        symbols: &SymbolTable,
         node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -265,7 +293,7 @@ impl GraphValidator {
                             ValidationSeverity::Info,
                             format!(
                                 "Node {} has no options or enter outcomes (potential dead end)",
-                                node.id.0
+                                symbols.display_node(node.id)
                             ),
                         )
                         .with_node(node.id),
@@ -279,6 +307,7 @@ impl GraphValidator {
     fn check_self_loops(
         &self,
         graph: &DialogueGraph,
+        symbols: &SymbolTable,
         _node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -292,7 +321,8 @@ impl GraphValidator {
                             ValidationSeverity::Warning,
                             format!(
                                 "Option {} in node {} targets the same node (self-loop)",
-                                option.id.0, node.id.0
+                                symbols.display_option(option.id),
+                                symbols.display_node(node.id)
                             ),
                         )
                         .with_node(node.id)
@@ -308,6 +338,7 @@ impl GraphValidator {
     fn check_cycles(
         &self,
         graph: &DialogueGraph,
+        symbols: &SymbolTable,
         node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -374,7 +405,7 @@ impl GraphValidator {
                 issues.push(
                     ValidationIssue::new(
                         ValidationSeverity::Warning,
-                        format!("Node {} is part of a cycle", node.id.0),
+                        format!("Node {} is part of a cycle", symbols.display_node(node.id)),
                     )
                     .with_node(node.id),
                 );
@@ -388,6 +419,7 @@ impl GraphValidator {
     fn check_always_false_conditions(
         &self,
         graph: &DialogueGraph,
+        symbols: &SymbolTable,
         _node_map: &HashMap<DialogueNodeId, &DialogueNode>,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -421,7 +453,8 @@ impl GraphValidator {
                             ValidationSeverity::Warning,
                             format!(
                                 "Option {} in node {} has an always-false condition (unreachable option)",
-                                option.id.0, node.id.0
+                                symbols.display_option(option.id),
+                                symbols.display_node(node.id)
                             ),
                         )
                         .with_node(node.id)
@@ -564,7 +597,12 @@ impl GraphValidator {
 
     /// Detects options whose `source_node_id` does not match their parent node's ID.
     /// A mismatch corrupts runtime event history recorded by `DefaultRuntime::choose_option`.
-    fn check_source_node_ids(&self, graph: &DialogueGraph, issues: &mut Vec<ValidationIssue>) {
+    fn check_source_node_ids(
+        &self,
+        graph: &DialogueGraph,
+        symbols: &SymbolTable,
+        issues: &mut Vec<ValidationIssue>,
+    ) {
         for node in &graph.nodes {
             for option in &node.options {
                 if option.source_node_id != node.id {
@@ -573,7 +611,10 @@ impl GraphValidator {
                             ValidationSeverity::Error,
                             format!(
                                 "Option {} in node {} has wrong source node {} (parent is node {})",
-                                option.id.0, node.id.0, option.source_node_id.0, node.id.0
+                                symbols.display_option(option.id),
+                                symbols.display_node(node.id),
+                                symbols.display_node(option.source_node_id),
+                                symbols.display_node(node.id)
                             ),
                         )
                         .with_node(node.id)
@@ -629,6 +670,25 @@ mod tests {
         let graph = DialogueGraph::default();
         let issues = validator.validate(&graph);
         check!(issues.is_empty());
+    }
+
+    #[test]
+    fn validate_with_symbols_names_keys() {
+        let mut symbols = SymbolTable::new();
+        let intro = symbols.intern_node("dlg.intro");
+        let missing = symbols.intern_node("dlg.missing");
+        let option = symbols.intern_option("dlg.intro.go");
+        let node = make_node(
+            intro.0,
+            vec![make_option(option.0, DialogTarget::Node(missing), intro)],
+        );
+        let graph = DialogueGraph {
+            nodes: vec![node],
+            entry_node: Some(intro),
+        };
+        let issues = GraphValidator::new().validate_with_symbols(&graph, &symbols);
+        check!(issues.iter().any(|i| i.message
+            == "Option 'dlg.intro.go' in node 'dlg.intro' targets nonexistent node 'dlg.missing'"));
     }
 
     #[test]
