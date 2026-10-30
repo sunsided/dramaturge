@@ -35,6 +35,16 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   against the current `SymbolTable` on restore (#57).
 - `DialogWorldState::set_next_event_id` (#57).
 - CI builds `dramaturge-serde` and `dramaturge-runtime` for `wasm32-unknown-unknown`.
+- `DialogText::Fragments` with `TextFragment` and `FragmentMode` (`Always`,
+  `FirstTime`, `Once`, `Cycle`, `Shuffle`, `Sticky`) for state-dependent
+  lines without copying nodes (#58).
+- `resolve_text` in `dramaturge-runtime`: evaluates fragments, tracks
+  `TextProgress`, and returns `ResolvedPiece`s with their source fragment.
+  Deterministic for a seed via the `TextRng` trait and `SplitMix64` (#58).
+- YAML `text:` accepts fragment lists; YAML conditions gain `fact_at_least` and
+  `fact_at_most` (#58).
+- Validator warning for fragment texts that can resolve to empty text (#58).
+- `TextProgressDto` and the `text_progress` `with` module (#58).
 - `partial_eq_values` is public (epsilon float comparison used by the evaluator).
 - CI lints GitHub Actions workflows with actionlint and zizmor.
 
@@ -59,6 +69,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   in ordered maps; lookups are `O(log n)` instead of linear scans and
   iteration order is deterministic. Its fields are private; use the
   iterator methods. `get_memories` returns `&[Memory]` (#59).
+- **Breaking:** `DialogText` is `#[non_exhaustive]` and no longer `Eq`/`Hash`
+  (fragments carry conditions); match it with a wildcard arm (#58).
+- **Breaking:** `YamlNode::text` is a `YamlText`, `YamlOption::text` an
+  `Option<YamlText>` (#58).
 - `dramaturge-serde` depends on `dramaturge-runtime` (#57).
 - `available_tags` is a set: adding the same tag twice stores it once (#59).
 - Validator messages print ids as `'key'` or `#<number>` instead of `ID <number>`.

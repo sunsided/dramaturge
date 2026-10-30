@@ -173,7 +173,11 @@ nodes:
   # Mara Promise Choice (transition to Orren)
   - id: mara.promise
     speaker: mara
-    text: "Whatever happens... thank you for hearing me out. Captain Vale is waiting in the council room."
+    text:
+      - "Whatever happens... thank you for hearing me out."
+      - when: { type: fact_exists, fact: "PlayerPromisedMaraDiscretion" }
+        text: "And thank you for your discretion."
+      - "Captain Vale is waiting in the council room."
     options:
       - id: mara.promise.go_to_orren
         navigation_hint: go_to
@@ -203,7 +207,10 @@ nodes:
   # Scene 2: Orren Intro
   - id: orren.intro
     speaker: orren
-    text: "You spoke to Mara Vey. Good. Then you know whether my missing medicine is a theft, a clerical error, or something worse."
+    text:
+      - mode: first_time
+        text: "*Captain Vale looks up from a stack of ledgers.*"
+      - "You spoke to Mara Vey. Good. Then you know whether my missing medicine is a theft, a clerical error, or something worse."
     options:
       - id: orren.intro.truth
         text: "Mara diverted the medicine to refugees outside the wall. She saved three children with fever."

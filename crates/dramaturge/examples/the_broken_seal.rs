@@ -61,6 +61,11 @@ struct GameState {
     symbols: SymbolTable,
     entities: Entities,
     character_names: HashMap<EntityId, &'static str>,
+    /// Which text fragments were shown; part of the save state.
+    text_progress: TextProgress,
+    rng: SplitMix64,
+    /// The resolved text of the current node, fixed when the node is entered.
+    current_text: String,
 }
 
 impl GameState {
@@ -118,7 +123,7 @@ impl GameState {
             .entry_node
             .expect("dialogue.yaml defines an entry node");
 
-        Self {
+        let mut state = Self {
             world,
             current_node: entry_node,
             debug_mode: false,
@@ -126,7 +131,36 @@ impl GameState {
             symbols,
             entities,
             character_names,
-        }
+            text_progress: TextProgress::new(),
+            rng: SplitMix64::new(0x5EA1),
+            current_text: String::new(),
+        };
+        state.resolve_current_text();
+        state
+    }
+
+    /// Resolves the current node's text against the world state.
+    fn resolve_current_text(&mut self) {
+        let Some(node) = self.graph.nodes.iter().find(|n| n.id == self.current_node) else {
+            return;
+        };
+        let owner = self
+            .symbols
+            .node_key(node.id)
+            .map_or_else(|| self.symbols.display_node(node.id), str::to_string);
+        let pieces = resolve_text(
+            &node.text,
+            &owner,
+            &self.world,
+            &DefaultConditionEvaluator::new(),
+            &mut self.text_progress,
+            &mut self.rng,
+        );
+        self.current_text = pieces
+            .iter()
+            .map(|p| p.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
     }
 
     fn current_node(&self) -> Option<&DialogueNode> {
@@ -219,6 +253,7 @@ impl GameState {
                         applier.apply(outcome, &mut self.world);
                     }
                 }
+                self.resolve_current_text();
             }
             DialogTarget::End => {
                 self.show_ending();
@@ -355,6 +390,7 @@ fn format_option_text_only(opt: &DialogueOption) -> String {
     match &opt.text {
         DialogText::Inline(s) => s.clone(),
         DialogText::LocalizedKey(key) => key.to_string(), // Use key as fallback
+        _ => "...".to_string(),
     }
 }
 
@@ -411,10 +447,7 @@ fn render_scene(state: &GameState) {
         }
     };
 
-    let text = match &node.text {
-        DialogText::Inline(s) => s.as_str(),
-        DialogText::LocalizedKey(_) => "<localized>",
-    };
+    let text = state.current_text.as_str();
 
     let speaker_name = state.get_speaker_name(node.speaker.0);
     println!("║  {:<64}║", format!("{}:", speaker_name));

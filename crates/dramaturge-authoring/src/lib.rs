@@ -17,6 +17,7 @@
 //! 6. **Always-false conditions** — Options with conditions that evaluate to always false via constant folding
 //! 7. **Orphaned fact references** — Facts referenced in conditions but never set by any outcome
 //! 8. **Mismatched source node IDs** — Options whose `source_node_id` does not match their parent `DialogueNode`
+//! 9. **Possibly empty text** — Fragment texts where no fragment is guaranteed to show
 //!
 //! # When to Use
 //!
@@ -48,8 +49,8 @@
 //! ```
 
 use dramaturge_model::{
-    Condition, DialogTarget, DialogueGraph, DialogueNode, DialogueNodeId, DialogueOptionId,
-    SymbolTable,
+    Condition, DialogTarget, DialogText, DialogueGraph, DialogueNode, DialogueNodeId,
+    DialogueOptionId, FragmentMode, SymbolTable,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -103,7 +104,7 @@ impl ValidationIssue {
 
 /// Validates a [`DialogueGraph`] for structural correctness.
 ///
-/// Runs eight validation checks covering graph integrity, reachability,
+/// Runs nine validation checks covering graph integrity, reachability,
 /// condition validity, and fact reference consistency.
 #[derive(Debug, Clone, Default)]
 pub struct GraphValidator;
@@ -114,7 +115,7 @@ impl GraphValidator {
         Self
     }
 
-    /// Runs all eight validation checks and returns the list of issues found.
+    /// Runs all nine validation checks and returns the list of issues found.
     ///
     /// Messages show raw numeric ids (`#3`). Use
     /// [`validate_with_symbols`](Self::validate_with_symbols) to show author keys.
@@ -122,7 +123,7 @@ impl GraphValidator {
         self.validate_with_symbols(graph, &SymbolTable::new())
     }
 
-    /// Runs all eight validation checks, naming nodes and options by the
+    /// Runs all nine validation checks, naming nodes and options by the
     /// keys in `symbols` (falling back to `#<number>` for unknown ids).
     pub fn validate_with_symbols(
         &self,
@@ -142,6 +143,7 @@ impl GraphValidator {
         self.check_always_false_conditions(graph, symbols, &node_map, &mut issues);
         self.check_orphaned_fact_references(graph, &mut issues);
         self.check_source_node_ids(graph, symbols, &mut issues);
+        self.check_possibly_empty_text(graph, symbols, &mut issues);
 
         issues
     }
@@ -594,6 +596,78 @@ impl GraphValidator {
         }
     }
 
+    /// Detects fragment texts that can resolve to no text at all: no fragment
+    /// is guaranteed to show (unconditional, repeatable mode) with non-empty text.
+    fn check_possibly_empty_text(
+        &self,
+        graph: &DialogueGraph,
+        symbols: &SymbolTable,
+        issues: &mut Vec<ValidationIssue>,
+    ) {
+        fn always_true(cond: &Condition) -> bool {
+            match cond {
+                Condition::Always => true,
+                Condition::All(conds) => conds.iter().all(always_true),
+                Condition::Any(conds) => conds.iter().any(always_true),
+                _ => false,
+            }
+        }
+
+        /// Returns `true` if `text` always resolves to some non-empty text.
+        fn never_empty(text: &DialogText) -> bool {
+            match text {
+                DialogText::Inline(s) => !s.is_empty(),
+                DialogText::LocalizedKey(_) => true,
+                DialogText::Fragments(fragments) => fragments.iter().any(|f| {
+                    let repeatable = matches!(
+                        f.mode,
+                        FragmentMode::Always
+                            | FragmentMode::Cycle
+                            | FragmentMode::Shuffle
+                            | FragmentMode::Sticky
+                    );
+                    repeatable
+                        && f.condition.as_ref().is_none_or(always_true)
+                        && !f.variants.is_empty()
+                        && f.variants.iter().all(never_empty)
+                }),
+                _ => true,
+            }
+        }
+
+        let is_fragments = |t: &DialogText| matches!(t, DialogText::Fragments(_));
+        for node in &graph.nodes {
+            if is_fragments(&node.text) && !never_empty(&node.text) {
+                issues.push(
+                    ValidationIssue::new(
+                        ValidationSeverity::Warning,
+                        format!(
+                            "Text of node {} can resolve to empty text",
+                            symbols.display_node(node.id)
+                        ),
+                    )
+                    .with_node(node.id),
+                );
+            }
+            for option in &node.options {
+                if is_fragments(&option.text) && !never_empty(&option.text) {
+                    issues.push(
+                        ValidationIssue::new(
+                            ValidationSeverity::Warning,
+                            format!(
+                                "Text of option {} in node {} can resolve to empty text",
+                                symbols.display_option(option.id),
+                                symbols.display_node(node.id)
+                            ),
+                        )
+                        .with_node(node.id)
+                        .with_option(option.id),
+                    );
+                }
+            }
+        }
+    }
+
     /// Detects options whose `source_node_id` does not match their parent node's ID.
     /// A mismatch corrupts runtime event history recorded by `DefaultRuntime::choose_option`.
     fn check_source_node_ids(
@@ -669,6 +743,37 @@ mod tests {
         let graph = DialogueGraph::default();
         let issues = validator.validate(&graph);
         check!(issues.is_empty());
+    }
+
+    #[test]
+    fn detects_possibly_empty_fragment_text() {
+        use dramaturge_model::{FactId, FactScope, TextFragment};
+        let flag = Condition::FactExists {
+            scope: FactScope::World,
+            fact_id: FactId::new("flag"),
+        };
+        let mut risky = make_node(1, vec![]);
+        risky.text = DialogText::fragments(vec![
+            TextFragment::always(DialogText::inline("Only sometimes.")).when(flag),
+            TextFragment::with_mode(FragmentMode::Once, vec![DialogText::inline("Once.")]),
+        ]);
+        let mut safe = make_node(2, vec![]);
+        safe.text = DialogText::fragments(vec![
+            TextFragment::with_mode(FragmentMode::FirstTime, vec![DialogText::inline("Hi.")]),
+            TextFragment::always(DialogText::inline("Always.")),
+        ]);
+        let graph = DialogueGraph {
+            nodes: vec![risky, safe],
+            entry_node: Some(DialogueNodeId::new(1)),
+        };
+        let empty: Vec<_> = GraphValidator::new()
+            .validate(&graph)
+            .into_iter()
+            .filter(|i| i.message.contains("empty text"))
+            .collect();
+        check!(empty.len() == 1);
+        check!(empty[0].node_id == Some(DialogueNodeId::new(1)));
+        check!(empty[0].severity == ValidationSeverity::Warning);
     }
 
     #[test]

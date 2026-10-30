@@ -72,3 +72,9 @@ with_module!(
     dramaturge_model::SymbolTable,
     crate::dto::SymbolTableDto
 );
+with_module!(
+    /// `with` module for [`TextProgress`](dramaturge_runtime::TextProgress).
+    text_progress,
+    dramaturge_runtime::TextProgress,
+    crate::dto::TextProgressDto
+);

@@ -35,13 +35,96 @@ impl DialogueOptionId {
     }
 }
 
-/// Text content that can be inline or localized.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Text content that can be inline, localized, or assembled from
+/// state-dependent fragments.
+///
+/// This enum is `#[non_exhaustive]`: match it with a wildcard arm.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum DialogText {
     /// Direct string text.
     Inline(String),
     /// Key into a localization table.
     LocalizedKey(Arc<str>),
+    /// An ordered list of fragments, each with an optional condition and a
+    /// display mode. Resolved at runtime by `dramaturge_runtime::resolve_text`.
+    Fragments(Vec<TextFragment>),
+}
+
+/// One piece of a [`DialogText::Fragments`] list.
+///
+/// A fragment contributes text only when its `condition` holds (or has no
+/// condition). Which of its `variants` it shows depends on its [`mode`](FragmentMode).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextFragment {
+    /// Optional stable key, for progress tracking and editor links.
+    ///
+    /// Without a key, progress is tracked by the fragment's position, which
+    /// changes when fragments are inserted before it.
+    pub key: Option<Arc<str>>,
+    /// The text to show: one entry for `Always`/`FirstTime`/`Once`, the
+    /// alternatives for `Cycle`/`Shuffle`/`Sticky`.
+    pub variants: Vec<DialogText>,
+    /// Shown only if this holds.
+    pub condition: Option<Condition>,
+    /// How often and which variant to show.
+    pub mode: FragmentMode,
+    /// Replace the text of the earlier fragments instead of appending to it.
+    pub replaces: bool,
+}
+
+impl TextFragment {
+    /// A fragment that always shows `text`.
+    pub fn always(text: DialogText) -> Self {
+        Self::with_mode(FragmentMode::Always, vec![text])
+    }
+
+    /// A fragment with the given mode and variants.
+    pub fn with_mode(mode: FragmentMode, variants: Vec<DialogText>) -> Self {
+        Self {
+            key: None,
+            variants,
+            condition: None,
+            mode,
+            replaces: false,
+        }
+    }
+
+    /// Sets the stable progress key.
+    pub fn keyed(mut self, key: impl Into<Arc<str>>) -> Self {
+        self.key = Some(key.into());
+        self
+    }
+
+    /// Sets the condition.
+    pub fn when(mut self, condition: Condition) -> Self {
+        self.condition = Some(condition);
+        self
+    }
+
+    /// Makes this fragment replace the text before it.
+    pub fn replacing(mut self) -> Self {
+        self.replaces = true;
+        self
+    }
+}
+
+/// How a [`TextFragment`] picks its text over repeated resolutions.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum FragmentMode {
+    /// Show the first variant every time.
+    #[default]
+    Always,
+    /// Show the first variant only the first time the owning text resolves.
+    FirstTime,
+    /// Show the first variant once: the first time the condition holds.
+    Once,
+    /// Show the variants in order, one per resolution, then start over.
+    Cycle,
+    /// Show a random variant each time, avoiding an immediate repeat.
+    Shuffle,
+    /// Pick a random variant the first time, then always show that one.
+    Sticky,
 }
 
 impl DialogText {
@@ -53,6 +136,11 @@ impl DialogText {
     /// Creates a localized text reference from the given key.
     pub fn localized(key: impl Into<Arc<str>>) -> Self {
         Self::LocalizedKey(key.into())
+    }
+
+    /// Creates fragment text from the given fragments.
+    pub fn fragments(fragments: Vec<TextFragment>) -> Self {
+        Self::Fragments(fragments)
     }
 }
 

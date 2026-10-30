@@ -112,8 +112,8 @@ pub struct YamlNode {
     pub id: YamlKey,
     /// Character key who speaks.
     pub speaker: String,
-    /// Dialogue text.
-    pub text: String,
+    /// Dialogue text: a string, or a list of fragments.
+    pub text: YamlText,
     /// Outcomes applied when node is entered.
     #[serde(default)]
     pub outcomes: Vec<YamlOutcome>,
@@ -127,9 +127,10 @@ pub struct YamlNode {
 pub struct YamlOption {
     /// Unique option key.
     pub id: YamlKey,
-    /// Option text.
+    /// Option text: a string, or a list of fragments. Defaults to the
+    /// navigation hint's text.
     #[serde(default)]
-    pub text: String,
+    pub text: Option<YamlText>,
     /// Tags categorizing this option.
     #[serde(default)]
     pub tags: Vec<YamlTag>,
@@ -208,6 +209,135 @@ impl YamlNavigationHint {
     }
 }
 
+/// Dialogue text: a plain string, or a list of fragments.
+///
+/// ```yaml
+/// text:
+///   - "Mara looks up."
+///   - when: { type: fact_at_least, fact: trust, value: 3 }
+///     text: "She smiles."
+///   - mode: cycle
+///     variants: ["\"Again?\"", "\"You.\""]
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum YamlText {
+    /// Plain inline text.
+    Plain(String),
+    /// Fragment list.
+    Fragments(Vec<YamlFragment>),
+}
+
+/// One entry of a fragment list: a string (always shown) or a map.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum YamlFragment {
+    /// Text that is always shown.
+    Plain(String),
+    /// A fragment with condition, mode and variants.
+    Full(YamlFragmentSpec),
+}
+
+/// A fragment written as a map.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct YamlFragmentSpec {
+    /// Stable progress key.
+    #[serde(default)]
+    pub key: Option<String>,
+    /// Show only if this holds.
+    #[serde(default)]
+    pub when: Option<YamlCondition>,
+    /// Display mode (default `always`).
+    #[serde(default)]
+    pub mode: YamlFragmentMode,
+    /// Single text (for `always`, `first_time`, `once`).
+    #[serde(default)]
+    pub text: Option<YamlText>,
+    /// Alternatives (for `cycle`, `shuffle`, `sticky`).
+    #[serde(default)]
+    pub variants: Vec<YamlText>,
+    /// Replace the text of earlier fragments.
+    #[serde(default)]
+    pub replaces: bool,
+}
+
+/// Fragment display mode.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum YamlFragmentMode {
+    #[default]
+    Always,
+    FirstTime,
+    Once,
+    Cycle,
+    Shuffle,
+    Sticky,
+}
+
+impl YamlText {
+    fn to_model(&self) -> Result<model::DialogText, String> {
+        match self {
+            YamlText::Plain(s) => Ok(model::DialogText::inline(s)),
+            YamlText::Fragments(fs) => fs
+                .iter()
+                .enumerate()
+                .map(|(i, f)| f.to_model().map_err(|e| format!("fragment {i}: {e}")))
+                .collect::<Result<_, _>>()
+                .map(model::DialogText::Fragments),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            YamlText::Plain(s) => s.is_empty(),
+            YamlText::Fragments(fs) => fs.is_empty(),
+        }
+    }
+}
+
+impl YamlFragment {
+    fn to_model(&self) -> Result<model::TextFragment, String> {
+        use model::{FragmentMode, TextFragment};
+        let spec = match self {
+            YamlFragment::Plain(s) => {
+                return Ok(TextFragment::always(model::DialogText::inline(s)));
+            }
+            YamlFragment::Full(spec) => spec,
+        };
+        let mut variants = Vec::new();
+        if let Some(text) = &spec.text {
+            variants.push(text.to_model()?);
+        }
+        for v in &spec.variants {
+            variants.push(v.to_model()?);
+        }
+        if variants.is_empty() {
+            return Err("fragment needs `text` or `variants`".to_string());
+        }
+        let mode = match spec.mode {
+            YamlFragmentMode::Always => FragmentMode::Always,
+            YamlFragmentMode::FirstTime => FragmentMode::FirstTime,
+            YamlFragmentMode::Once => FragmentMode::Once,
+            YamlFragmentMode::Cycle => FragmentMode::Cycle,
+            YamlFragmentMode::Shuffle => FragmentMode::Shuffle,
+            YamlFragmentMode::Sticky => FragmentMode::Sticky,
+        };
+        Ok(TextFragment {
+            key: spec.key.as_deref().map(Into::into),
+            variants,
+            condition: spec
+                .when
+                .as_ref()
+                .map(YamlCondition::to_model)
+                .transpose()?,
+            mode,
+            replaces: spec.replaces,
+        })
+    }
+}
+
 /// A tag.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YamlTag {
@@ -238,6 +368,28 @@ pub enum YamlCondition {
         scope: String,
         /// Fact ID.
         fact: String,
+    },
+    /// Check that an integer fact is at least a value.
+    #[serde(rename = "fact_at_least")]
+    FactAtLeast {
+        /// Fact scope.
+        #[serde(default = "default_fact_scope")]
+        scope: String,
+        /// Fact ID.
+        fact: String,
+        /// Minimum value.
+        value: i64,
+    },
+    /// Check that an integer fact is at most a value.
+    #[serde(rename = "fact_at_most")]
+    FactAtMost {
+        /// Fact scope.
+        #[serde(default = "default_fact_scope")]
+        scope: String,
+        /// Fact ID.
+        fact: String,
+        /// Maximum value.
+        value: i64,
     },
     /// Check if a fact equals a value.
     #[serde(rename = "fact_equals")]
@@ -340,8 +492,11 @@ impl YamlDialogueGraph {
                     format!("node '{node_key}': unknown speaker '{}'", yaml_node.speaker)
                 })?;
 
-            let mut node =
-                DialogueNode::new(node_id.0, speaker, DialogText::inline(&yaml_node.text));
+            let text = yaml_node
+                .text
+                .to_model()
+                .map_err(|msg| format!("node '{node_key}': text: {msg}"))?;
+            let mut node = DialogueNode::new(node_id.0, speaker, text);
 
             for yaml_option in &yaml_node.options {
                 let option_id = ctx.option(&yaml_option.id);
@@ -354,22 +509,18 @@ impl YamlDialogueGraph {
                 };
 
                 // Determine the text for the option: use explicit text, or default from navigation hint
-                let option_text = if yaml_option.text.is_empty() {
-                    yaml_option
-                        .navigation_hint
-                        .as_ref()
-                        .map(|h| h.default_text(&yaml_option.go_to_target))
-                        .unwrap_or_else(|| "...".to_string())
-                } else {
-                    yaml_option.text.clone()
+                let option_text = match &yaml_option.text {
+                    Some(text) if !text.is_empty() => text.to_model().map_err(at)?,
+                    _ => DialogText::inline(
+                        yaml_option
+                            .navigation_hint
+                            .as_ref()
+                            .map(|h| h.default_text(&yaml_option.go_to_target))
+                            .unwrap_or_else(|| "...".to_string()),
+                    ),
                 };
 
-                let mut option = DialogueOption::new(
-                    option_id.0,
-                    DialogText::inline(&option_text),
-                    target,
-                    node_id,
-                );
+                let mut option = DialogueOption::new(option_id.0, option_text, target, node_id);
 
                 // Convert navigation hint
                 if let Some(hint) = &yaml_option.navigation_hint {
@@ -511,6 +662,16 @@ impl YamlCondition {
                     fact_id: FactId::new(fact.as_str()),
                 })
             }
+            YamlCondition::FactAtLeast { scope, fact, value } => Ok(Condition::FactAtLeast {
+                scope: parse_fact_scope(scope)?,
+                fact_id: FactId::new(fact.as_str()),
+                value: *value,
+            }),
+            YamlCondition::FactAtMost { scope, fact, value } => Ok(Condition::FactAtMost {
+                scope: parse_fact_scope(scope)?,
+                fact_id: FactId::new(fact.as_str()),
+                value: *value,
+            }),
             YamlCondition::FactEquals { scope, fact, value } => {
                 let fact_scope = parse_fact_scope(scope)?;
                 let fact_value = match value {
@@ -849,5 +1010,66 @@ nodes:
         check!(loaded.symbols.entity_key(*source) == Some("player"));
         check!(!loaded.warnings.is_empty());
         check!(loaded.warnings.iter().all(|w| w.contains("deprecated")));
+    }
+
+    #[test]
+    fn test_fragment_lists() {
+        let yaml = r#"
+version: "2.0"
+entry_node: intro
+characters:
+  mara:
+    name: "Mara Vey"
+nodes:
+  - id: intro
+    speaker: mara
+    text:
+      - "Mara looks up."
+      - when: { type: fact_at_least, fact: trust, value: 3 }
+        text: "She smiles."
+      - key: greeting
+        mode: cycle
+        variants: ["\"Again?\"", "\"You.\""]
+    options:
+      - id: intro.bye
+        text: ["Leave."]
+        target: end
+"#;
+        let loaded = YamlDialogueGraph::from_yaml(yaml)
+            .unwrap()
+            .to_model()
+            .unwrap();
+        let model::DialogText::Fragments(fragments) = &loaded.graph.nodes[0].text else {
+            panic!("expected fragments");
+        };
+        check!(fragments.len() == 3);
+        check!(fragments[0].mode == model::FragmentMode::Always);
+        check!(let Some(model::Condition::FactAtLeast { value: 3, .. }) = &fragments[1].condition);
+        check!(fragments[2].mode == model::FragmentMode::Cycle);
+        check!(fragments[2].key.as_deref() == Some("greeting"));
+        check!(fragments[2].variants.len() == 2);
+        check!(let model::DialogText::Fragments(_) = &loaded.graph.nodes[0].options[0].text);
+    }
+
+    #[test]
+    fn test_fragment_without_text_fails() {
+        let yaml = r#"
+version: "2.0"
+entry_node: intro
+characters:
+  mara:
+    name: "Mara Vey"
+nodes:
+  - id: intro
+    speaker: mara
+    text:
+      - mode: cycle
+"#;
+        let err = YamlDialogueGraph::from_yaml(yaml)
+            .unwrap()
+            .to_model()
+            .unwrap_err();
+        check!(err.contains("'intro'"), "{err}");
+        check!(err.contains("fragment 0"), "{err}");
     }
 }

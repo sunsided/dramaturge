@@ -69,14 +69,15 @@ pub use dramaturge_model::{
     CharacterId, CharacterKey, CharacterTrait, Condition, Confidence, CustomDialogTag,
     DialogIntentions, DialogTag, DialogTagKind, DialogTarget, DialogText, DialogueGraph,
     DialogueNode, DialogueNodeId, DialogueOption, DialogueOptionId, EntityId, Event, EventContext,
-    EventId, EventKind, Fact, FactId, FactScope, FactValue, Intention, Memory, MemoryId,
-    MemoryQuery, MemoryTag, Outcome, RelationshipAxisId, RelationshipScore, ScopedFact,
-    SymbolTable,
+    EventId, EventKind, Fact, FactId, FactScope, FactValue, FragmentMode, Intention, Memory,
+    MemoryId, MemoryQuery, MemoryTag, Outcome, RelationshipAxisId, RelationshipScore, ScopedFact,
+    SymbolTable, TextFragment,
 };
 pub use dramaturge_runtime::{
     ConditionEvaluator, CustomHandler, DefaultConditionEvaluator, DefaultOutcomeApplier,
     DefaultRuntime, DialogWorldState, DialogueRuntime, EvaluationContext, EvaluationResult,
-    HasDialogWorldState, NarrativeState, NoCustom, OutcomeApplier,
+    FragmentProgress, HasDialogWorldState, NarrativeState, NoCustom, OutcomeApplier, ResolvedPiece,
+    ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text,
 };
 
 #[cfg(test)]

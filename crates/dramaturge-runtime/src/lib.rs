@@ -9,6 +9,8 @@
 //! - [`context`] — [`DialogWorldState`], the mutable game state evaluated against conditions
 //! - [`evaluation`] — [`ConditionEvaluator`] and [`OutcomeApplier`] traits with defaults
 //! - [`runtime`] — [`DialogueRuntime`] trait and [`DefaultRuntime`] implementation
+//! - [`state`] — [`NarrativeState`], the state abstraction evaluators work against
+//! - [`text`] — [`resolve_text`] for state-dependent fragment text
 //!
 //! # Evaluation Model
 //!
@@ -98,6 +100,7 @@ pub mod context;
 pub mod evaluation;
 pub mod runtime;
 pub mod state;
+pub mod text;
 
 pub use context::{DialogWorldState, EvaluationContext};
 pub use evaluation::{
@@ -106,3 +109,6 @@ pub use evaluation::{
 };
 pub use runtime::{AvailableOptionsIter, DefaultRuntime, DialogueRuntime};
 pub use state::{HasDialogWorldState, NarrativeState};
+pub use text::{
+    FragmentProgress, ResolvedPiece, ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text,
+};

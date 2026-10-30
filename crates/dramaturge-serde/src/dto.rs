@@ -1403,6 +1403,8 @@ pub enum DialogTextDto {
     Inline(String),
     /// Localization key.
     LocalizedKey(String),
+    /// Fragment list.
+    Fragments(Vec<TextFragmentDto>),
 }
 
 impl From<&model::DialogText> for DialogTextDto {
@@ -1411,17 +1413,112 @@ impl From<&model::DialogText> for DialogTextDto {
         match t {
             T::Inline(s) => Self::Inline(s.clone()),
             T::LocalizedKey(k) => Self::LocalizedKey(k.to_string()),
+            T::Fragments(fs) => Self::Fragments(dtos(fs)),
+            // `DialogText` is non-exhaustive; a new variant needs a DTO here.
+            other => unimplemented!("dramaturge-serde cannot serialize {other:?} yet"),
         }
     }
 }
 
 impl IntoModel for DialogTextDto {
     type Model = model::DialogText;
-    fn into_model_with<M: IdMap + ?Sized>(self, _ids: &mut M) -> model::DialogText {
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogText {
         use model::DialogText as T;
         match self {
             Self::Inline(s) => T::Inline(s),
             Self::LocalizedKey(k) => T::LocalizedKey(arc(k)),
+            Self::Fragments(fs) => T::Fragments(fs.into_model_with(ids)),
+        }
+    }
+}
+
+/// DTO for [`model::FragmentMode`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum FragmentModeDto {
+    #[default]
+    Always,
+    FirstTime,
+    Once,
+    Cycle,
+    Shuffle,
+    Sticky,
+}
+
+impl From<&model::FragmentMode> for FragmentModeDto {
+    fn from(m: &model::FragmentMode) -> Self {
+        use model::FragmentMode as F;
+        match m {
+            F::Always => Self::Always,
+            F::FirstTime => Self::FirstTime,
+            F::Once => Self::Once,
+            F::Cycle => Self::Cycle,
+            F::Shuffle => Self::Shuffle,
+            F::Sticky => Self::Sticky,
+        }
+    }
+}
+
+no_ids!(FragmentModeDto => model::FragmentMode, |d| {
+    use model::FragmentMode as F;
+    match d {
+        FragmentModeDto::Always => F::Always,
+        FragmentModeDto::FirstTime => F::FirstTime,
+        FragmentModeDto::Once => F::Once,
+        FragmentModeDto::Cycle => F::Cycle,
+        FragmentModeDto::Shuffle => F::Shuffle,
+        FragmentModeDto::Sticky => F::Sticky,
+    }
+});
+
+/// DTO for [`model::TextFragment`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextFragmentDto {
+    /// Stable progress key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// Variants.
+    pub variants: Vec<DialogTextDto>,
+    /// Condition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<ConditionDto>,
+    /// Mode.
+    #[serde(default)]
+    pub mode: FragmentModeDto,
+    /// Replace earlier text.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub replaces: bool,
+}
+
+impl From<&model::TextFragment> for TextFragmentDto {
+    fn from(f: &model::TextFragment) -> Self {
+        let model::TextFragment {
+            key,
+            variants,
+            condition,
+            mode,
+            replaces,
+        } = f;
+        Self {
+            key: key.as_deref().map(str::to_string),
+            variants: dtos(variants),
+            condition: condition.as_ref().map(Into::into),
+            mode: mode.into(),
+            replaces: *replaces,
+        }
+    }
+}
+
+impl IntoModel for TextFragmentDto {
+    type Model = model::TextFragment;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::TextFragment {
+        model::TextFragment {
+            key: self.key.map(arc),
+            variants: self.variants.into_model_with(ids),
+            condition: self.condition.into_model_with(ids),
+            mode: self.mode.into_model_with(ids),
+            replaces: self.replaces,
         }
     }
 }
@@ -1833,3 +1930,77 @@ impl IntoModel for WorldStateDto {
         s
     }
 }
+
+/// Progress of one fragment, by progress key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FragmentProgressDto {
+    /// Progress key (`owner/fragment/...`).
+    pub key: String,
+    /// Times shown.
+    pub shown: u32,
+    /// Last or sticky pick.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pick: Option<u32>,
+}
+
+/// How often one owner's text was resolved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OwnerResolutionsDto {
+    /// Owner key.
+    pub owner: String,
+    /// Resolution count.
+    pub resolutions: u32,
+}
+
+/// DTO for [`TextProgress`](dramaturge_runtime::TextProgress).
+///
+/// Progress keys are author keys (owner and fragment keys), not ids, so
+/// text progress stays valid across content changes without remapping.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextProgressDto {
+    /// Fragment progress.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fragments: Vec<FragmentProgressDto>,
+    /// Owner resolution counts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub owners: Vec<OwnerResolutionsDto>,
+}
+
+impl From<&dramaturge_runtime::TextProgress> for TextProgressDto {
+    fn from(p: &dramaturge_runtime::TextProgress) -> Self {
+        Self {
+            fragments: p
+                .fragments()
+                .map(|(key, f)| FragmentProgressDto {
+                    key: key.to_string(),
+                    shown: f.shown,
+                    pick: f.pick,
+                })
+                .collect(),
+            owners: p
+                .owners()
+                .map(|(owner, resolutions)| OwnerResolutionsDto {
+                    owner: owner.to_string(),
+                    resolutions,
+                })
+                .collect(),
+        }
+    }
+}
+
+no_ids!(TextProgressDto => dramaturge_runtime::TextProgress, |d| {
+    let mut p = dramaturge_runtime::TextProgress::new();
+    for f in d.fragments {
+        p.set_fragment(
+            f.key,
+            dramaturge_runtime::FragmentProgress {
+                shown: f.shown,
+                pick: f.pick,
+            },
+        );
+    }
+    for o in d.owners {
+        p.set_resolutions(o.owner, o.resolutions);
+    }
+    p
+});

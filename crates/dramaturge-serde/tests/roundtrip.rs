@@ -5,11 +5,13 @@ use dramaturge_model::{
     AlignmentAxisId, AlignmentPoleId, CharacterId, Condition, Confidence, CustomDialogTag,
     DialogIntentions, DialogTarget, DialogText, DialogueGraph, DialogueNode, DialogueNodeId,
     DialogueOption, DialogueOptionId, EntityId, EventKind, Fact, FactId, FactScope, FactValue,
-    Intention, Memory, MemoryId, MemoryQuery, MemoryTag, NavigationHint, Outcome,
-    RelationshipAxisId, SymbolTable,
+    FragmentMode, Intention, Memory, MemoryId, MemoryQuery, MemoryTag, NavigationHint, Outcome,
+    RelationshipAxisId, SymbolTable, TextFragment,
 };
-use dramaturge_runtime::DialogWorldState;
-use dramaturge_serde::dto::{ConditionDto, DialogueGraphDto, IntoModel, OutcomeDto, WorldStateDto};
+use dramaturge_runtime::{DialogWorldState, FragmentProgress, TextProgress};
+use dramaturge_serde::dto::{
+    ConditionDto, DialogueGraphDto, IntoModel, OutcomeDto, TextProgressDto, WorldStateDto,
+};
 use dramaturge_serde::save::SavedWorldState;
 use proptest::collection::vec;
 use proptest::prelude::*;
@@ -236,11 +238,42 @@ fn outcome() -> impl Strategy<Value = Outcome> {
     ]
 }
 
-fn text() -> impl Strategy<Value = DialogText> {
+fn fragment_mode() -> impl Strategy<Value = FragmentMode> {
     prop_oneof![
+        Just(FragmentMode::Always),
+        Just(FragmentMode::FirstTime),
+        Just(FragmentMode::Once),
+        Just(FragmentMode::Cycle),
+        Just(FragmentMode::Shuffle),
+        Just(FragmentMode::Sticky),
+    ]
+}
+
+fn text() -> impl Strategy<Value = DialogText> {
+    let leaf = prop_oneof![
         ".{0,16}".prop_map(DialogText::Inline),
         key().prop_map(DialogText::localized),
-    ]
+    ];
+    leaf.prop_recursive(2, 12, 3, |inner| {
+        vec(
+            (
+                proptest::option::of(key()),
+                vec(inner, 1..3),
+                proptest::option::of(condition()),
+                fragment_mode(),
+                any::<bool>(),
+            )
+                .prop_map(|(key, variants, condition, mode, replaces)| TextFragment {
+                    key: key.map(Into::into),
+                    variants,
+                    condition,
+                    mode,
+                    replaces,
+                }),
+            0..3,
+        )
+        .prop_map(DialogText::Fragments)
+    })
 }
 
 fn target() -> impl Strategy<Value = DialogTarget> {
@@ -390,6 +423,22 @@ proptest! {
         let back = json_roundtrip(&WorldStateDto::from(&s)).into_model();
         prop_assert_eq!(back.next_event_id(), s.next_event_id());
         prop_assert_eq!(back, s);
+    }
+
+    #[test]
+    fn text_progress_roundtrips(
+        fragments in vec((key(), any::<u32>(), proptest::option::of(any::<u32>())), 0..6),
+        owners in vec((key(), any::<u32>()), 0..4),
+    ) {
+        let mut p = TextProgress::new();
+        for (k, shown, pick) in fragments {
+            p.set_fragment(k, FragmentProgress { shown, pick });
+        }
+        for (o, n) in owners {
+            p.set_resolutions(o, n);
+        }
+        let back = json_roundtrip(&TextProgressDto::from(&p)).into_model();
+        prop_assert_eq!(back, p);
     }
 
     #[test]
