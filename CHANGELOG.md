@@ -27,9 +27,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   whose `conditions` hold, or `None` (#71).
 - `DialogueGraph::entry_node()` (the first entry node),
   `with_entry_node`, `node(id)` and `entries()` (#71).
-- YAML: `entry_node` takes one key or a list of keys
+- YAML: `entry_node` takes one key or a non-empty list of keys
   (`entry_node: [mara.again, mara.intro]`; also `entry_nodes:`), and a
-  node has optional `conditions` (#71).
+  node has optional `conditions`. `to_model` warns about an entry key that
+  names no node and about a repeated entry key (the first one counts).
+  Serializing `YamlDialogueGraph` writes one entry key as a scalar (#71).
 
 ### Changed
 
