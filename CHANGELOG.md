@@ -32,6 +32,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   through the `IdMap` like other memory ids. YAML condition
   `{ type: has_memory, owner: mara, id: mara.saw_the_seal }` interns the
   memory key into `symbols.memories` (#64).
+- `ValidationIssueKind` (`MissingTarget`, `NoEntryNode`, `EntryNodeNotFound`,
+  `Unreachable`, `DeadEnd`, `SelfLoop`, `Cycle`, `AlwaysFalse`,
+  `OrphanFact`, `SourceNodeMismatch`, `EmptyText`, `UnkeyedProgress`) and
+  `ValidationIssue::kind`, so hosts filter issues by kind instead of by
+  message text (#65).
+- `ValidationOptions` (`skip`, `report`, `allow_cycles`, `allow_dead_ends`,
+  `skip_orphan_facts`) and `GraphValidator::with_options` switch checks off
+  (#65).
 
 ### Changed
 
@@ -58,6 +66,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   message that says to use a key. A number in quotes (`id: "2"`) is a key.
   `YamlKey` is now a string newtype (`YamlKey(String)`, `as_key()` returns
   `&str`), and `YamlCharacter::id` is removed (#67).
+- **Breaking:** `ValidationIssue::new` takes the issue kind as its first
+  argument: `ValidationIssue::new(kind, severity, message)`. `GraphValidator`
+  is no longer a unit struct; build it with `GraphValidator::new()`,
+  `default()` or `with_options` (#65).
 - The default evaluator treats an unknown `Condition` as `false`, the
   default applier ignores an unknown `Outcome`, and `resolve_text` treats an
   unknown `FragmentMode` as `Always` (#66).
