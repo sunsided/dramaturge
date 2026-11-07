@@ -679,6 +679,39 @@ mod tests {
     }
 
     #[test]
+    fn relationship_conditions_on_untracked_pair_use_axis_default() {
+        let evaluator = DefaultConditionEvaluator::new();
+        let mut ctx = DialogWorldState::new();
+        let (source, target) = (EntityId::new(1), EntityId::new(2));
+        let at_most = |value| Condition::RelationshipAtMost {
+            source,
+            target,
+            axis: RelationshipAxisId::new("trust"),
+            value,
+        };
+        let at_least = |value| Condition::RelationshipAtLeast {
+            source,
+            target,
+            axis: RelationshipAxisId::new("trust"),
+            value,
+        };
+
+        // Without a default an untracked pair is missing: both are false.
+        check!(!evaluator.evaluate(&at_most(0), &ctx));
+        check!(!evaluator.evaluate(&at_least(0), &ctx));
+
+        ctx.set_relationship_default(RelationshipAxisId::new("trust"), 0);
+        check!(evaluator.evaluate(&at_most(0), &ctx));
+        check!(evaluator.evaluate(&at_least(0), &ctx));
+        check!(!evaluator.evaluate(&at_least(1), &ctx));
+        check!(!evaluator.evaluate(&at_most(-1), &ctx));
+
+        ctx.set_relationship_default(RelationshipAxisId::new("trust"), 50);
+        check!(evaluator.evaluate(&at_least(50), &ctx));
+        check!(!evaluator.evaluate(&at_most(49), &ctx));
+    }
+
+    #[test]
     fn default_evaluator_relationship_at_least() {
         let evaluator = DefaultConditionEvaluator::new();
         let mut ctx = DialogWorldState::new();

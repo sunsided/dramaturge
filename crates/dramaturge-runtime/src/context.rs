@@ -17,7 +17,8 @@
 //! # Fingerprints
 //!
 //! [`DialogWorldState::fingerprint`] hashes the *logical* state — facts,
-//! alignments, relationships, memories and available tags — and ignores the
+//! alignments, relationships, relationship defaults, memories and available
+//! tags — and ignores the
 //! event log, which is history rather than state. Two states with the same
 //! fingerprint are (with overwhelming probability) indistinguishable to
 //! conditions. Automated explorers use it to detect states they have
@@ -45,6 +46,7 @@ pub struct DialogWorldState {
     facts: BTreeMap<FactScope, BTreeMap<FactId, FactValue>>,
     alignments: BTreeMap<AlignmentAxisId, BTreeMap<AlignmentPoleId, i32>>,
     relationships: BTreeMap<(EntityId, EntityId), BTreeMap<RelationshipAxisId, i32>>,
+    relationship_defaults: BTreeMap<RelationshipAxisId, i32>,
     memories: BTreeMap<EntityId, Vec<Memory>>,
     available_tags: BTreeSet<DialogTagKind>,
     events: Vec<Event>,
@@ -60,6 +62,7 @@ impl Default for DialogWorldState {
             facts: BTreeMap::new(),
             alignments: BTreeMap::new(),
             relationships: BTreeMap::new(),
+            relationship_defaults: BTreeMap::new(),
             memories: BTreeMap::new(),
             available_tags: BTreeSet::new(),
             events: Vec::new(),
@@ -152,7 +155,11 @@ impl DialogWorldState {
             .flat_map(|(axis, poles)| poles.iter().map(move |(pole, v)| (axis, pole, *v)))
     }
 
-    /// Returns the relationship score, or `None` if untracked.
+    /// Returns the relationship score.
+    ///
+    /// For a pair that is not tracked on `axis`, returns the
+    /// [default of the axis](Self::set_relationship_default), or `None` if
+    /// the axis has no default.
     pub fn get_relationship(
         &self,
         source: EntityId,
@@ -160,13 +167,15 @@ impl DialogWorldState {
         axis: &RelationshipAxisId,
     ) -> Option<i32> {
         self.relationships
-            .get(&(source, target))?
-            .get(axis)
+            .get(&(source, target))
+            .and_then(|axes| axes.get(axis))
+            .or_else(|| self.relationship_defaults.get(axis))
             .copied()
     }
 
-    /// Increments an existing relationship score, or initializes it to
-    /// the given delta if not yet tracked.
+    /// Increments an existing relationship score. An untracked score starts
+    /// at the [default of the axis](Self::set_relationship_default), or at
+    /// zero if the axis has no default.
     pub fn add_relationship(
         &mut self,
         source: EntityId,
@@ -174,15 +183,59 @@ impl DialogWorldState {
         axis: RelationshipAxisId,
         delta: i32,
     ) {
+        let start = self.relationship_default(&axis).unwrap_or(0);
         *self
             .relationships
             .entry((source, target))
             .or_default()
             .entry(axis)
-            .or_insert(0) += delta;
+            .or_insert(start) += delta;
     }
 
-    /// Iterates over all relationship scores as `(source, target, axis, value)`.
+    /// Sets a relationship score, tracked from now on.
+    pub fn set_relationship(
+        &mut self,
+        source: EntityId,
+        target: EntityId,
+        axis: RelationshipAxisId,
+        value: i32,
+    ) {
+        self.relationships
+            .entry((source, target))
+            .or_default()
+            .insert(axis, value);
+    }
+
+    /// Sets the score that untracked pairs have on `axis`.
+    ///
+    /// Without a default, a relationship that was never set reads as
+    /// missing, so `RelationshipAtLeast` and `RelationshipAtMost` are both
+    /// `false` for it. With a default, [`get_relationship`](Self::get_relationship)
+    /// returns the default and [`add_relationship`](Self::add_relationship)
+    /// starts from it. Tracked scores do not change.
+    pub fn set_relationship_default(&mut self, axis: RelationshipAxisId, value: i32) {
+        self.relationship_defaults.insert(axis, value);
+    }
+
+    /// Removes the default of `axis`. Returns the old default, if any.
+    pub fn remove_relationship_default(&mut self, axis: &RelationshipAxisId) -> Option<i32> {
+        self.relationship_defaults.remove(axis)
+    }
+
+    /// Returns the default score of `axis`, or `None` if it has none.
+    pub fn relationship_default(&self, axis: &RelationshipAxisId) -> Option<i32> {
+        self.relationship_defaults.get(axis).copied()
+    }
+
+    /// Iterates over all relationship defaults as `(axis, value)`, ordered by axis.
+    pub fn relationship_defaults(&self) -> impl Iterator<Item = (&RelationshipAxisId, i32)> {
+        self.relationship_defaults
+            .iter()
+            .map(|(axis, v)| (axis, *v))
+    }
+
+    /// Iterates over all tracked relationship scores as
+    /// `(source, target, axis, value)`. Defaults are not included.
     pub fn relationships(
         &self,
     ) -> impl Iterator<Item = (EntityId, EntityId, &RelationshipAxisId, i32)> {
@@ -341,9 +394,13 @@ impl DialogWorldState {
 
     /// Hashes the logical state into a 64-bit fingerprint.
     ///
-    /// Covers facts, alignments, relationships, memories and available tags.
-    /// The event log and the event id counter are excluded: they record
-    /// history, not state.
+    /// Covers facts, alignments, relationships, relationship defaults,
+    /// memories and available tags. The event log and the event id counter
+    /// are excluded: they record history, not state.
+    ///
+    /// Defaults count as they are set, not per pair: a tracked score equal
+    /// to the default and an untracked pair are distinct, and two states
+    /// with different defaults differ even if no condition reads them.
     ///
     /// Floats are hashed by bit pattern after mapping `-0.0` to `0.0` and
     /// every NaN to one canonical NaN. Untracked and zero-valued scores are
@@ -375,6 +432,7 @@ impl DialogWorldState {
         }
         self.alignments.hash(hasher);
         self.relationships.hash(hasher);
+        self.relationship_defaults.hash(hasher);
         self.memories.hash(hasher);
         self.available_tags.hash(hasher);
     }
@@ -401,6 +459,7 @@ impl DialogWorldState {
                 })
             && self.alignments == other.alignments
             && self.relationships == other.relationships
+            && self.relationship_defaults == other.relationship_defaults
             && self.memories == other.memories
             && self.available_tags == other.available_tags
     }
@@ -490,6 +549,47 @@ mod tests {
             5,
         );
         state
+    }
+
+    #[test]
+    fn relationship_default_applies_to_untracked_pairs() {
+        use dramaturge_model::RelationshipAxisId;
+        let trust = RelationshipAxisId::new("trust");
+        let fear = RelationshipAxisId::new("fear");
+        let (a, b) = (EntityId::new(1), EntityId::new(2));
+        let mut state = DialogWorldState::new();
+        check!(state.get_relationship(a, b, &trust).is_none());
+
+        state.set_relationship_default(trust.clone(), 0);
+        check!(state.get_relationship(a, b, &trust) == Some(0));
+        check!(state.get_relationship(a, b, &fear).is_none());
+        check!(state.relationships().count() == 0);
+
+        state.set_relationship_default(trust.clone(), 10);
+        state.add_relationship(a, b, trust.clone(), 5);
+        check!(state.get_relationship(a, b, &trust) == Some(15));
+        check!(state.get_relationship(b, a, &trust) == Some(10));
+
+        state.set_relationship(b, a, trust.clone(), -3);
+        check!(state.get_relationship(b, a, &trust) == Some(-3));
+
+        check!(state.remove_relationship_default(&trust) == Some(10));
+        check!(state.get_relationship(a, b, &trust) == Some(15));
+        check!(
+            state
+                .get_relationship(EntityId::new(9), b, &trust)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn relationship_defaults_count_in_fingerprint() {
+        use dramaturge_model::RelationshipAxisId;
+        let a = sample_state(false);
+        let mut b = sample_state(false);
+        b.set_relationship_default(RelationshipAxisId::new("trust"), 0);
+        check!(a.fingerprint() != b.fingerprint());
+        check!(!a.same_state(&b));
     }
 
     #[test]

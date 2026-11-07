@@ -18,6 +18,15 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   `{ type: add_fact, fact: gold, delta: -5 }` (optional `scope`). The
   validator counts `AddFact` as a writer of the fact, and
   `OutcomeDto::AddFact` serializes it (#70).
+- Relationship defaults per axis on `DialogWorldState`:
+  `set_relationship_default`, `remove_relationship_default`,
+  `relationship_default` and `relationship_defaults`. `get_relationship`
+  returns the default for an untracked pair, so `RelationshipAtMost` and
+  `RelationshipAtLeast` hold at the start; `add_relationship` starts an
+  untracked score at the default. Without a default nothing changes.
+  Defaults count in `fingerprint` and `same_state`, and `WorldStateDto`
+  stores them (`relationship_defaults`, `RelationshipDefaultDto`) (#63).
+- `DialogWorldState::set_relationship` sets a score directly (#63).
 
 ### Changed
 

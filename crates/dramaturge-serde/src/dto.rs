@@ -1877,6 +1877,15 @@ pub struct OwnedMemoryDto {
     pub memory: MemoryDto,
 }
 
+/// The default score of one relationship axis.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationshipDefaultDto {
+    /// Axis.
+    pub axis: String,
+    /// Score of untracked pairs.
+    pub value: i32,
+}
+
 /// DTO for [`DialogWorldState`].
 ///
 /// Lists are in the state's deterministic iteration order, so the same
@@ -1896,6 +1905,9 @@ pub struct WorldStateDto {
     /// Relationship scores.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub relationships: Vec<RelationshipScoreDto>,
+    /// Scores of untracked relationship pairs, per axis.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relationship_defaults: Vec<RelationshipDefaultDto>,
     /// Memories with their owners.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub memories: Vec<OwnedMemoryDto>,
@@ -1937,6 +1949,13 @@ impl From<&DialogWorldState> for WorldStateDto {
                     value,
                 })
                 .collect(),
+            relationship_defaults: s
+                .relationship_defaults()
+                .map(|(axis, value)| RelationshipDefaultDto {
+                    axis: axis.0.to_string(),
+                    value,
+                })
+                .collect(),
             memories: s
                 .memories()
                 .map(|(owner, memory)| OwnedMemoryDto {
@@ -1965,7 +1984,10 @@ impl IntoModel for WorldStateDto {
         }
         for r in self.relationships {
             let r = r.into_model_with(ids);
-            s.add_relationship(r.source, r.target, r.axis, r.value);
+            s.set_relationship(r.source, r.target, r.axis, r.value);
+        }
+        for d in self.relationship_defaults {
+            s.set_relationship_default(model::RelationshipAxisId::new(d.axis), d.value);
         }
         for m in self.memories {
             let owner = ids.entity(m.owner);

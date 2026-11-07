@@ -360,36 +360,43 @@ fn world_state() -> impl Strategy<Value = DialogWorldState> {
         vec((fact_scope(), key(), fact_value()), 0..8),
         vec((key(), key(), any::<i16>()), 0..4),
         vec((entity(), entity(), key(), any::<i16>()), 0..4),
+        vec((key(), any::<i16>()), 0..3),
         vec((entity(), memory()), 0..4),
         vec(tag(), 0..3),
         vec(event_kind(), 0..4),
         any::<bool>(),
     )
-        .prop_map(|(facts, aligns, rels, mems, tags, events, drain)| {
-            let mut s = DialogWorldState::new();
-            for (scope, id, value) in facts {
-                s.set_fact(scope, Fact::new(id, value));
-            }
-            for (a, p, v) in aligns {
-                s.add_alignment(AlignmentAxisId::new(a), AlignmentPoleId::new(p), v.into());
-            }
-            for (a, b, axis, v) in rels {
-                s.add_relationship(a, b, RelationshipAxisId::new(axis), v.into());
-            }
-            for (owner, m) in mems {
-                s.add_memory(owner, m);
-            }
-            for t in tags {
-                s.add_available_tag(t);
-            }
-            for k in events {
-                s.emit_event(k);
-            }
-            if drain {
-                s.drain_events();
-            }
-            s
-        })
+        .prop_map(
+            |(facts, aligns, rels, defaults, mems, tags, events, drain)| {
+                let mut s = DialogWorldState::new();
+                for (scope, id, value) in facts {
+                    s.set_fact(scope, Fact::new(id, value));
+                }
+                for (a, p, v) in aligns {
+                    s.add_alignment(AlignmentAxisId::new(a), AlignmentPoleId::new(p), v.into());
+                }
+                // Defaults first, so that scores added afterwards start from them.
+                for (axis, v) in defaults {
+                    s.set_relationship_default(RelationshipAxisId::new(axis), v.into());
+                }
+                for (a, b, axis, v) in rels {
+                    s.add_relationship(a, b, RelationshipAxisId::new(axis), v.into());
+                }
+                for (owner, m) in mems {
+                    s.add_memory(owner, m);
+                }
+                for t in tags {
+                    s.add_available_tag(t);
+                }
+                for k in events {
+                    s.emit_event(k);
+                }
+                if drain {
+                    s.drain_events();
+                }
+                s
+            },
+        )
 }
 
 fn json_roundtrip<D: Serialize + for<'de> Deserialize<'de>>(dto: &D) -> D {
