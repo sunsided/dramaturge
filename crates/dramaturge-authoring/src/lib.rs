@@ -375,8 +375,10 @@ impl GraphValidator {
             return;
         }
 
+        // A duplicated missing entry is reported once.
+        let mut reported = HashSet::new();
         for entry_id in &graph.entry_nodes {
-            if !node_map.contains_key(entry_id) {
+            if !node_map.contains_key(entry_id) && reported.insert(*entry_id) {
                 issues.push(ValidationIssue::new(
                     ValidationIssueKind::EntryNodeNotFound,
                     ValidationSeverity::Error,
@@ -921,8 +923,9 @@ impl GraphValidator {
     }
 }
 
-/// Returns the nodes reachable from the entry nodes that exist in the graph
-/// (breadth-first, through `DialogTarget::Node` targets).
+/// Returns the nodes reachable from the entry nodes (breadth-first, through
+/// `DialogTarget::Node` targets). Only ids with a node in `node_map` are
+/// returned: missing entry nodes and dangling option targets are left out.
 fn reachable_from_entries<H>(
     graph: &DialogueGraph<H>,
     node_map: &HashMap<DialogueNodeId, &DialogueNode<H>>,
@@ -939,6 +942,7 @@ fn reachable_from_entries<H>(
         if let Some(node) = node_map.get(&current_id) {
             for option in &node.options {
                 if let DialogTarget::Node(target_id) = &option.target
+                    && node_map.contains_key(target_id)
                     && visited.insert(*target_id)
                 {
                     queue.push_back(*target_id);
@@ -1129,6 +1133,9 @@ mod tests {
         let mut g = graph(vec![make_node(1, vec![]), make_node(2, vec![])], Some(1));
         g.entry_nodes.push(DialogueNodeId::new(9));
         g.entry_nodes.push(DialogueNodeId::new(2));
+
+        // The missing entry is listed twice but reported once.
+        g.entry_nodes.push(DialogueNodeId::new(9));
 
         let validator = GraphValidator::new();
         check!(of_kind(&validator, &g, K::EntryNodeNotFound).len() == 1);

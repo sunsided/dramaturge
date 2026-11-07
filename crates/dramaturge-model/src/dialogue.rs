@@ -244,6 +244,11 @@ pub struct DialogueNode<H = ()> {
     /// The spoken text (inline or localized).
     pub text: DialogText,
     /// Conditions that must be satisfied for this node to be entered.
+    ///
+    /// `dramaturge_runtime::select_entry` checks them for the entry nodes,
+    /// and `DialogueRuntime::enter_node` checks them when the host enters a
+    /// node. `choose_option` does not check the conditions of the target
+    /// node.
     pub conditions: Vec<Condition>,
     /// Outcomes that apply when this node is entered.
     pub outcomes_on_enter: Vec<Outcome<H>>,
@@ -439,10 +444,13 @@ impl<H> DialogueGraph<H> {
         }
     }
 
-    /// Returns the first entry node, if the graph has one.
+    /// Returns the first configured entry node id, if the graph has one.
     ///
-    /// This is the entry node of a graph with one start. To select an
-    /// entry node by its conditions, use `dramaturge_runtime::select_entry`.
+    /// This is the first id in [`entry_nodes`](Self::entry_nodes), as it is:
+    /// the graph may have no node with this id (the validator reports it as
+    /// `EntryNodeNotFound`). For the first entry node that exists, use
+    /// [`entries`](Self::entries); to select an entry node by its
+    /// conditions, use `dramaturge_runtime::select_entry`.
     pub fn entry_node(&self) -> Option<DialogueNodeId> {
         self.entry_nodes.first().copied()
     }

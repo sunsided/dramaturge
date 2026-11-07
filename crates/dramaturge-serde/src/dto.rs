@@ -1819,8 +1819,10 @@ pub struct DialogueGraphDto<H = ()> {
 #[serde(bound(deserialize = "H: Deserialize<'de>"))]
 struct DialogueGraphDtoRepr<H> {
     nodes: Vec<DialogueNodeDto<H>>,
+    /// `None` when the field is absent, so that an explicit empty list
+    /// still wins over the old field.
     #[serde(default)]
-    entry_nodes: Vec<u64>,
+    entry_nodes: Option<Vec<u64>>,
     #[serde(default)]
     entry_node: Option<u64>,
 }
@@ -1828,13 +1830,11 @@ struct DialogueGraphDtoRepr<H> {
 impl<H> From<DialogueGraphDtoRepr<H>> for DialogueGraphDto<H> {
     fn from(repr: DialogueGraphDtoRepr<H>) -> Self {
         // The old field counts only for an old DTO: when `entry_nodes` is
-        // given, it decides the order alone.
-        let mut entry_nodes = repr.entry_nodes;
-        if entry_nodes.is_empty()
-            && let Some(old) = repr.entry_node
-        {
-            entry_nodes.push(old);
-        }
+        // present (also as an empty list), it decides alone.
+        let entry_nodes = match repr.entry_nodes {
+            Some(entry_nodes) => entry_nodes,
+            None => repr.entry_node.into_iter().collect(),
+        };
         Self {
             nodes: repr.nodes,
             entry_nodes,
