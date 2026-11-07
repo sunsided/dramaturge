@@ -265,6 +265,27 @@ mod tests {
     }
 
     #[test]
+    fn select_entry_needs_all_conditions_of_an_entry() {
+        // Entry 1 has one true and one false condition, so it does not hold.
+        let mut state = DialogWorldState::new();
+        state.set_fact(FactScope::World, Fact::bool("has_key", true));
+        let evaluator = DefaultConditionEvaluator::new();
+
+        let graph = entry_graph(vec![
+            (1, vec![has_key(), Condition::Never]),
+            (2, vec![has_key(), Condition::Always]),
+        ]);
+        check!(select_entry(&graph, &evaluator, &state) == Some(DialogueNodeId::new(2)));
+
+        // Every entry mixes a true and a false condition: none holds.
+        let graph = entry_graph(vec![
+            (1, vec![has_key(), Condition::Never]),
+            (2, vec![Condition::Never, Condition::Always]),
+        ]);
+        check!(select_entry(&graph, &evaluator, &state).is_none());
+    }
+
+    #[test]
     fn select_entry_none_holds() {
         let graph = entry_graph(vec![(1, vec![has_key()]), (2, vec![Condition::Never])]);
         let state = DialogWorldState::new();
