@@ -735,6 +735,9 @@ no_ids!(MemoryTagDto => model::MemoryTag, |d| {
 /// DTO for [`model::MemoryQuery`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryQueryDto {
+    /// Required memory id (raw).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<u64>,
     /// Required tag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<MemoryTagDto>,
@@ -756,6 +759,7 @@ impl From<&model::MemoryQuery> for MemoryQueryDto {
     fn from(q: &model::MemoryQuery) -> Self {
         // `MemoryQuery` is `#[non_exhaustive]`; a new field must be added here too.
         let model::MemoryQuery {
+            id,
             tag,
             min_confidence,
             min_emotional_weight,
@@ -764,6 +768,7 @@ impl From<&model::MemoryQuery> for MemoryQueryDto {
             ..
         } = q;
         Self {
+            id: id.map(|m| m.0),
             tag: tag.as_ref().map(Into::into),
             min_confidence: min_confidence.as_ref().map(Into::into),
             min_emotional_weight: *min_emotional_weight,
@@ -777,6 +782,7 @@ impl IntoModel for MemoryQueryDto {
     type Model = model::MemoryQuery;
     fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::MemoryQuery {
         let mut query = model::MemoryQuery::new();
+        query.id = self.id.map(|m| ids.memory(m));
         query.tag = self.tag.into_model_with(ids);
         query.min_confidence = self.min_confidence.into_model_with(ids);
         query.min_emotional_weight = self.min_emotional_weight;

@@ -27,6 +27,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   Defaults count in `fingerprint` and `same_state`, and `WorldStateDto`
   stores them (`relationship_defaults`, `RelationshipDefaultDto`) (#63).
 - `DialogWorldState::set_relationship` sets a score directly (#63).
+- `MemoryQuery::id`, `MemoryQuery::by_id` and `MemoryQuery::with_id` match a
+  memory by its `MemoryId`. `MemoryQueryDto` has the optional `id`, mapped
+  through the `IdMap` like other memory ids. YAML condition
+  `{ type: has_memory, owner: mara, id: mara.saw_the_seal }` interns the
+  memory key into `symbols.memories` (#64).
 
 ### Changed
 

@@ -78,6 +78,7 @@ fn confidence() -> impl Strategy<Value = Confidence> {
 
 fn memory_query() -> impl Strategy<Value = MemoryQuery> {
     (
+        proptest::option::of(0u64..16),
         proptest::option::of(memory_tag()),
         proptest::option::of(confidence()),
         proptest::option::of(any::<i32>()),
@@ -85,8 +86,9 @@ fn memory_query() -> impl Strategy<Value = MemoryQuery> {
         vec(key().prop_map(FactId::new), 0..3),
     )
         .prop_map(
-            |(tag, min_confidence, min_emotional_weight, subject, facts)| {
+            |(id, tag, min_confidence, min_emotional_weight, subject, facts)| {
                 let mut query = MemoryQuery::new();
+                query.id = id.map(MemoryId::new);
                 query.tag = tag;
                 query.min_confidence = min_confidence;
                 query.min_emotional_weight = min_emotional_weight;

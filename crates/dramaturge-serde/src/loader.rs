@@ -348,13 +348,13 @@ pub enum YamlFragmentMode {
 }
 
 impl YamlText {
-    fn to_model(&self) -> Result<model::DialogText, String> {
+    fn to_model(&self, ctx: &mut ConvertContext) -> Result<model::DialogText, String> {
         match self {
             YamlText::Plain(s) => Ok(model::DialogText::inline(s)),
             YamlText::Fragments(fs) => fs
                 .iter()
                 .enumerate()
-                .map(|(i, f)| f.to_model().map_err(|e| format!("fragment {i}: {e}")))
+                .map(|(i, f)| f.to_model(ctx).map_err(|e| format!("fragment {i}: {e}")))
                 .collect::<Result<_, _>>()
                 .map(model::DialogText::Fragments),
         }
@@ -369,7 +369,7 @@ impl YamlText {
 }
 
 impl YamlFragment {
-    fn to_model(&self) -> Result<model::TextFragment, String> {
+    fn to_model(&self, ctx: &mut ConvertContext) -> Result<model::TextFragment, String> {
         use model::{FragmentMode, TextFragment};
         let spec = match self {
             YamlFragment::Plain(s) => {
@@ -379,10 +379,10 @@ impl YamlFragment {
         };
         let mut variants = Vec::new();
         if let Some(text) = &spec.text {
-            variants.push(text.to_model()?);
+            variants.push(text.to_model(ctx)?);
         }
         for v in &spec.variants {
-            variants.push(v.to_model()?);
+            variants.push(v.to_model(ctx)?);
         }
         if variants.is_empty() {
             return Err("fragment needs `text` or `variants`".to_string());
@@ -398,11 +398,7 @@ impl YamlFragment {
         Ok(TextFragment {
             key: spec.key.as_deref().map(Into::into),
             variants,
-            condition: spec
-                .when
-                .as_ref()
-                .map(YamlCondition::to_model)
-                .transpose()?,
+            condition: spec.when.as_ref().map(|c| c.to_model(ctx)).transpose()?,
             mode,
             replaces: spec.replaces,
         })
@@ -472,6 +468,14 @@ pub enum YamlCondition {
         fact: String,
         /// Expected value.
         value: YamlValue,
+    },
+    /// Check that an entity has the memory with the given key.
+    #[serde(rename = "has_memory")]
+    HasMemory {
+        /// Character key of the entity that owns the memory.
+        owner: YamlKey,
+        /// Memory key.
+        id: YamlKey,
     },
 }
 
@@ -623,7 +627,7 @@ impl YamlDialogueGraph {
 
             let text = yaml_node
                 .text
-                .to_model()
+                .to_model(&mut ctx)
                 .map_err(|msg| format!("node '{node_key}': text: {msg}"))?;
             let mut node = DialogueNode::new(node_id.0, speaker, text);
 
@@ -639,7 +643,7 @@ impl YamlDialogueGraph {
 
                 // Determine the text for the option: use explicit text, or default from navigation hint
                 let option_text = match &yaml_option.text {
-                    Some(text) if !text.is_empty() => text.to_model().map_err(at)?,
+                    Some(text) if !text.is_empty() => text.to_model(&mut ctx).map_err(at)?,
                     _ => DialogText::inline(
                         yaml_option
                             .navigation_hint
@@ -692,7 +696,7 @@ impl YamlDialogueGraph {
                 for yaml_condition in &yaml_option.conditions {
                     option
                         .conditions
-                        .push(yaml_condition.to_model().map_err(at)?);
+                        .push(yaml_condition.to_model(&mut ctx).map_err(at)?);
                 }
 
                 // Convert outcomes
@@ -753,7 +757,7 @@ impl ConvertContext {
 
 impl YamlCondition {
     /// Convert to a model Condition.
-    fn to_model(&self) -> Result<model::Condition, String> {
+    fn to_model(&self, ctx: &mut ConvertContext) -> Result<model::Condition, String> {
         use model::*;
 
         match self {
@@ -788,6 +792,10 @@ impl YamlCondition {
                     value: fact_value,
                 })
             }
+            YamlCondition::HasMemory { owner, id } => Ok(Condition::HasMemory {
+                owner: ctx.entity(owner)?,
+                query: MemoryQuery::by_id(ctx.symbols.intern_memory(id.as_key())),
+            }),
         }
     }
 }
@@ -1239,6 +1247,66 @@ nodes:
                     delta: -5,
                 }
         );
+    }
+
+    #[test]
+    fn test_has_memory_condition() {
+        let yaml = r#"
+version: "2.0"
+entry_node: intro
+characters:
+  mara: { name: "Mara Vey" }
+nodes:
+  - id: intro
+    speaker: mara
+    text:
+      - when: { type: has_memory, owner: mara, id: mara.saw_the_seal }
+        text: "You were there."
+    options:
+      - id: intro.ask
+        conditions:
+          - { type: has_memory, owner: mara, id: mara.saw_the_seal }
+        target: end
+"#;
+        let loaded = YamlDialogueGraph::from_yaml(yaml)
+            .unwrap()
+            .to_model()
+            .unwrap();
+        let memory = loaded.symbols.memory("mara.saw_the_seal").unwrap();
+        let expected = model::Condition::HasMemory {
+            owner: loaded.symbols.entity("mara").unwrap(),
+            query: model::MemoryQuery::by_id(memory),
+        };
+        let node = &loaded.graph.nodes[0];
+        check!(node.options[0].conditions[0] == expected);
+        let model::DialogText::Fragments(fragments) = &node.text else {
+            panic!("expected fragments");
+        };
+        check!(fragments[0].condition.as_ref() == Some(&expected));
+    }
+
+    #[test]
+    fn test_has_memory_unknown_owner_fails() {
+        let yaml = r#"
+version: "2.0"
+entry_node: intro
+characters:
+  mara: { name: "Mara Vey" }
+nodes:
+  - id: intro
+    speaker: mara
+    text: "Hello."
+    options:
+      - id: intro.ask
+        conditions:
+          - { type: has_memory, owner: nobody, id: m }
+        target: end
+"#;
+        let err = YamlDialogueGraph::from_yaml(yaml)
+            .unwrap()
+            .to_model()
+            .unwrap_err();
+        check!(err.contains("'nobody'"), "{err}");
     }
 
     #[test]
