@@ -102,13 +102,14 @@ pub trait DialogueRuntime<S: NarrativeState + ?Sized = DialogWorldState, H = ()>
     /// If the node's [`conditions`](DialogueNode::conditions) do not hold,
     /// nothing changes and the result is [`EnterResult::Blocked`].
     /// Otherwise the [`outcomes_on_enter`](DialogueNode::outcomes_on_enter)
-    /// are applied once, in order, and the result is
+    /// are applied once per call, in order, and the result is
     /// [`EnterResult::Entered`]. `has_options` is computed after the
     /// outcomes, so an outcome on enter can make an option available.
     ///
-    /// Call this once per visit of a node. A host that renders the same
-    /// node again (for example after a screen redraw) does not call it
-    /// again, or the outcomes apply twice.
+    /// `enter_node` is not idempotent: every call applies the outcomes
+    /// again. Call it once per visit of a node. A host that renders the
+    /// same node again (for example after a screen redraw) does not call
+    /// it again, or the outcomes apply twice.
     ///
     /// ```rust
     /// use dramaturge_model::{
@@ -366,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn enter_node_applies_outcomes_once() {
+    fn enter_node_applies_outcomes_per_call() {
         let mut node = DialogueNode::new(1, speaker(), DialogText::inline("Hi."));
         node.outcomes_on_enter.push(add_visits());
         node.options.push(DialogueOption::new(

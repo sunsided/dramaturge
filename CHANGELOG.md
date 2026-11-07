@@ -31,8 +31,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   (`entry_node: [mara.again, mara.intro]`; also `entry_nodes:`), and a
   node has optional `conditions` (#71).
 - `DialogueRuntime::enter_node(node, state) -> EnterResult` checks the
-  node's `conditions`, applies its `outcomes_on_enter` once and reports if
-  the node has an available option (checked after the outcomes).
+  node's `conditions`, applies its `outcomes_on_enter` (once per call; it is
+  not idempotent) and reports if the node has an available option (checked
+  after the outcomes).
   `EnterResult` is `Blocked` or `Entered { has_options }`. The default
   implementation uses the new trait methods `conditions_hold` and
   `apply_outcomes`, which `DefaultRuntime` implements (#73).
