@@ -78,6 +78,7 @@ fn confidence() -> impl Strategy<Value = Confidence> {
 
 fn memory_query() -> impl Strategy<Value = MemoryQuery> {
     (
+        proptest::option::of(0u64..16),
         proptest::option::of(memory_tag()),
         proptest::option::of(confidence()),
         proptest::option::of(any::<i32>()),
@@ -85,8 +86,9 @@ fn memory_query() -> impl Strategy<Value = MemoryQuery> {
         vec(key().prop_map(FactId::new), 0..3),
     )
         .prop_map(
-            |(tag, min_confidence, min_emotional_weight, subject, facts)| {
+            |(id, tag, min_confidence, min_emotional_weight, subject, facts)| {
                 let mut query = MemoryQuery::new();
+                query.id = id.map(MemoryId::new);
                 query.tag = tag;
                 query.min_confidence = min_confidence;
                 query.min_emotional_weight = min_emotional_weight;
@@ -211,6 +213,11 @@ fn outcome() -> impl Strategy<Value = Outcome> {
         (fact_scope(), key()).prop_map(|(scope, f)| Outcome::RemoveFact {
             scope,
             fact_id: FactId::new(f),
+        }),
+        (fact_scope(), key(), any::<i64>()).prop_map(|(scope, f, delta)| Outcome::AddFact {
+            scope,
+            fact_id: FactId::new(f),
+            delta,
         }),
         (key(), key(), any::<i32>()).prop_map(|(a, p, delta)| Outcome::AddAlignment {
             axis: AlignmentAxisId::new(a),
@@ -355,36 +362,46 @@ fn world_state() -> impl Strategy<Value = DialogWorldState> {
         vec((fact_scope(), key(), fact_value()), 0..8),
         vec((key(), key(), any::<i16>()), 0..4),
         vec((entity(), entity(), key(), any::<i16>()), 0..4),
+        vec((key(), any::<i16>()), 0..3),
         vec((entity(), memory()), 0..4),
         vec(tag(), 0..3),
         vec(event_kind(), 0..4),
         any::<bool>(),
+        any::<bool>(),
     )
-        .prop_map(|(facts, aligns, rels, mems, tags, events, drain)| {
-            let mut s = DialogWorldState::new();
-            for (scope, id, value) in facts {
-                s.set_fact(scope, Fact::new(id, value));
-            }
-            for (a, p, v) in aligns {
-                s.add_alignment(AlignmentAxisId::new(a), AlignmentPoleId::new(p), v.into());
-            }
-            for (a, b, axis, v) in rels {
-                s.add_relationship(a, b, RelationshipAxisId::new(axis), v.into());
-            }
-            for (owner, m) in mems {
-                s.add_memory(owner, m);
-            }
-            for t in tags {
-                s.add_available_tag(t);
-            }
-            for k in events {
-                s.emit_event(k);
-            }
-            if drain {
-                s.drain_events();
-            }
-            s
-        })
+        .prop_map(
+            |(facts, aligns, rels, defaults, mems, tags, events, drain, log_off)| {
+                let mut s = DialogWorldState::new();
+                for (scope, id, value) in facts {
+                    s.set_fact(scope, Fact::new(id, value));
+                }
+                for (a, p, v) in aligns {
+                    s.add_alignment(AlignmentAxisId::new(a), AlignmentPoleId::new(p), v.into());
+                }
+                // Defaults first, so that scores added afterwards start from them.
+                for (axis, v) in defaults {
+                    s.set_relationship_default(RelationshipAxisId::new(axis), v.into());
+                }
+                for (a, b, axis, v) in rels {
+                    s.add_relationship(a, b, RelationshipAxisId::new(axis), v.into());
+                }
+                for (owner, m) in mems {
+                    s.add_memory(owner, m);
+                }
+                for t in tags {
+                    s.add_available_tag(t);
+                }
+                for k in events {
+                    s.emit_event(k);
+                }
+                if drain {
+                    s.drain_events();
+                }
+                // Last, so that the log may hold events from before.
+                s.set_event_log(!log_off);
+                s
+            },
+        )
 }
 
 fn json_roundtrip<D: Serialize + for<'de> Deserialize<'de>>(dto: &D) -> D {
@@ -440,6 +457,20 @@ proptest! {
         let b = serde_json::to_string(&WorldStateDto::from(&s.clone())).unwrap();
         prop_assert_eq!(a, b);
     }
+}
+
+#[test]
+fn world_state_without_event_log_field_keeps_the_log_on() {
+    let dto: WorldStateDto = serde_json::from_str(r#"{"next_event_id":1}"#).unwrap();
+    check!(dto.event_log);
+    check!(dto == WorldStateDto::default());
+    check!(dto.into_model().event_log_enabled());
+
+    let off = DialogWorldState::new().with_event_log(false);
+    let json = serde_json::to_string(&WorldStateDto::from(&off)).unwrap();
+    check!(json.contains(r#""event_log":false"#), "{json}");
+    let back: WorldStateDto = serde_json::from_str(&json).unwrap();
+    check!(!back.into_model().event_log_enabled());
 }
 
 #[test]

@@ -266,6 +266,27 @@ where
             Outcome::RemoveFact { scope, fact_id } => {
                 state.remove_fact(scope, fact_id);
             }
+            Outcome::AddFact {
+                scope,
+                fact_id,
+                delta,
+            } => {
+                let current = match state.fact(scope, fact_id).as_deref() {
+                    None => 0,
+                    Some(FactValue::Int(value)) => *value,
+                    // Only integer facts can be added to.
+                    Some(_) => return,
+                };
+                let fact = Fact::new(
+                    fact_id.clone(),
+                    FactValue::Int(current.saturating_add(*delta)),
+                );
+                state.set_fact(scope.clone(), fact);
+                state.emit_event(EventKind::FactLearned {
+                    scope: scope.clone(),
+                    fact_id: fact_id.clone(),
+                });
+            }
             Outcome::AddAlignment { axis, pole, delta } => {
                 state.add_alignment(axis.clone(), pole.clone(), *delta);
                 state.emit_event(EventKind::AlignmentChanged {
@@ -576,6 +597,59 @@ mod tests {
         check!(!ctx.fact_exists(&FactScope::World, &FactId::new("met_hero")));
     }
 
+    fn add_fact(delta: i64) -> Outcome {
+        Outcome::AddFact {
+            scope: FactScope::World,
+            fact_id: FactId::new("gold"),
+            delta,
+        }
+    }
+
+    #[test]
+    fn default_applier_add_fact_starts_missing_fact_at_zero() {
+        let mut applier = DefaultOutcomeApplier::new();
+        let mut ctx = DialogWorldState::new();
+        applier.apply(&add_fact(5), &mut ctx);
+        check!(ctx.get_fact(&FactScope::World, &FactId::new("gold")) == Some(&FactValue::Int(5)));
+        check!(ctx.events_of_kind("FactLearned").len() == 1);
+    }
+
+    #[test]
+    fn default_applier_add_fact_negative_delta() {
+        let mut applier = DefaultOutcomeApplier::new();
+        let mut ctx = DialogWorldState::new();
+        ctx.set_fact(FactScope::World, Fact::int("gold", 2));
+        applier.apply(&add_fact(-5), &mut ctx);
+        check!(ctx.get_fact(&FactScope::World, &FactId::new("gold")) == Some(&FactValue::Int(-3)));
+        applier.apply(&add_fact(-1), &mut ctx);
+        check!(ctx.get_fact(&FactScope::World, &FactId::new("gold")) == Some(&FactValue::Int(-4)));
+    }
+
+    #[test]
+    fn default_applier_add_fact_saturates() {
+        let mut applier = DefaultOutcomeApplier::new();
+        let mut ctx = DialogWorldState::new();
+        ctx.set_fact(FactScope::World, Fact::int("gold", i64::MAX - 1));
+        applier.apply(&add_fact(10), &mut ctx);
+        check!(
+            ctx.get_fact(&FactScope::World, &FactId::new("gold"))
+                == Some(&FactValue::Int(i64::MAX))
+        );
+    }
+
+    #[test]
+    fn default_applier_add_fact_leaves_non_integer_fact_unchanged() {
+        let mut applier = DefaultOutcomeApplier::new();
+        let mut ctx = DialogWorldState::new();
+        ctx.set_fact(FactScope::World, Fact::text("gold", "plenty"));
+        applier.apply(&add_fact(5), &mut ctx);
+        check!(
+            ctx.get_fact(&FactScope::World, &FactId::new("gold"))
+                == Some(&FactValue::Text("plenty".into()))
+        );
+        check!(ctx.events().is_empty());
+    }
+
     #[test]
     fn default_applier_custom_noop() {
         let mut applier = DefaultOutcomeApplier::new();
@@ -602,6 +676,39 @@ mod tests {
         let outcome = Outcome::RemoveMemory { owner, memory_id };
         applier.apply(&outcome, &mut ctx);
         check!(ctx.get_memories(owner).is_empty());
+    }
+
+    #[test]
+    fn relationship_conditions_on_untracked_pair_use_axis_default() {
+        let evaluator = DefaultConditionEvaluator::new();
+        let mut ctx = DialogWorldState::new();
+        let (source, target) = (EntityId::new(1), EntityId::new(2));
+        let at_most = |value| Condition::RelationshipAtMost {
+            source,
+            target,
+            axis: RelationshipAxisId::new("trust"),
+            value,
+        };
+        let at_least = |value| Condition::RelationshipAtLeast {
+            source,
+            target,
+            axis: RelationshipAxisId::new("trust"),
+            value,
+        };
+
+        // Without a default an untracked pair is missing: both are false.
+        check!(!evaluator.evaluate(&at_most(0), &ctx));
+        check!(!evaluator.evaluate(&at_least(0), &ctx));
+
+        ctx.set_relationship_default(RelationshipAxisId::new("trust"), 0);
+        check!(evaluator.evaluate(&at_most(0), &ctx));
+        check!(evaluator.evaluate(&at_least(0), &ctx));
+        check!(!evaluator.evaluate(&at_least(1), &ctx));
+        check!(!evaluator.evaluate(&at_most(-1), &ctx));
+
+        ctx.set_relationship_default(RelationshipAxisId::new("trust"), 50);
+        check!(evaluator.evaluate(&at_least(50), &ctx));
+        check!(!evaluator.evaluate(&at_most(49), &ctx));
     }
 
     #[test]

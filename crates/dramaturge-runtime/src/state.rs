@@ -118,14 +118,16 @@ pub trait NarrativeState {
     fn alignment(&self, axis: &AlignmentAxisId, pole: &AlignmentPoleId) -> Option<i32>;
     /// Adds `delta` to an alignment score, starting at zero.
     fn add_alignment(&mut self, axis: AlignmentAxisId, pole: AlignmentPoleId, delta: i32);
-    /// Returns a directional relationship score, or `None` if untracked.
+    /// Returns a directional relationship score, or `None` if untracked
+    /// (and the store has no default for the axis).
     fn relationship(
         &self,
         source: EntityId,
         target: EntityId,
         axis: &RelationshipAxisId,
     ) -> Option<i32>;
-    /// Adds `delta` to a directional relationship score, starting at zero.
+    /// Adds `delta` to a directional relationship score, starting at zero
+    /// (or at the store's default for the axis).
     fn add_relationship(
         &mut self,
         source: EntityId,

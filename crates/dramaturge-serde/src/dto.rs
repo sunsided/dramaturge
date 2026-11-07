@@ -735,6 +735,9 @@ no_ids!(MemoryTagDto => model::MemoryTag, |d| {
 /// DTO for [`model::MemoryQuery`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryQueryDto {
+    /// Required memory id (raw).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<u64>,
     /// Required tag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<MemoryTagDto>,
@@ -756,6 +759,7 @@ impl From<&model::MemoryQuery> for MemoryQueryDto {
     fn from(q: &model::MemoryQuery) -> Self {
         // `MemoryQuery` is `#[non_exhaustive]`; a new field must be added here too.
         let model::MemoryQuery {
+            id,
             tag,
             min_confidence,
             min_emotional_weight,
@@ -764,6 +768,7 @@ impl From<&model::MemoryQuery> for MemoryQueryDto {
             ..
         } = q;
         Self {
+            id: id.map(|m| m.0),
             tag: tag.as_ref().map(Into::into),
             min_confidence: min_confidence.as_ref().map(Into::into),
             min_emotional_weight: *min_emotional_weight,
@@ -777,6 +782,7 @@ impl IntoModel for MemoryQueryDto {
     type Model = model::MemoryQuery;
     fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::MemoryQuery {
         let mut query = model::MemoryQuery::new();
+        query.id = self.id.map(|m| ids.memory(m));
         query.tag = self.tag.into_model_with(ids);
         query.min_confidence = self.min_confidence.into_model_with(ids);
         query.min_emotional_weight = self.min_emotional_weight;
@@ -1274,6 +1280,11 @@ pub enum OutcomeDto {
         scope: FactScopeDto,
         fact_id: String,
     },
+    AddFact {
+        scope: FactScopeDto,
+        fact_id: String,
+        delta: i64,
+    },
     AddAlignment {
         axis: String,
         pole: String,
@@ -1321,6 +1332,15 @@ impl From<&model::Outcome> for OutcomeDto {
             O::RemoveFact { scope, fact_id } => Self::RemoveFact {
                 scope: scope.into(),
                 fact_id: fact_id.0.to_string(),
+            },
+            O::AddFact {
+                scope,
+                fact_id,
+                delta,
+            } => Self::AddFact {
+                scope: scope.into(),
+                fact_id: fact_id.0.to_string(),
+                delta: *delta,
             },
             O::AddAlignment { axis, pole, delta } => Self::AddAlignment {
                 axis: axis.0.to_string(),
@@ -1375,6 +1395,15 @@ impl IntoModel for OutcomeDto {
             Self::RemoveFact { scope, fact_id } => O::RemoveFact {
                 scope: scope.into_model_with(ids),
                 fact_id: model::FactId::new(fact_id),
+            },
+            Self::AddFact {
+                scope,
+                fact_id,
+                delta,
+            } => O::AddFact {
+                scope: scope.into_model_with(ids),
+                fact_id: model::FactId::new(fact_id),
+                delta,
             },
             Self::AddAlignment { axis, pole, delta } => O::AddAlignment {
                 axis: model::AlignmentAxisId::new(axis),
@@ -1854,6 +1883,15 @@ pub struct OwnedMemoryDto {
     pub memory: MemoryDto,
 }
 
+/// The default score of one relationship axis.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationshipDefaultDto {
+    /// Axis.
+    pub axis: String,
+    /// Score of untracked pairs.
+    pub value: i32,
+}
+
 /// DTO for [`DialogWorldState`].
 ///
 /// Lists are in the state's deterministic iteration order, so the same
@@ -1861,7 +1899,7 @@ pub struct OwnedMemoryDto {
 ///
 /// The struct is `#[non_exhaustive]`: build it with `From<&DialogWorldState>`
 /// or `Default`, or deserialize it.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct WorldStateDto {
     /// Facts.
@@ -1873,6 +1911,9 @@ pub struct WorldStateDto {
     /// Relationship scores.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub relationships: Vec<RelationshipScoreDto>,
+    /// Scores of untracked relationship pairs, per axis.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relationship_defaults: Vec<RelationshipDefaultDto>,
     /// Memories with their owners.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub memories: Vec<OwnedMemoryDto>,
@@ -1884,6 +1925,24 @@ pub struct WorldStateDto {
     pub events: Vec<EventDto>,
     /// Next event id to allocate; `None` once the id space is exhausted.
     pub next_event_id: Option<u64>,
+    /// Whether the event log is on. Defaults to `true` when absent.
+    #[serde(default = "event_log_default", skip_serializing_if = "is_true")]
+    pub event_log: bool,
+}
+
+fn event_log_default() -> bool {
+    true
+}
+
+impl Default for WorldStateDto {
+    /// The DTO of an empty [`DialogWorldState`].
+    fn default() -> Self {
+        Self::from(&DialogWorldState::new())
+    }
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 impl From<&DialogWorldState> for WorldStateDto {
@@ -1914,6 +1973,13 @@ impl From<&DialogWorldState> for WorldStateDto {
                     value,
                 })
                 .collect(),
+            relationship_defaults: s
+                .relationship_defaults()
+                .map(|(axis, value)| RelationshipDefaultDto {
+                    axis: axis.0.to_string(),
+                    value,
+                })
+                .collect(),
             memories: s
                 .memories()
                 .map(|(owner, memory)| OwnedMemoryDto {
@@ -1924,6 +1990,7 @@ impl From<&DialogWorldState> for WorldStateDto {
             available_tags: dtos(s.available_tags()),
             events: dtos(s.events()),
             next_event_id: s.next_event_id(),
+            event_log: s.event_log_enabled(),
         }
     }
 }
@@ -1942,7 +2009,10 @@ impl IntoModel for WorldStateDto {
         }
         for r in self.relationships {
             let r = r.into_model_with(ids);
-            s.add_relationship(r.source, r.target, r.axis, r.value);
+            s.set_relationship(r.source, r.target, r.axis, r.value);
+        }
+        for d in self.relationship_defaults {
+            s.set_relationship_default(model::RelationshipAxisId::new(d.axis), d.value);
         }
         for m in self.memories {
             let owner = ids.entity(m.owner);
@@ -1955,6 +2025,9 @@ impl IntoModel for WorldStateDto {
             s.add_event(e.into_model_with(ids));
         }
         s.set_next_event_id(self.next_event_id);
+        // After the events, so that a saved log is restored even when the
+        // log was switched off later.
+        s.set_event_log(self.event_log);
         s
     }
 }

@@ -35,6 +35,19 @@ pub enum Outcome {
         /// The identifier of the fact to remove.
         fact_id: FactId,
     },
+    /// Adds `delta` to an integer fact.
+    ///
+    /// A missing fact starts at `0`. A fact that holds a value other than
+    /// [`FactValue::Int`] does not change. The sum saturates at the `i64`
+    /// limits.
+    AddFact {
+        /// The scope of the fact.
+        scope: FactScope,
+        /// The identifier of the fact to change.
+        fact_id: FactId,
+        /// The amount to add (positive or negative).
+        delta: i64,
+    },
     /// Adjusts an alignment score on a specific axis/pole.
     AddAlignment {
         /// The alignment axis to adjust.
@@ -121,6 +134,16 @@ mod tests {
             fact_id: FactId::new("met_hero"),
         };
         check!(let Outcome::RemoveFact { .. } = o);
+    }
+
+    #[test]
+    fn outcome_add_fact() {
+        let o = Outcome::AddFact {
+            scope: FactScope::World,
+            fact_id: FactId::new("gold"),
+            delta: -3,
+        };
+        check!(let Outcome::AddFact { delta: -3, .. } = o);
     }
 
     #[test]

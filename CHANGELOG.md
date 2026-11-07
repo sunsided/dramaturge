@@ -12,6 +12,41 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   `From<Arc<str>>` for `FactId` (#66).
 - `MemoryQuery` builder methods: `with_tag`, `with_min_confidence`,
   `with_min_emotional_weight`, `with_subject` and `with_fact` (#66).
+- `Outcome::AddFact { scope, fact_id, delta }` adds to an integer fact. The
+  default applier starts a missing fact at 0, leaves a non-integer fact
+  unchanged, saturates at the `i64` limits and emits `FactLearned`. YAML:
+  `{ type: add_fact, fact: gold, delta: -5 }` (optional `scope`). The
+  validator counts `AddFact` as a writer of the fact, and
+  `OutcomeDto::AddFact` serializes it (#70).
+- Relationship defaults per axis on `DialogWorldState`:
+  `set_relationship_default`, `remove_relationship_default`,
+  `relationship_default` and `relationship_defaults`. `get_relationship`
+  returns the default for an untracked pair, so `RelationshipAtMost` and
+  `RelationshipAtLeast` hold at the start; `add_relationship` starts an
+  untracked score at the default. Without a default nothing changes.
+  Defaults count in `fingerprint` and `same_state`, and `WorldStateDto`
+  stores them (`relationship_defaults`, `RelationshipDefaultDto`) (#63).
+- `DialogWorldState::set_relationship` sets a score directly (#63).
+- `MemoryQuery::id`, `MemoryQuery::by_id` and `MemoryQuery::with_id` match a
+  memory by its `MemoryId`. `MemoryQueryDto` has the optional `id`, mapped
+  through the `IdMap` like other memory ids. YAML condition
+  `{ type: has_memory, owner: mara, id: mara.saw_the_seal }` interns the
+  memory key into `symbols.memories` (#64).
+- `ValidationIssueKind` (`MissingTarget`, `NoEntryNode`, `EntryNodeNotFound`,
+  `Unreachable`, `DeadEnd`, `SelfLoop`, `Cycle`, `AlwaysFalse`,
+  `OrphanFact`, `SourceNodeMismatch`, `EmptyText`, `UnkeyedProgress`) and
+  `ValidationIssue::kind`, so hosts filter issues by kind instead of by
+  message text (#65).
+- `ValidationOptions` (`skip`, `report`, `allow_cycles`, `allow_dead_ends`,
+  `skip_orphan_facts`) and `GraphValidator::with_options` switch checks off
+  (#65).
+- `DialogWorldState::with_event_log(false)`, `set_event_log` and
+  `event_log_enabled`. With the log off, `emit_event` and `add_event` do
+  nothing (`emit_event` returns `None`), so a cloned state does not carry a
+  growing log. `WorldStateDto::event_log` stores the switch (absent means
+  on) (#69).
+- `SymbolTable::PLAYER_KEY` (`"@player"`) and `SymbolTable::player()`, which
+  interns the key on first use and returns the player's entity id (#69).
 
 ### Changed
 
@@ -38,6 +73,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   message that says to use a key. A number in quotes (`id: "2"`) is a key.
   `YamlKey` is now a string newtype (`YamlKey(String)`, `as_key()` returns
   `&str`), and `YamlCharacter::id` is removed (#67).
+- **Breaking:** `ValidationIssue::new` takes the issue kind as its first
+  argument: `ValidationIssue::new(kind, severity, message)`. `GraphValidator`
+  is no longer a unit struct; build it with `GraphValidator::new()`,
+  `default()` or `with_options` (#65).
 - The default evaluator treats an unknown `Condition` as `false`, the
   default applier ignores an unknown `Outcome`, and `resolve_text` treats an
   unknown `FragmentMode` as `Always` (#66).

@@ -21,16 +21,35 @@ for issue in &issues {
 
 ## Validation checks
 
-| Check | Severity | Description |
-|---|---|---|
-| Missing targets | Error | Options referencing non-existent node IDs |
-| Unreachable nodes | Warning | Nodes not reachable from the entry node via BFS |
-| Dead-end nodes | Info | Reachable nodes with no options or enter outcomes |
-| Self-loops | Warning | Options whose target is their own parent node |
-| Cycles | Warning | Nodes participating in cycles |
-| Always-false conditions | Warning | Options with conditions that constant-fold to `false` |
-| Orphaned fact references | Warning | Facts referenced in conditions but never set by any outcome |
-| Mismatched source node IDs | Error | Options whose `source_node_id` does not match their parent node |
+Each issue has a `kind` (`ValidationIssueKind`). Filter by kind, not by message text.
+
+| Check | Kind | Severity | Description |
+|---|---|---|---|
+| Missing targets | `MissingTarget` | Error | Options referencing non-existent node IDs |
+| Unreachable nodes | `Unreachable` | Warning | Nodes not reachable from the entry node via BFS |
+| No entry node | `NoEntryNode` | Warning | The graph has no entry node (once per node) |
+| Entry node not found | `EntryNodeNotFound` | Error | The entry node does not exist |
+| Dead-end nodes | `DeadEnd` | Info | Reachable nodes with no options or enter outcomes |
+| Self-loops | `SelfLoop` | Warning | Options whose target is their own parent node |
+| Cycles | `Cycle` | Warning | Nodes participating in cycles |
+| Always-false conditions | `AlwaysFalse` | Warning | Options with conditions that constant-fold to `false` |
+| Orphaned fact references | `OrphanFact` | Info | Facts referenced in conditions but never set by any outcome |
+| Mismatched source node IDs | `SourceNodeMismatch` | Error | Options whose `source_node_id` does not match their parent node |
+| Possibly empty text | `EmptyText` | Warning | Fragment texts where no fragment is guaranteed to show |
+| Unkeyed progress fragments | `UnkeyedProgress` | Warning | `Once`/`Cycle`/`Sticky` fragments without a key |
+
+## Switching checks off
+
+```rust
+use dramaturge_authoring::{GraphValidator, ValidationIssueKind, ValidationOptions};
+
+let options = ValidationOptions::new()
+    .allow_cycles()                        // skips Cycle
+    .allow_dead_ends()                     // skips DeadEnd
+    .skip_orphan_facts()                   // skips OrphanFact
+    .skip(ValidationIssueKind::SelfLoop);  // any kind
+let validator = GraphValidator::with_options(options);
+```
 
 ## Severity levels
 

@@ -3,22 +3,54 @@
 //! This module provides the [`GraphValidator`] which runs a suite of
 //! structural checks on a [`DialogueGraph`] to catch common authoring
 //! errors before runtime. Each check produces [`ValidationIssue`]s
-//! with severity levels ([`ValidationSeverity::Info`], [`ValidationSeverity::Warning`],
-//! [`ValidationSeverity::Error`]) and optional
-//! source location (node ID, option ID).
+//! with a [`ValidationIssueKind`], severity levels ([`ValidationSeverity::Info`],
+//! [`ValidationSeverity::Warning`], [`ValidationSeverity::Error`]) and
+//! optional source location (node ID, option ID).
 //!
 //! # Validation Checks
 //!
+//! Each check reports issues of the kinds in parentheses.
+//!
 //! 1. **Missing targets** — Options referencing non-existent node IDs
+//!    ([`MissingTarget`](ValidationIssueKind::MissingTarget))
 //! 2. **Unreachable nodes** — Nodes not reachable from the entry node via BFS
+//!    ([`Unreachable`](ValidationIssueKind::Unreachable),
+//!    [`NoEntryNode`](ValidationIssueKind::NoEntryNode),
+//!    [`EntryNodeNotFound`](ValidationIssueKind::EntryNodeNotFound))
 //! 3. **Dead-end nodes** — Reachable nodes with no options or enter outcomes
+//!    ([`DeadEnd`](ValidationIssueKind::DeadEnd))
 //! 4. **Self-loops** — Options whose target is their own parent node
+//!    ([`SelfLoop`](ValidationIssueKind::SelfLoop))
 //! 5. **Cycles** — Nodes participating in cycles, reporting all cycle members
+//!    ([`Cycle`](ValidationIssueKind::Cycle))
 //! 6. **Always-false conditions** — Options with conditions that evaluate to always false via constant folding
+//!    ([`AlwaysFalse`](ValidationIssueKind::AlwaysFalse))
 //! 7. **Orphaned fact references** — Facts referenced in conditions but never set by any outcome
+//!    ([`OrphanFact`](ValidationIssueKind::OrphanFact))
 //! 8. **Mismatched source node IDs** — Options whose `source_node_id` does not match their parent `DialogueNode`
+//!    ([`SourceNodeMismatch`](ValidationIssueKind::SourceNodeMismatch))
 //! 9. **Possibly empty text** — Fragment texts where no fragment is guaranteed to show
+//!    ([`EmptyText`](ValidationIssueKind::EmptyText))
 //! 10. **Unkeyed progress fragments** — `Once`/`Cycle`/`Sticky` fragments without a key, whose progress resets when a fragment is inserted before them
+//!     ([`UnkeyedProgress`](ValidationIssueKind::UnkeyedProgress))
+//!
+//! # Filtering
+//!
+//! Filter issues by [`ValidationIssue::kind`], not by message text: the
+//! messages can change. To switch checks off, pass [`ValidationOptions`] to
+//! [`GraphValidator::with_options`]:
+//!
+//! ```rust
+//! use dramaturge_authoring::{GraphValidator, ValidationIssueKind, ValidationOptions};
+//!
+//! // Talks loop on purpose, and leaves end the talk.
+//! let options = ValidationOptions::new()
+//!     .allow_cycles()
+//!     .allow_dead_ends()
+//!     .skip(ValidationIssueKind::SelfLoop);
+//! let validator = GraphValidator::with_options(options);
+//! # let _ = validator;
+//! ```
 //!
 //! # When to Use
 //!
@@ -53,7 +85,89 @@ use dramaturge_model::{
     Condition, DialogTarget, DialogText, DialogueGraph, DialogueNode, DialogueNodeId,
     DialogueOptionId, FragmentMode, SymbolTable,
 };
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
+
+/// What a [`ValidationIssue`] is about. One kind per check, or more for a
+/// check that finds different problems.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum ValidationIssueKind {
+    /// An option targets a node that does not exist. (Error)
+    MissingTarget,
+    /// The graph has no entry node, so no node is reachable. Reported once
+    /// per node. (Warning)
+    NoEntryNode,
+    /// The entry node does not exist in the graph. (Error)
+    EntryNodeNotFound,
+    /// A node is not reachable from the entry node. (Warning)
+    Unreachable,
+    /// A reachable node has no options and no enter outcomes. (Info)
+    DeadEnd,
+    /// An option targets its own node. (Warning)
+    SelfLoop,
+    /// A node is part of a cycle. Reported once per node. (Warning)
+    Cycle,
+    /// An option has a condition that is always false. (Warning)
+    AlwaysFalse,
+    /// A condition reads a fact that no outcome writes. (Info)
+    OrphanFact,
+    /// An option's `source_node_id` is not its parent node. (Error)
+    SourceNodeMismatch,
+    /// A fragment text can resolve to no text. (Warning)
+    EmptyText,
+    /// A `Once`/`Cycle`/`Sticky` fragment has no key. (Warning)
+    UnkeyedProgress,
+}
+
+/// Switches for [`GraphValidator`]: which kinds of issues to report.
+///
+/// All checks are on by default. A skipped kind is not reported.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ValidationOptions {
+    skipped: BTreeSet<ValidationIssueKind>,
+}
+
+impl ValidationOptions {
+    /// Creates options with all checks on.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Does not report issues of `kind`.
+    pub fn skip(mut self, kind: ValidationIssueKind) -> Self {
+        self.skipped.insert(kind);
+        self
+    }
+
+    /// Reports issues of `kind` again.
+    pub fn report(mut self, kind: ValidationIssueKind) -> Self {
+        self.skipped.remove(&kind);
+        self
+    }
+
+    /// Allows cycles: skips [`ValidationIssueKind::Cycle`].
+    ///
+    /// Self-loops are a separate kind ([`ValidationIssueKind::SelfLoop`]).
+    pub fn allow_cycles(self) -> Self {
+        self.skip(ValidationIssueKind::Cycle)
+    }
+
+    /// Allows dead ends at the leaves: skips [`ValidationIssueKind::DeadEnd`].
+    pub fn allow_dead_ends(self) -> Self {
+        self.skip(ValidationIssueKind::DeadEnd)
+    }
+
+    /// Switches the orphaned-fact check off: skips [`ValidationIssueKind::OrphanFact`].
+    pub fn skip_orphan_facts(self) -> Self {
+        self.skip(ValidationIssueKind::OrphanFact)
+    }
+
+    /// Returns `true` if issues of `kind` are reported.
+    pub fn reports(&self, kind: ValidationIssueKind) -> bool {
+        !self.skipped.contains(&kind)
+    }
+}
 
 /// Classification of issue importance.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +185,8 @@ pub enum ValidationSeverity {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct ValidationIssue {
+    /// What the issue is about. Use it to filter issues.
+    pub kind: ValidationIssueKind,
     /// How important this issue is.
     pub severity: ValidationSeverity,
     /// Human-readable description of the problem.
@@ -83,8 +199,13 @@ pub struct ValidationIssue {
 
 impl ValidationIssue {
     /// Creates a new issue without source location.
-    pub fn new(severity: ValidationSeverity, message: impl Into<String>) -> Self {
+    pub fn new(
+        kind: ValidationIssueKind,
+        severity: ValidationSeverity,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
+            kind,
             severity,
             message: message.into(),
             node_id: None,
@@ -108,14 +229,27 @@ impl ValidationIssue {
 /// Validates a [`DialogueGraph`] for structural correctness.
 ///
 /// Runs ten validation checks covering graph integrity, reachability,
-/// condition validity, and fact reference consistency.
+/// condition validity, and fact reference consistency. [`ValidationOptions`]
+/// switch checks off.
 #[derive(Debug, Clone, Default)]
-pub struct GraphValidator;
+pub struct GraphValidator {
+    options: ValidationOptions,
+}
 
 impl GraphValidator {
-    /// Creates a new graph validator.
+    /// Creates a graph validator with all checks on.
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    /// Creates a graph validator with the given options.
+    pub fn with_options(options: ValidationOptions) -> Self {
+        Self { options }
+    }
+
+    /// Returns the options of this validator.
+    pub fn options(&self) -> &ValidationOptions {
+        &self.options
     }
 
     /// Runs all ten validation checks and returns the list of issues found.
@@ -128,27 +262,53 @@ impl GraphValidator {
 
     /// Runs all ten validation checks, naming nodes and options by the
     /// keys in `symbols` (falling back to `#<number>` for unknown ids).
+    ///
+    /// Issues of kinds that the [options](ValidationOptions) skip are not
+    /// returned.
     pub fn validate_with_symbols(
         &self,
         graph: &DialogueGraph,
         symbols: &SymbolTable,
     ) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
+        let on = |kind| self.options.reports(kind);
 
         let node_map: HashMap<DialogueNodeId, &DialogueNode> =
             graph.nodes.iter().map(|n| (n.id, n)).collect();
 
-        self.check_missing_targets(graph, symbols, &node_map, &mut issues);
+        use ValidationIssueKind as K;
+        if on(K::MissingTarget) {
+            self.check_missing_targets(graph, symbols, &node_map, &mut issues);
+        }
+        // Reports `NoEntryNode`, `EntryNodeNotFound` and `Unreachable`;
+        // skipped kinds are dropped below.
         self.check_unreachable_nodes(graph, symbols, &node_map, &mut issues);
-        self.check_dead_end_nodes(graph, symbols, &node_map, &mut issues);
-        self.check_self_loops(graph, symbols, &node_map, &mut issues);
-        self.check_cycles(graph, symbols, &node_map, &mut issues);
-        self.check_always_false_conditions(graph, symbols, &node_map, &mut issues);
-        self.check_orphaned_fact_references(graph, &mut issues);
-        self.check_source_node_ids(graph, symbols, &mut issues);
-        self.check_possibly_empty_text(graph, symbols, &mut issues);
-        self.check_unkeyed_progress_fragments(graph, symbols, &mut issues);
+        if on(K::DeadEnd) {
+            self.check_dead_end_nodes(graph, symbols, &node_map, &mut issues);
+        }
+        if on(K::SelfLoop) {
+            self.check_self_loops(graph, symbols, &node_map, &mut issues);
+        }
+        if on(K::Cycle) {
+            self.check_cycles(graph, symbols, &node_map, &mut issues);
+        }
+        if on(K::AlwaysFalse) {
+            self.check_always_false_conditions(graph, symbols, &node_map, &mut issues);
+        }
+        if on(K::OrphanFact) {
+            self.check_orphaned_fact_references(graph, &mut issues);
+        }
+        if on(K::SourceNodeMismatch) {
+            self.check_source_node_ids(graph, symbols, &mut issues);
+        }
+        if on(K::EmptyText) {
+            self.check_possibly_empty_text(graph, symbols, &mut issues);
+        }
+        if on(K::UnkeyedProgress) {
+            self.check_unkeyed_progress_fragments(graph, symbols, &mut issues);
+        }
 
+        issues.retain(|issue| on(issue.kind));
         issues
     }
 
@@ -170,6 +330,7 @@ impl GraphValidator {
                 {
                     issues.push(
                         ValidationIssue::new(
+                            ValidationIssueKind::MissingTarget,
                             ValidationSeverity::Error,
                             format!(
                                 "Option {} in node {} targets nonexistent node {}",
@@ -198,6 +359,7 @@ impl GraphValidator {
             for node in &graph.nodes {
                 issues.push(
                     ValidationIssue::new(
+                        ValidationIssueKind::NoEntryNode,
                         ValidationSeverity::Warning,
                         "No entry node defined; all nodes are unreachable",
                     )
@@ -209,6 +371,7 @@ impl GraphValidator {
 
         if !node_map.contains_key(&entry_id) {
             issues.push(ValidationIssue::new(
+                ValidationIssueKind::EntryNodeNotFound,
                 ValidationSeverity::Error,
                 format!(
                     "Entry node {} does not exist in the graph",
@@ -240,6 +403,7 @@ impl GraphValidator {
             if !visited.contains(&node.id) {
                 issues.push(
                     ValidationIssue::new(
+                        ValidationIssueKind::Unreachable,
                         ValidationSeverity::Warning,
                         format!(
                             "Node {} is unreachable from the entry node",
@@ -295,6 +459,7 @@ impl GraphValidator {
                 if !has_options && !has_enter_outcomes {
                     issues.push(
                         ValidationIssue::new(
+                            ValidationIssueKind::DeadEnd,
                             ValidationSeverity::Info,
                             format!(
                                 "Node {} has no options or enter outcomes (potential dead end)",
@@ -323,6 +488,7 @@ impl GraphValidator {
                 {
                     issues.push(
                         ValidationIssue::new(
+                            ValidationIssueKind::SelfLoop,
                             ValidationSeverity::Warning,
                             format!(
                                 "Option {} in node {} targets the same node (self-loop)",
@@ -409,6 +575,7 @@ impl GraphValidator {
             if let Some(node) = node_map.get(node_id) {
                 issues.push(
                     ValidationIssue::new(
+                        ValidationIssueKind::Cycle,
                         ValidationSeverity::Warning,
                         format!("Node {} is part of a cycle", symbols.display_node(node.id)),
                     )
@@ -455,6 +622,7 @@ impl GraphValidator {
                 if option.conditions.iter().any(is_always_false) {
                     issues.push(
                         ValidationIssue::new(
+                            ValidationIssueKind::AlwaysFalse,
                             ValidationSeverity::Warning,
                             format!(
                                 "Option {} in node {} has an always-false condition (unreachable option)",
@@ -472,7 +640,7 @@ impl GraphValidator {
 
     /// Detects fact IDs referenced in conditions but never set by any outcome.
     /// Collects fact IDs from conditions only (not outcomes), then flags those
-    /// never set by any `SetFact`, `StartQuest`, or `AdvanceQuest` outcome.
+    /// never set by any `SetFact`, `AddFact`, `StartQuest`, or `AdvanceQuest` outcome.
     fn check_orphaned_fact_references(
         &self,
         graph: &DialogueGraph,
@@ -553,6 +721,9 @@ impl GraphValidator {
                     dramaturge_model::Outcome::SetFact { fact, .. } => {
                         used_fact_ids.insert(fact.id.0.to_string());
                     }
+                    dramaturge_model::Outcome::AddFact { fact_id, .. } => {
+                        used_fact_ids.insert(fact_id.0.to_string());
+                    }
                     dramaturge_model::Outcome::StartQuest { quest_id } => {
                         used_fact_ids.insert(format!("quest_started_{quest_id}"));
                     }
@@ -567,6 +738,9 @@ impl GraphValidator {
                     match outcome {
                         dramaturge_model::Outcome::SetFact { fact, .. } => {
                             used_fact_ids.insert(fact.id.0.to_string());
+                        }
+                        dramaturge_model::Outcome::AddFact { fact_id, .. } => {
+                            used_fact_ids.insert(fact_id.0.to_string());
                         }
                         dramaturge_model::Outcome::StartQuest { quest_id } => {
                             used_fact_ids.insert(format!("quest_started_{quest_id}"));
@@ -585,6 +759,7 @@ impl GraphValidator {
             if !used_fact_ids.contains(&fact_ref.fact_id) && !reported.contains(&fact_ref.fact_id) {
                 reported.insert(fact_ref.fact_id.clone());
                 let mut issue = ValidationIssue::new(
+                    ValidationIssueKind::OrphanFact,
                     ValidationSeverity::Info,
                     format!(
                         "Fact ID '{}' is referenced in conditions but never set by any outcome",
@@ -645,6 +820,7 @@ impl GraphValidator {
             if is_fragments(&node.text) && !never_empty(&node.text) {
                 issues.push(
                     ValidationIssue::new(
+                        ValidationIssueKind::EmptyText,
                         ValidationSeverity::Warning,
                         format!(
                             "Text of node {} can resolve to empty text",
@@ -658,6 +834,7 @@ impl GraphValidator {
                 if is_fragments(&option.text) && !never_empty(&option.text) {
                     issues.push(
                         ValidationIssue::new(
+                            ValidationIssueKind::EmptyText,
                             ValidationSeverity::Warning,
                             format!(
                                 "Text of option {} in node {} can resolve to empty text",
@@ -705,6 +882,7 @@ impl GraphValidator {
             for _ in 0..count_unkeyed(&node.text) {
                 issues.push(
                     ValidationIssue::new(
+                        ValidationIssueKind::UnkeyedProgress,
                         ValidationSeverity::Warning,
                         format!(
                             "A fragment in the text of node {} {HINT}",
@@ -718,6 +896,7 @@ impl GraphValidator {
                 for _ in 0..count_unkeyed(&option.text) {
                     issues.push(
                         ValidationIssue::new(
+                            ValidationIssueKind::UnkeyedProgress,
                             ValidationSeverity::Warning,
                             format!(
                                 "A fragment in the text of option {} in node {} {HINT}",
@@ -746,6 +925,7 @@ impl GraphValidator {
                 if option.source_node_id != node.id {
                     issues.push(
                         ValidationIssue::new(
+                            ValidationIssueKind::SourceNodeMismatch,
                             ValidationSeverity::Error,
                             format!(
                                 "Option {} in node {} has wrong source node {} (parent is node {})",
@@ -800,6 +980,187 @@ mod tests {
             source_node_id,
             navigation_hint: None,
         }
+    }
+
+    fn graph(nodes: Vec<DialogueNode>, entry: Option<u64>) -> DialogueGraph {
+        DialogueGraph {
+            nodes,
+            entry_node: entry.map(DialogueNodeId::new),
+        }
+    }
+
+    /// Returns the issues of `kind` that `validator` reports for `graph`.
+    fn of_kind(
+        validator: &GraphValidator,
+        graph: &DialogueGraph,
+        kind: ValidationIssueKind,
+    ) -> Vec<ValidationIssue> {
+        validator
+            .validate(graph)
+            .into_iter()
+            .filter(|i| i.kind == kind)
+            .collect()
+    }
+
+    /// Checks that `graph` has an issue of `kind` with `severity`.
+    fn assert_kind(graph: &DialogueGraph, kind: ValidationIssueKind, severity: ValidationSeverity) {
+        let found = of_kind(&GraphValidator::new(), graph, kind);
+        check!(!found.is_empty(), "no {kind:?} issue");
+        check!(found.iter().all(|i| i.severity == severity), "{found:?}");
+    }
+
+    fn fact_exists(id: &str) -> Condition {
+        Condition::FactExists {
+            scope: FactScope::World,
+            fact_id: FactId::new(id),
+        }
+    }
+
+    /// A graph that has an issue of every kind.
+    fn graph_with_every_kind() -> DialogueGraph {
+        use dramaturge_model::TextFragment;
+        // 1 -> 2 -> 1 (cycle), 1 -> 1 (self-loop), 1 -> 99 (missing),
+        // 1 -> 3 (dead end), 4 unreachable.
+        let mut always_false = make_option(5, DialogTarget::node(2), DialogueNodeId::new(1));
+        always_false.conditions = vec![Condition::Never, fact_exists("orphan")];
+        let node1 = make_node(
+            1,
+            vec![
+                make_option(1, DialogTarget::node(2), DialogueNodeId::new(1)),
+                make_option(2, DialogTarget::node(1), DialogueNodeId::new(1)),
+                make_option(3, DialogTarget::node(99), DialogueNodeId::new(1)),
+                make_option(4, DialogTarget::node(3), DialogueNodeId::new(7)),
+                always_false,
+            ],
+        );
+        let node2 = make_node(
+            2,
+            vec![make_option(
+                6,
+                DialogTarget::node(1),
+                DialogueNodeId::new(2),
+            )],
+        );
+        let mut node3 = make_node(3, vec![]);
+        node3.text = DialogText::fragments(vec![TextFragment::with_mode(
+            FragmentMode::Once,
+            vec![DialogText::inline("Once.")],
+        )]);
+        let node4 = make_node(4, vec![]);
+        graph(vec![node1, node2, node3, node4], Some(1))
+    }
+
+    #[test]
+    fn every_issue_has_its_kind() {
+        use ValidationIssueKind as K;
+        use ValidationSeverity as S;
+        let g = graph_with_every_kind();
+        assert_kind(&g, K::MissingTarget, S::Error);
+        assert_kind(&g, K::Unreachable, S::Warning);
+        assert_kind(&g, K::DeadEnd, S::Info);
+        assert_kind(&g, K::SelfLoop, S::Warning);
+        assert_kind(&g, K::Cycle, S::Warning);
+        assert_kind(&g, K::AlwaysFalse, S::Warning);
+        assert_kind(&g, K::OrphanFact, S::Info);
+        assert_kind(&g, K::SourceNodeMismatch, S::Error);
+        assert_kind(&g, K::EmptyText, S::Warning);
+        assert_kind(&g, K::UnkeyedProgress, S::Warning);
+
+        let no_entry = graph(vec![make_node(1, vec![])], None);
+        assert_kind(&no_entry, K::NoEntryNode, S::Warning);
+        let bad_entry = graph(vec![make_node(1, vec![])], Some(5));
+        assert_kind(&bad_entry, K::EntryNodeNotFound, S::Error);
+    }
+
+    #[test]
+    fn issue_kinds_match_messages() {
+        use ValidationIssueKind as K;
+        let g = graph_with_every_kind();
+        let issues = GraphValidator::new().validate(&g);
+        for (kind, text) in [
+            (K::MissingTarget, "targets nonexistent node"),
+            (K::Unreachable, "is unreachable"),
+            (K::DeadEnd, "potential dead end"),
+            (K::SelfLoop, "self-loop"),
+            (K::Cycle, "is part of a cycle"),
+            (K::AlwaysFalse, "always-false condition"),
+            (K::OrphanFact, "never set by any outcome"),
+            (K::SourceNodeMismatch, "wrong source node"),
+            (K::EmptyText, "can resolve to empty text"),
+            (K::UnkeyedProgress, "has no key"),
+        ] {
+            for issue in issues.iter().filter(|i| i.kind == kind) {
+                check!(issue.message.contains(text), "{kind:?}: {}", issue.message);
+            }
+        }
+    }
+
+    #[test]
+    fn options_skip_kinds() {
+        use ValidationIssueKind as K;
+        let g = graph_with_every_kind();
+        let all = GraphValidator::new().validate(&g);
+
+        let options = ValidationOptions::new()
+            .allow_cycles()
+            .allow_dead_ends()
+            .skip_orphan_facts();
+        check!(!options.reports(K::Cycle));
+        check!(options.reports(K::SelfLoop));
+        let validator = GraphValidator::with_options(options);
+        check!(validator.options().reports(K::Unreachable));
+        let issues = validator.validate(&g);
+        check!(
+            issues
+                .iter()
+                .all(|i| !matches!(i.kind, K::Cycle | K::DeadEnd | K::OrphanFact))
+        );
+        let kept = all
+            .iter()
+            .filter(|i| !matches!(i.kind, K::Cycle | K::DeadEnd | K::OrphanFact))
+            .count();
+        check!(issues.len() == kept);
+        check!(issues.iter().any(|i| i.kind == K::SelfLoop));
+    }
+
+    #[test]
+    fn options_skip_every_kind() {
+        use ValidationIssueKind as K;
+        let g = graph_with_every_kind();
+        for kind in [
+            K::MissingTarget,
+            K::Unreachable,
+            K::DeadEnd,
+            K::SelfLoop,
+            K::Cycle,
+            K::AlwaysFalse,
+            K::OrphanFact,
+            K::SourceNodeMismatch,
+            K::EmptyText,
+            K::UnkeyedProgress,
+        ] {
+            let validator = GraphValidator::with_options(ValidationOptions::new().skip(kind));
+            check!(of_kind(&validator, &g, kind).is_empty(), "{kind:?}");
+            check!(!validator.validate(&g).is_empty());
+        }
+        let no_entry = graph(vec![make_node(1, vec![])], None);
+        let validator = GraphValidator::with_options(ValidationOptions::new().skip(K::NoEntryNode));
+        check!(validator.validate(&no_entry).is_empty());
+        let bad_entry = graph(vec![make_node(1, vec![])], Some(5));
+        let validator =
+            GraphValidator::with_options(ValidationOptions::new().skip(K::EntryNodeNotFound));
+        check!(validator.validate(&bad_entry).is_empty());
+    }
+
+    #[test]
+    fn options_report_undoes_skip() {
+        let g = graph_with_every_kind();
+        let options = ValidationOptions::new()
+            .allow_cycles()
+            .report(ValidationIssueKind::Cycle);
+        check!(options == ValidationOptions::new());
+        let validator = GraphValidator::with_options(options);
+        check!(!of_kind(&validator, &g, ValidationIssueKind::Cycle).is_empty());
     }
 
     #[test]
@@ -1117,6 +1478,32 @@ mod tests {
             orphaned
                 .iter()
                 .any(|i| i.message.contains("never_mentioned"))
+        );
+    }
+
+    #[test]
+    fn add_fact_counts_as_writer() {
+        let mut option = make_option(1, DialogTarget::End, DialogueNodeId::new(1));
+        option.conditions = vec![Condition::FactAtLeast {
+            scope: FactScope::World,
+            fact_id: FactId::new("visits"),
+            value: 2,
+        }];
+        let mut node = make_node(1, vec![option]);
+        node.outcomes_on_enter = vec![Outcome::AddFact {
+            scope: FactScope::World,
+            fact_id: FactId::new("visits"),
+            delta: 1,
+        }];
+        let graph = DialogueGraph {
+            nodes: vec![node],
+            entry_node: Some(DialogueNodeId::new(1)),
+        };
+        let issues = GraphValidator::new().validate(&graph);
+        check!(
+            !issues
+                .iter()
+                .any(|i| i.message.contains("never set by any outcome"))
         );
     }
 
