@@ -50,8 +50,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- The crates of the workspace depend on each other with an exact version (`=0.3.0-…`). They are released together, and since many types are `#[non_exhaustive]`, the compiler no longer finds a mix of versions (for example a newer `dramaturge-model` with an older `dramaturge-serde`).
-
+- The crates of the workspace depend on each other with an exact version
+  (`=0.3.0-…`), so Cargo cannot resolve a mix of versions, for example a
+  newer `dramaturge-model` with an older `dramaturge-serde`. They are released
+  together, and since many types are `#[non_exhaustive]`, the compiler no
+  longer finds such a mix. A test keeps the pins (#84).
 - **Breaking:** public types that will grow are now `#[non_exhaustive]`, so
   new variants and fields in later 0.3.x releases are not breaking (#66):
   - Enums (a `match` outside dramaturge needs a `_` arm): `Outcome`,
