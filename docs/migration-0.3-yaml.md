@@ -137,6 +137,8 @@ nodes:
 - The loader checks keys and targets. A `go`, `next` or `start` key that names
   no node is an error now (0.2 left it to the validator, or warned for an
   entry node). A node with no options and no `next` is a warning.
+- `back` is a target now (`DialogTarget::Return`, the node before). `end`
+  and `back` are reserved: rename a node with one of these keys.
 - Unknown fields are errors.
 - The text of an option without `say` is `NavigationHint::default_text`:
   `Go to Captain Vale` (0.2: `Go to Captain Vale...`).

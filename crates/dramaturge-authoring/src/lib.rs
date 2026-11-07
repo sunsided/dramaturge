@@ -24,7 +24,7 @@
 //!    ([`SelfLoop`](ValidationIssueKind::SelfLoop))
 //! 5. **Cycles** — Nodes participating in cycles, reporting all cycle members
 //!    ([`Cycle`](ValidationIssueKind::Cycle)). A cycle of `next` targets
-//!    through nodes without options never stops
+//!    through nodes without options and conditions never stops
 //!    ([`NextLoop`](ValidationIssueKind::NextLoop))
 //! 6. **Always-false conditions** — Options with conditions that evaluate to always false via constant folding
 //!    ([`AlwaysFalse`](ValidationIssueKind::AlwaysFalse))
@@ -127,8 +127,14 @@ pub enum ValidationIssueKind {
     /// A `Once`/`Cycle`/`Sticky` fragment has no key. (Warning)
     UnkeyedProgress,
     /// A node is part of a loop of `next` targets through nodes without
-    /// options: the talk never stops for a choice. Reported once per node.
-    /// (Error)
+    /// options and without conditions: the talk never stops for a choice.
+    /// Reported once per node. (Error)
+    ///
+    /// The check reports only loops that never stop, whatever the state.
+    /// It does not report a loop through a node with options (they can all
+    /// be unavailable) or with conditions (they can block it), and it does
+    /// not follow `Return` targets (they depend on the return stack).
+    /// `DialogueRuntime::advance` stops such loops at its limit.
     NextLoop,
 }
 
@@ -616,10 +622,16 @@ impl GraphValidator {
         }
     }
 
-    /// Detects loops of `next` targets through nodes without options. Such
-    /// a loop never stops for a choice: `DialogueRuntime::advance` runs to
-    /// its limit. Each node has at most one `next`, so following `next`
-    /// from each node finds every such loop.
+    /// Detects loops of `next` targets through nodes without options and
+    /// without conditions. Such a loop never stops for a choice, whatever
+    /// the state: `DialogueRuntime::advance` runs to its limit. Each node
+    /// has at most one `next`, so following `next` from each node finds
+    /// every such loop.
+    ///
+    /// The check is sound, not complete. Options can be unavailable and
+    /// conditions can block a node only depending on the state, and a
+    /// `Return` target depends on the return stack. The check can not
+    /// decide these statically, so it stops at such nodes and targets.
     fn check_next_loops<H, T>(
         &self,
         graph: &DialogueGraph<H, T>,
@@ -627,13 +639,13 @@ impl GraphValidator {
         node_map: &HashMap<DialogueNodeId, &DialogueNode<H, T>>,
         issues: &mut Vec<ValidationIssue>,
     ) {
-        /// The `next` node of a node without options, if any.
+        /// The `next` node of a node that always continues to it, if any.
         fn auto_next<H, T>(
             id: DialogueNodeId,
             node_map: &HashMap<DialogueNodeId, &DialogueNode<H, T>>,
         ) -> Option<DialogueNodeId> {
             let node = node_map.get(&id)?;
-            if !node.options.is_empty() {
+            if !node.options.is_empty() || !node.conditions.is_empty() {
                 return None;
             }
             match node.next {
@@ -1389,6 +1401,38 @@ mod tests {
         let mut g = g;
         let option = make_option(1, DialogTarget::End, DialogueNodeId::new(3));
         g.nodes[2].options.push(option);
+        check!(of_kind(&validator, &g, K::NextLoop).is_empty());
+    }
+
+    #[test]
+    fn next_loop_check_reports_only_loops_that_never_stop() {
+        use ValidationIssueKind as K;
+        let validator = GraphValidator::new();
+        let looping = || {
+            next_graph(&[
+                (1, Some(DialogTarget::node(2))),
+                (2, Some(DialogTarget::node(1))),
+            ])
+        };
+        check!(of_kind(&validator, &looping(), K::NextLoop).len() == 2);
+
+        // A condition can block a node, so the loop can stop.
+        let mut g = looping();
+        g.nodes[1].conditions.push(Condition::Never);
+        check!(of_kind(&validator, &g, K::NextLoop).is_empty());
+
+        // An option, also one that is never available, is not followed.
+        let mut g = looping();
+        let mut option = make_option(1, DialogTarget::End, DialogueNodeId::new(2));
+        option.conditions.push(Condition::Never);
+        g.nodes[1].options.push(option);
+        check!(of_kind(&validator, &g, K::NextLoop).is_empty());
+
+        // `Return` depends on the return stack; it is not followed.
+        let g = next_graph(&[
+            (1, Some(DialogTarget::node(2))),
+            (2, Some(DialogTarget::Return)),
+        ]);
         check!(of_kind(&validator, &g, K::NextLoop).is_empty());
     }
 

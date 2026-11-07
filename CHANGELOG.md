@@ -79,13 +79,17 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 - Validator: `next` targets count for reachability, cycles, `MissingTarget`
   and `SelfLoop`; a node with `next` is not a dead end. The new kind
   `ValidationIssueKind::NextLoop` (Error) reports a loop of `next` targets
-  through nodes without options. `UnkeyedProgress` also checks the lines;
+  through nodes without options and without conditions: a loop that never
+  stops, whatever the state. It does not follow `Return` targets, and it
+  does not report loops that only state can stop or keep going;
+  `advance` stops those at its limit. `UnkeyedProgress` also checks the lines;
   `EmptyText` does not, since a line that resolves to no text is how a line
   depends on the state (#74).
 - Serde: `DialogueNodeDto` has `lines` (`DialogLineDto`) and `next`, both
   left out when empty; older DTOs still load. YAML: a node has `lines`
   (`- { speaker: player, text: "..." }`, text as a string or fragments) and
-  `next` (a node key or `end`) (#74).
+  `next` (a node key or `end`). YAML has no `Return` target, as for option
+  targets: a keyword would take a name that a node can have (#74).
 - Example `exchange`: a scripted exchange that runs to a choice (#74).
 - New crate `dramaturge-syntax`: one dialogue AST (`Dialogue`, `Node`,
   `Line`, `Choice`, `Target`, `Outcomes`) for YAML, JSON and Rust tokens.
@@ -176,10 +180,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   two choices apart (a host can have host text without host outcomes) and
   keeps the R3 API as it is, and both default to `()`.
 
-- **Breaking:** `DialogueNode` has the new public fields `lines` and
-  `next`, and `YamlNode` has `lines` and `next`. Code that builds these
-  structs with a struct literal adds `lines: vec![]` and `next: None`, or
-  uses `DialogueNode::new`/`typed` (#74).
+- **Breaking:** `DialogueNode`, `DialogueNodeDto` and `YamlNode` have the
+  new public fields `lines` and `next`. Code that builds these structs with
+  a struct literal adds `lines: vec![]` and `next: None` (or uses
+  `DialogueNode::new`/`typed`), and code that destructures them without
+  `..` names the new fields (#74).
 
 - **Breaking:** the YAML dialogue shape of `dramaturge-serde` is the
   dialogue shape of loremaster (decision D3): `with`, `start`, `nodes` as a
@@ -193,8 +198,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   warnings }` (now `dramaturge_syntax::Loaded`, with `Issue` warnings).
   The key `player` is the player (`SymbolTable::player`). A `go`, `next` or
   `start` key that names no node is a load error now. The `dramaturge-serde`
-  feature `yaml` pulls in `dramaturge-syntax` (without `syn`). See
-  `docs/migration-0.3-yaml.md` (#76).
+  feature `yaml` pulls in `dramaturge-syntax` (without `syn`). `end` and
+  `back` (`DialogTarget::Return`) are reserved targets, so no node can have
+  these keys. See `docs/migration-0.3-yaml.md` (#76).
 
 - `dramaturge-model` has no dev-dependency on
   `dramaturge-macros` now (`dramaturge-macros` depends on
