@@ -34,7 +34,7 @@
 //!
 //! Code that does not use host outcomes does not name `H`: `Outcome` is
 //! `Outcome<()>`. Where the compiler can not infer `H` from the context,
-//! for example `let o = Outcome::EmitEvent { .. };` alone, write the type:
+//! for example `let o = Outcome::EmitEvent { kind };` alone, write the type:
 //! `let o: Outcome = ...`.
 
 use crate::alignment::{AlignmentAxisId, AlignmentPoleId};
