@@ -10,6 +10,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Design note for the text selection core, before R9:
+  `docs/specs/2026-11-07-text-selection-design.md` (#78).
 - `Outcome::Host(H)`: a typed host outcome. `Outcome::as_host` and
   `Outcome::map_host`; `map_host` also on `DialogueGraph`, `DialogueNode`
   and `DialogueOption`, to give a graph a host outcome type (#72).
