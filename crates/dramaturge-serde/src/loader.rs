@@ -118,30 +118,46 @@ impl<'de> Deserialize<'de> for YamlKey {
 
 /// A character definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(try_from = "RawYamlCharacter")]
+#[serde(from = "RawYamlCharacter")]
 pub struct YamlCharacter {
     /// Character name for display.
     pub name: String,
 }
 
-/// The YAML shape of a character, before the removed numeric `id` is rejected.
+/// The YAML shape of a character. The removed `id` field fails while the
+/// parser reads its value, so the error keeps the line and column.
 #[derive(Deserialize)]
 struct RawYamlCharacter {
     #[serde(default)]
-    id: Option<serde::de::IgnoredAny>,
+    #[allow(dead_code)]
+    id: Option<RemovedCharacterId>,
     name: String,
 }
 
-impl TryFrom<RawYamlCharacter> for YamlCharacter {
-    type Error = String;
+impl From<RawYamlCharacter> for YamlCharacter {
+    fn from(raw: RawYamlCharacter) -> Self {
+        YamlCharacter { name: raw.name }
+    }
+}
 
-    fn try_from(raw: RawYamlCharacter) -> Result<Self, String> {
-        if raw.id.is_some() {
-            return Err(format!(
-                "character `id`: {NUMERIC_ID_REMOVED}; the map key is the id"
-            ));
+/// A value that no YAML can give: the old numeric `id` of a character.
+struct RemovedCharacterId;
+
+impl<'de> Deserialize<'de> for RemovedCharacterId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Reject;
+        impl serde::de::Visitor<'_> for Reject {
+            type Value = RemovedCharacterId;
+            // Every `visit_*` keeps its default, which rejects the value with
+            // this text at the value's position.
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(
+                    f,
+                    "no character `id`: {NUMERIC_ID_REMOVED}; the map key is the id"
+                )
+            }
         }
-        Ok(YamlCharacter { name: raw.name })
+        deserializer.deserialize_any(Reject)
     }
 }
 
@@ -1121,6 +1137,8 @@ nodes: []
         let err = numeric_id_error(yaml);
         check!(err.message().contains("character `id`"), "{err}");
         check!(err.message().contains("the map key is the id"), "{err}");
+        // The error points at the value of `id`.
+        check!(err.line() == Some(6), "{err}");
     }
 
     #[test]
