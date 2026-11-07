@@ -250,8 +250,12 @@ pub struct YamlNode {
     pub speaker: String,
     /// Dialogue text: a string, or a list of fragments.
     pub text: YamlText,
-    /// Conditions for entering the node. An entry node whose conditions
-    /// do not hold is skipped by `dramaturge_runtime::select_entry`.
+    /// Conditions for entering the node (`DialogueNode::conditions`).
+    ///
+    /// `dramaturge_runtime::select_entry` skips an entry node whose
+    /// conditions do not hold. The runtime does not check them when an
+    /// option leads to the node; on a node that is not an entry node they
+    /// take effect only if the host checks them.
     #[serde(default)]
     pub conditions: Vec<YamlCondition>,
     /// Outcomes applied when node is entered.
