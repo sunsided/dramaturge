@@ -53,7 +53,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   give a graph a host text type. Host text can be a fragment variant, so
   fragment selection works for it (#75).
 - `resolve_text` returns host text as it is, as `ResolvedText::Host(T)`
-  (`ResolvedText::as_host`). The validator does not check host text: the
+  (`ResolvedText::as_host`). Each call clones the selected host text; use
+  a type that is cheap to clone (such as `Arc<Markup>`) for large text. The validator does not check host text: the
   `EmptyText` check counts it as text, and `UnkeyedProgress` checks only the
   fragments around it (#75).
 - `DialogTextDto::Host(T)` (JSON `{"host": ...}`); the text, fragment and
@@ -135,7 +136,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   `available_options`, `choose_option` and `enter_node` are generic over
   `T`, and `OptionsIter<'a, T>` takes `T`. What can break: hosts that
   implement `DialogueRuntime` themselves change these signatures;
-  `ResolvedText::as_str` returns `""` for host text (use `as_host`);
+  `ResolvedText::as_str` returns `Option<&str>`: `None` for host text (use
+  `as_host`), so a string-only renderer can not drop host text in silence;
   `DialogText::inline`, `localized` and `fragments` make `DialogText<()>`
   only (for another `T` use the variants or `DialogText::host`); a
   `DialogText` literal whose type nothing fixes needs an annotation.
