@@ -55,6 +55,10 @@ Option 2.
   error (`YamlError` with line and column) that says to use a key. A number
   in quotes (`id: "2"`) is a key and still loads. `YamlKey` is a string
   newtype, and `YamlCharacter` has no `id` field.
+- 0.3 (#76): the YAML shape is the dialogue shape of `dramaturge-syntax`
+  (decision D3). Keys stay keys: node keys are the keys of the `nodes` map,
+  and `go`, `next` and `start` name them. A number is still an error. See
+  `docs/migration-0.3-yaml.md`.
 - `YamlDialogueGraph::to_model` returns `LoadedDialogue` instead of
   `DialogueGraph` (breaking).
 - Ids are assigned in interning order. Characters are interned first, sorted

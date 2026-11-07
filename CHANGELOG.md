@@ -103,6 +103,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   shape; the feature `syn` adds the token form (`tokens::parse_dialogue`,
   `ParseHost`, `Spanned`) for `dialogue!` and for `dialogue` blocks in a
   host macro (#76).
+- `dramaturge_serde::loader`: `load_yaml`, `from_yaml` (generic over the
+  payloads), `to_yaml` and `LoadError` (#76).
 
 ### Changed
 
@@ -170,6 +172,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   `next`, and `YamlNode` has `lines` and `next`. Code that builds these
   structs with a struct literal adds `lines: vec![]` and `next: None`, or
   uses `DialogueNode::new`/`typed` (#74).
+
+- **Breaking:** the YAML dialogue shape of `dramaturge-serde` is the
+  dialogue shape of loremaster (decision D3): `with`, `start`, `nodes` as a
+  map from key to node, `say`, `when` (a condition string), `options` with
+  `say`, `when` and `go` (`end` by default, or `back`), and the outcomes
+  `set`, `add`, `relation`, `remember` and `then` on nodes and options.
+  The 0.2 shape (`version`, `characters`, a list of `nodes`, `text`,
+  `target`, typed `conditions` and `outcomes`) does not load.
+  `YamlDialogueGraph` and the other `Yaml*` types are removed: use
+  `load_yaml(yaml)`, which returns `LoadedDialogue { graph, symbols,
+  warnings }` (now `dramaturge_syntax::Loaded`, with `Issue` warnings).
+  The key `player` is the player (`SymbolTable::player`). A `go`, `next` or
+  `start` key that names no node is a load error now. The `dramaturge-serde`
+  feature `yaml` pulls in `dramaturge-syntax` (without `syn`). See
+  `docs/migration-0.3-yaml.md` (#76).
 
 ## [0.3.0-alpha.2] - 2026-11-07
 
