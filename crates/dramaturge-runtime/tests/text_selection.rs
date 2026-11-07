@@ -675,3 +675,51 @@ fn trace_shows_nested_pools() {
             == "talk  (pick: first)\n  *  say  score 0  won\n    remark  (pick: first)\n      *  #0  score 0  won, variant 1 of 2\n"
     );
 }
+
+#[test]
+fn unopenable_named_pool_has_no_side_effects() {
+    // A `Once` candidate whose variant names a missing or recursive pool
+    // shows nothing, so it gets no progress, no count and no `learn`.
+    let pools: Pools<X> = Pools::new().with(
+        Pool::new("loop", Pick::First).with_candidate(
+            Candidate::named("loop")
+                .mode(FragmentMode::Once)
+                .learn(Fact::bool("looped", true)),
+        ),
+    );
+    let root: Pool<X> = Pool::new("talk", Pick::First).with_candidate(
+        Candidate::named("nowhere")
+            .mode(FragmentMode::Once)
+            .learn(Fact::bool("learned", true)),
+    );
+    let evaluator = DefaultConditionEvaluator::new();
+    let query = Query::new();
+    let mut state = DialogWorldState::new();
+    let mut progress = TextProgress::new();
+    let mut rng = SplitMix64::new(0);
+    for _ in 0..2 {
+        let judge = DefaultJudge::new(&evaluator, &state);
+        let s = select(&root, &pools, "c", &query, &judge, &progress, &mut rng);
+        check!(s.trace.rows[0].verdict == Verdict::MissingPool);
+        check!(s.steps.is_empty());
+        commit(&s, &query, &mut progress, &mut world_learner(&mut state));
+
+        let judge = DefaultJudge::new(&evaluator, &state);
+        let s = select_named("loop", &pools, "c", &query, &judge, &progress, &mut rng);
+        check!(s.trace.rows[0].verdict == Verdict::Recursive);
+        check!(s.steps.is_empty());
+        commit(&s, &query, &mut progress, &mut world_learner(&mut state));
+    }
+    check!(progress.fragments().count() == 0);
+    check!(progress.named_resolutions("loop", "c") == 0);
+    check!(
+        state
+            .get_fact(&FactScope::World, &FactId::new("learned"))
+            .is_none()
+    );
+    check!(
+        state
+            .get_fact(&FactScope::World, &FactId::new("looped"))
+            .is_none()
+    );
+}

@@ -957,15 +957,8 @@ struct CandidateOut<'a, C, X> {
 
 impl<C: Serialize, X: Serialize> Serialize for Candidate<C, X> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let bare = self.key.is_none()
-            && self.speaker.is_none()
-            && self.topic.is_none()
-            && self.when.is_none()
-            && self.mode == FragmentMode::Always
-            && self.learn.is_empty();
-        if bare && let [Variant::Text(x)] = self.variants.as_slice() {
-            return x.serialize(s);
-        }
+        // Always the map form: a bare host text that is a map (such as
+        // `Text::Pool`, `{ text: id }`) would read back as a candidate map.
         let (text, variants) = match self.variants.as_slice() {
             [one] => (Some(one), &[][..]),
             many => (None, many),

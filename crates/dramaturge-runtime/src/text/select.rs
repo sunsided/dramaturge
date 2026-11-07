@@ -785,10 +785,21 @@ where
             .unwrap_or_default()
     }
 
+    /// Returns why the named pool `id` cannot open here, or `None`.
+    fn unresolvable(&self, id: &str) -> Option<Verdict> {
+        if self.open.iter().any(|open| &**open == id) {
+            Some(Verdict::Recursive)
+        } else if self.pools.get(id).is_none() {
+            Some(Verdict::MissingPool)
+        } else {
+            None
+        }
+    }
+
     /// Resolves the named pool `id`. Counts it when it showed a leaf.
     fn named(&mut self, id: &str) -> Result<Trace, Verdict> {
-        if self.open.iter().any(|open| &**open == id) {
-            return Err(Verdict::Recursive);
+        if let Some(verdict) = self.unresolvable(id) {
+            return Err(verdict);
         }
         let pools = self.pools;
         let Some(pool) = pools.get(id) else {
@@ -868,12 +879,21 @@ where
             let mut p = self.progress_of(&key);
             let len = c.variants.len() as u32;
             let variant = variant(c.mode, p, len, self.rng);
+            row.variant = Some((variant, len));
+            // A named pool that cannot open shows nothing, so the candidate
+            // gets no step: no progress, no count, no `learn`.
+            if let Entry::Named(id) = &c.variants[variant as usize]
+                && let Some(verdict) = self.unresolvable(id)
+            {
+                row.verdict = verdict;
+                row.nested = Some(Box::new(Trace::not_found(id)));
+                continue;
+            }
             p.shown = p.shown.saturating_add(1);
             if matches!(c.mode, FragmentMode::Shuffle | FragmentMode::Sticky) {
                 p.pick = Some(variant);
             }
             self.overlay.insert(key.clone(), p);
-            row.variant = Some((variant, len));
 
             let step = self.steps.len();
             let start = self.shown.len();

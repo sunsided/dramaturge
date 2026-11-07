@@ -247,3 +247,15 @@ fn pool_shape_errors() {
     assert!(let LoadError::Lower(dramaturge_serde::loader::LowerError::Check(issues)) = &err);
     check!(issues[0].kind == dramaturge_syntax::IssueKind::NoPoolId);
 }
+
+#[test]
+fn pool_reference_in_a_pool_round_trips() {
+    // `text: { text: <pool id> }` names a pool; written back, it must not
+    // read as the plain text `keeper_remark`.
+    let yaml = "id: talk\none_of:\n  - text: { text: keeper_remark }\n";
+    let pool: TextPool = pool_from_yaml(yaml).unwrap();
+    let again: TextPool = pool_from_yaml(&pool_to_yaml(&pool).unwrap()).unwrap();
+    check!(again == pool);
+    let lowered = dramaturge_syntax::lower_pool_plain(&again, &mut SymbolTable::new()).unwrap();
+    check!(lowered.candidates[0].variants[0] == dramaturge_model::Entry::named("keeper_remark"));
+}
