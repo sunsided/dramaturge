@@ -32,6 +32,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   - Not changed: `FactValue`, `Confidence`, the id types, and the graph
     types `DialogueGraph`, `DialogueNode`, `DialogueOption` and
     `TextFragment`.
+- **Breaking:** the YAML loader no longer accepts numeric ids (deprecated
+  in 0.2, ADR 0001). A YAML number as node, option, target, entry node or
+  relationship endpoint id, and a character `id:`, are load errors with a
+  message that says to use a key. A number in quotes (`id: "2"`) is a key.
+  `YamlKey` is now a string newtype (`YamlKey(String)`, `as_key()` returns
+  `&str`), and `YamlCharacter::id` is removed (#67).
 - The default evaluator treats an unknown `Condition` as `false`, the
   default applier ignores an unknown `Outcome`, and `resolve_text` treats an
   unknown `FragmentMode` as `Always` (#66).
