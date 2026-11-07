@@ -56,7 +56,7 @@ list can hold a `one_of` group (the stove).
 
 1. Its tuple keys match the query (a missing key is `*` and matches all).
 2. Its mode allows it now (`once`: not shown yet; `first_time`: first
-   resolution of the pool).
+   resolution of the pool by this caller).
 3. It has at least one variant.
 4. Its condition holds. The condition can test the perceiver (`seen_by`).
 
@@ -169,10 +169,11 @@ pub trait ProgressStore {
     /// `None`: the candidate has not shown yet.
     fn fragment_progress(&self, key: &str) -> Option<FragmentProgress>;
     fn set_fragment_progress(&mut self, key: &str, progress: FragmentProgress);
-    /// True on the first resolution of `pool`. A host can answer from its own
-    /// data (loremaster: the first visit of the room).
-    fn first_time(&self, pool: &str) -> bool;
-    fn count_resolution(&mut self, pool: &str);
+    /// True on the first resolution of `pool` by `caller` (the room, thing,
+    /// node or rule that shows the pool). A host can answer from its own data
+    /// (loremaster: the first visit of the room).
+    fn first_time(&self, pool: &str, caller: &str) -> bool;
+    fn count_resolution(&mut self, pool: &str, caller: &str);
 }
 
 /// Chooses, without a change to the progress. Shuffle and sticky draw from
@@ -180,6 +181,7 @@ pub trait ProgressStore {
 pub fn select<'p, X, J, P, R>(
     pool: &'p Pool<X>,
     pools: &'p Pools<X>,
+    caller: &str,                       // kept in the Selection for `commit`
     query: &Query<X>,
     judge: &J,
     progress: &P,
@@ -246,6 +248,8 @@ with this core.
   pools append segments. This is the scheme of `resolve_text` today.
 - A named pool has one progress for all callers. The sticky line of
   `keeper_remark` is the same in the rule and in the dialogue.
+- `first_time` is the exception: it counts per pool and caller. A named
+  pool that two rooms show has a `first_time` candidate for each room.
 - `TextProgress` and its DTO (`dramaturge-serde`) store the progress. No new
   save field is necessary for users of dramaturge alone.
 - `ProgressStore` uses its own method names (`fragment_progress`,
