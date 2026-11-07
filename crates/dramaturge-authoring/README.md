@@ -26,9 +26,9 @@ Each issue has a `kind` (`ValidationIssueKind`). Filter by kind, not by message 
 | Check | Kind | Severity | Description |
 |---|---|---|---|
 | Missing targets | `MissingTarget` | Error | Options referencing non-existent node IDs |
-| Unreachable nodes | `Unreachable` | Warning | Nodes not reachable from the entry node via BFS |
-| No entry node | `NoEntryNode` | Warning | The graph has no entry node (once per node) |
-| Entry node not found | `EntryNodeNotFound` | Error | The entry node does not exist |
+| Unreachable nodes | `Unreachable` | Warning | Nodes not reachable from any entry node via BFS |
+| No entry node | `NoEntryNode` | Warning | The graph has no entry nodes (once per node) |
+| Entry node not found | `EntryNodeNotFound` | Error | An entry node does not exist (once per missing entry node) |
 | Dead-end nodes | `DeadEnd` | Info | Reachable nodes with no options or enter outcomes |
 | Self-loops | `SelfLoop` | Warning | Options whose target is their own parent node |
 | Cycles | `Cycle` | Warning | Nodes participating in cycles |

@@ -242,6 +242,7 @@ fn outcome() -> impl Strategy<Value = Outcome> {
         key().prop_map(|quest_id| Outcome::StartQuest { quest_id }),
         (key(), key()).prop_map(|(quest_id, stage)| Outcome::AdvanceQuest { quest_id, stage }),
         (key(), vec(fact_value(), 0..3)).prop_map(|(key, args)| Outcome::Custom { key, args }),
+        Just(Outcome::Host(())),
     ]
 }
 
@@ -352,9 +353,9 @@ fn node() -> impl Strategy<Value = DialogueNode> {
 }
 
 fn graph() -> impl Strategy<Value = DialogueGraph> {
-    (vec(node(), 0..4), proptest::option::of(0u64..8)).prop_map(|(nodes, entry)| DialogueGraph {
+    (vec(node(), 0..4), vec(0u64..8, 0..3)).prop_map(|(nodes, entries)| DialogueGraph {
         nodes,
-        entry_node: entry.map(DialogueNodeId::new),
+        entry_nodes: entries.into_iter().map(DialogueNodeId::new).collect(),
     })
 }
 
@@ -498,6 +499,60 @@ fn dialog_cursor_json_shape() {
         serde_json::to_string(&DialogCursorDto::from(&cursor)).unwrap()
             == r#"{"current":4,"back":[1]}"#
     );
+}
+
+#[test]
+fn dialogue_graph_reads_the_old_entry_node_field() {
+    let dto: DialogueGraphDto = serde_json::from_str(r#"{"nodes":[],"entry_node":3}"#).unwrap();
+    check!(dto.entry_nodes == vec![3]);
+
+    let both: DialogueGraphDto =
+        serde_json::from_str(r#"{"nodes":[],"entry_node":3,"entry_nodes":[5,3]}"#).unwrap();
+    check!(both.entry_nodes == vec![5, 3]);
+
+    let none: DialogueGraphDto = serde_json::from_str(r#"{"nodes":[]}"#).unwrap();
+    check!(none.entry_nodes.is_empty());
+
+    let json = serde_json::to_string(&DialogueGraphDto::<()> {
+        nodes: vec![],
+        entry_nodes: vec![1, 2],
+    })
+    .unwrap();
+    check!(json == r#"{"nodes":[],"entry_nodes":[1,2]}"#);
+}
+
+#[test]
+fn host_outcomes_roundtrip_through_the_dtos() {
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum Effect {
+        Goto(String),
+    }
+
+    let unit: Outcome = Outcome::Host(());
+    check!(serde_json::to_string(&OutcomeDto::from(&unit)).unwrap() == r#"{"host":null}"#);
+
+    let mut node = DialogueNode::<Effect>::typed(
+        1,
+        CharacterId::new(EntityId::new(1)),
+        DialogText::inline("Bye."),
+    );
+    node.outcomes_on_enter
+        .push(Outcome::Host(Effect::Goto("street".into())));
+    let mut option =
+        DialogueOption::typed(1, DialogText::inline("Go."), DialogTarget::End, node.id);
+    option
+        .outcomes
+        .push(Outcome::Host(Effect::Goto("hall".into())));
+    node.options.push(option);
+    let mut graph = DialogueGraph::typed();
+    graph.nodes.push(node);
+    graph.entry_nodes.push(DialogueNodeId::new(1));
+
+    let json = serde_json::to_string(&DialogueGraphDto::from(&graph)).unwrap();
+    check!(json.contains(r#"{"host":{"goto":"street"}}"#), "{json}");
+    let back: DialogueGraphDto<Effect> = serde_json::from_str(&json).unwrap();
+    check!(back.into_model() == graph);
 }
 
 #[test]

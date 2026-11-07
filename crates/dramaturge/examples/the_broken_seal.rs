@@ -121,9 +121,8 @@ impl GameState {
         .into_iter()
         .collect();
 
-        let entry_node = graph
-            .entry_node
-            .expect("dialogue.yaml defines an entry node");
+        let entry_node = select_entry(&graph, &DefaultConditionEvaluator::new(), &world)
+            .expect("dialogue.yaml defines an entry node whose conditions hold");
 
         let mut state = Self {
             world,
@@ -780,7 +779,7 @@ nodes:
             .to_model()
             .expect("Should convert");
         check!(loaded.warnings.is_empty(), "{:?}", loaded.warnings);
-        let entry = loaded.graph.entry_node.unwrap();
+        let entry = loaded.graph.entry_node().unwrap();
         check!(loaded.symbols.node_key(entry) == Some("mara.intro"));
         Entities::resolve(&loaded.symbols);
 

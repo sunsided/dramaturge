@@ -53,7 +53,9 @@
 //! ## Outcomes
 //!
 //! [`Outcome`] is a declarative state change: set a fact, adjust alignment,
-//! modify a relationship, add a memory, emit an event, or a custom extension.
+//! modify a relationship, add a memory, emit an event, a custom extension,
+//! or a typed host outcome ([`Outcome::Host`], with the type parameter `H`
+//! on [`Outcome`] and the graph types; the default is `()`).
 //! Applied by [`OutcomeApplier`](https://docs.rs/dramaturge-runtime/latest/dramaturge_runtime/trait.OutcomeApplier.html) at runtime.
 //!
 //! ## Memories
