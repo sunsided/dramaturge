@@ -244,6 +244,10 @@ pub struct DialogueNode<H = ()> {
     /// The spoken text (inline or localized).
     pub text: DialogText,
     /// Conditions that must be satisfied for this node to be entered.
+    ///
+    /// `dramaturge_runtime::select_entry` checks them for the entry nodes.
+    /// The runtime does not check them when an option leads to the node;
+    /// a host that wants that checks them itself.
     pub conditions: Vec<Condition>,
     /// Outcomes that apply when this node is entered.
     pub outcomes_on_enter: Vec<Outcome<H>>,
@@ -398,8 +402,15 @@ impl<H> DialogueOption<H> {
 
 /// Root container for a complete dialogue tree.
 ///
-/// Holds all nodes and optionally designates an entry point for
-/// traversal.
+/// Holds all nodes and the entry nodes where a conversation can start.
+///
+/// # Entry nodes
+///
+/// A graph can have more than one entry node. The order is the priority:
+/// `dramaturge_runtime::select_entry` returns the first entry node whose
+/// [`conditions`](DialogueNode::conditions) hold. A graph with one
+/// unconditional entry node always starts there. The validator walks from
+/// every entry node.
 ///
 /// `H` is the type of [host outcomes](Outcome::Host) (default `()`). A
 /// graph without host outcomes is `DialogueGraph`.
@@ -407,12 +418,14 @@ impl<H> DialogueOption<H> {
 pub struct DialogueGraph<H = ()> {
     /// All nodes in the graph.
     pub nodes: Vec<DialogueNode<H>>,
-    /// The starting node for traversal, if set.
-    pub entry_node: Option<DialogueNodeId>,
+    /// The nodes where a conversation can start, in priority order.
+    ///
+    /// Empty when the graph has no entry node.
+    pub entry_nodes: Vec<DialogueNodeId>,
 }
 
 impl DialogueGraph {
-    /// Creates an empty graph with no nodes and no entry point.
+    /// Creates an empty graph with no nodes and no entry nodes.
     ///
     /// For a graph with host outcomes, use [`DialogueGraph::typed`].
     pub fn new() -> Self {
@@ -426,8 +439,39 @@ impl<H> DialogueGraph<H> {
     pub fn typed() -> Self {
         Self {
             nodes: Vec::new(),
-            entry_node: None,
+            entry_nodes: Vec::new(),
         }
+    }
+
+    /// Returns the first configured entry node id, if the graph has one.
+    ///
+    /// This is the first id in [`entry_nodes`](Self::entry_nodes), as it is:
+    /// the graph may have no node with this id (the validator reports it as
+    /// `EntryNodeNotFound`). For the first entry node that exists, use
+    /// [`entries`](Self::entries); to select an entry node by its
+    /// conditions, use `dramaturge_runtime::select_entry`.
+    pub fn entry_node(&self) -> Option<DialogueNodeId> {
+        self.entry_nodes.first().copied()
+    }
+
+    /// Adds `id` to the end of the entry nodes and returns the graph.
+    pub fn with_entry_node(mut self, id: DialogueNodeId) -> Self {
+        self.entry_nodes.push(id);
+        self
+    }
+
+    /// Returns the node with the given id, if the graph has one.
+    ///
+    /// This is a linear search over [`nodes`](Self::nodes).
+    pub fn node(&self, id: DialogueNodeId) -> Option<&DialogueNode<H>> {
+        self.nodes.iter().find(|n| n.id == id)
+    }
+
+    /// Returns the entry nodes that exist in the graph, in priority order.
+    ///
+    /// Entry node ids without a node in the graph are skipped.
+    pub fn entries(&self) -> impl Iterator<Item = &DialogueNode<H>> {
+        self.entry_nodes.iter().filter_map(|&id| self.node(id))
     }
 
     /// Converts the host outcomes of every node and option with `f`.
@@ -447,7 +491,7 @@ impl<H> DialogueGraph<H> {
     pub fn map_host<G>(self, mut f: impl FnMut(H) -> G) -> DialogueGraph<G> {
         DialogueGraph {
             nodes: self.nodes.into_iter().map(|n| n.map_host(&mut f)).collect(),
-            entry_node: self.entry_node,
+            entry_nodes: self.entry_nodes,
         }
     }
 }
@@ -541,7 +585,7 @@ mod tests {
         node.options.push(option);
         let mut graph = DialogueGraph::typed();
         graph.nodes.push(node);
-        graph.entry_node = Some(DialogueNodeId::new(1));
+        graph.entry_nodes.push(DialogueNodeId::new(1));
 
         let copy = graph.clone();
         check!(copy == graph);
@@ -550,14 +594,36 @@ mod tests {
         let lengths = graph.map_host(|Effect::Goto(room)| room.len());
         check!(lengths.nodes[0].outcomes_on_enter[0] == Outcome::Host(4));
         check!(lengths.nodes[0].options[0].outcomes[0] == Outcome::Host(6));
-        check!(lengths.entry_node == Some(DialogueNodeId::new(1)));
+        check!(lengths.entry_nodes == vec![DialogueNodeId::new(1)]);
     }
 
     #[test]
     fn dialogue_graph_default() {
         let graph = DialogueGraph::default();
         check!(graph.nodes.is_empty());
-        check!(graph.entry_node.is_none());
+        check!(graph.entry_nodes.is_empty());
+        check!(graph.entry_node().is_none());
+    }
+
+    #[test]
+    fn dialogue_graph_entries_skip_missing_nodes() {
+        let speaker = CharacterId::new(crate::character::EntityId::new(1));
+        let mut graph = DialogueGraph::new()
+            .with_entry_node(DialogueNodeId::new(9))
+            .with_entry_node(DialogueNodeId::new(2))
+            .with_entry_node(DialogueNodeId::new(1));
+        graph
+            .nodes
+            .push(DialogueNode::new(1, speaker, DialogText::inline("a")));
+        graph
+            .nodes
+            .push(DialogueNode::new(2, speaker, DialogText::inline("b")));
+
+        check!(graph.entry_node() == Some(DialogueNodeId::new(9)));
+        let entries: Vec<_> = graph.entries().map(|n| n.id.0).collect();
+        check!(entries == vec![2, 1]);
+        check!(graph.node(DialogueNodeId::new(2)).is_some());
+        check!(graph.node(DialogueNodeId::new(9)).is_none());
     }
 }
 
@@ -615,7 +681,7 @@ mod proptests {
     #[test]
     fn prop_dialogue_graph_default_entry_none() {
         let graph = DialogueGraph::new();
-        check!(graph.entry_node.is_none());
+        check!(graph.entry_nodes.is_empty());
     }
 
     #[test]

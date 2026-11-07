@@ -16,7 +16,9 @@ use crate::evaluation::{
     ConditionEvaluator, DefaultConditionEvaluator, DefaultOutcomeApplier, OutcomeApplier,
 };
 use crate::state::NarrativeState;
-use dramaturge_model::{DialogTarget, DialogueNode, DialogueOption, EventKind};
+use dramaturge_model::{
+    DialogTarget, DialogueGraph, DialogueNode, DialogueNodeId, DialogueOption, EventKind,
+};
 
 /// Trait defining the interface for driving a dialogue session.
 ///
@@ -79,6 +81,61 @@ impl<E, A> DefaultRuntime<E, A> {
     pub fn with_parts(evaluator: E, applier: A) -> Self {
         Self { evaluator, applier }
     }
+
+    /// Returns the first entry node of `graph` whose conditions hold.
+    ///
+    /// Uses the runtime's evaluator. See [`select_entry`].
+    pub fn select_entry<S, H>(&self, graph: &DialogueGraph<H>, state: &S) -> Option<DialogueNodeId>
+    where
+        S: NarrativeState + ?Sized,
+        E: ConditionEvaluator<S>,
+    {
+        select_entry(graph, &self.evaluator, state)
+    }
+}
+
+/// Returns the first entry node of `graph` whose conditions hold.
+///
+/// The function looks at [`DialogueGraph::entry_nodes`] in order and
+/// returns the first node whose [`conditions`](DialogueNode::conditions)
+/// all evaluate to `true` with `evaluator`. A node without conditions
+/// always holds. Entry node ids without a node in the graph are skipped.
+/// Returns `None` when no entry node holds, or when the graph has no
+/// entry nodes.
+///
+/// ```rust
+/// use dramaturge_model::{
+///     CharacterId, Condition, DialogText, DialogueGraph, DialogueNode, DialogueNodeId, EntityId,
+/// };
+/// use dramaturge_runtime::{DefaultConditionEvaluator, DialogWorldState, select_entry};
+///
+/// let speaker = CharacterId::new(EntityId::new(1));
+/// let mut locked = DialogueNode::new(1, speaker, DialogText::inline("Welcome back."));
+/// locked.conditions.push(Condition::Never);
+/// let open = DialogueNode::new(2, speaker, DialogText::inline("Hello, stranger."));
+///
+/// let mut graph = DialogueGraph::new()
+///     .with_entry_node(locked.id)
+///     .with_entry_node(open.id);
+/// graph.nodes = vec![locked, open];
+///
+/// let state = DialogWorldState::new();
+/// let entry = select_entry(&graph, &DefaultConditionEvaluator::new(), &state);
+/// assert_eq!(entry, Some(DialogueNodeId::new(2)));
+/// ```
+pub fn select_entry<S, E, H>(
+    graph: &DialogueGraph<H>,
+    evaluator: &E,
+    state: &S,
+) -> Option<DialogueNodeId>
+where
+    S: NarrativeState + ?Sized,
+    E: ConditionEvaluator<S> + ?Sized,
+{
+    graph
+        .entries()
+        .find(|node| node.conditions.iter().all(|c| evaluator.evaluate(c, state)))
+        .map(|node| node.id)
 }
 
 /// Iterator over available dialogue options.
@@ -175,6 +232,76 @@ mod tests {
         CharacterId, Condition, DialogText, DialogueOption, DialogueOptionId, EntityId, Fact,
         FactId, FactScope,
     };
+
+    fn entry_graph(conditions: Vec<(u64, Vec<Condition>)>) -> DialogueGraph {
+        let speaker = CharacterId::new(EntityId::new(1));
+        let mut graph = DialogueGraph::new();
+        for (id, conds) in conditions {
+            let mut node = DialogueNode::new(id, speaker, DialogText::inline("..."));
+            node.conditions = conds;
+            graph.entry_nodes.push(node.id);
+            graph.nodes.push(node);
+        }
+        graph
+    }
+
+    fn has_key() -> Condition {
+        Condition::FactEquals {
+            scope: FactScope::World,
+            fact_id: FactId::new("has_key"),
+            value: dramaturge_model::FactValue::Bool(true),
+        }
+    }
+
+    #[test]
+    fn select_entry_first_that_holds_wins() {
+        let graph = entry_graph(vec![(1, vec![has_key()]), (2, vec![]), (3, vec![])]);
+        let rt = DefaultRuntime::new();
+        let mut state = DialogWorldState::new();
+        check!(rt.select_entry(&graph, &state) == Some(DialogueNodeId::new(2)));
+
+        state.set_fact(FactScope::World, Fact::bool("has_key", true));
+        check!(rt.select_entry(&graph, &state) == Some(DialogueNodeId::new(1)));
+    }
+
+    #[test]
+    fn select_entry_needs_all_conditions_of_an_entry() {
+        // Entry 1 has one true and one false condition, so it does not hold.
+        let mut state = DialogWorldState::new();
+        state.set_fact(FactScope::World, Fact::bool("has_key", true));
+        let evaluator = DefaultConditionEvaluator::new();
+
+        let graph = entry_graph(vec![
+            (1, vec![has_key(), Condition::Never]),
+            (2, vec![has_key(), Condition::Always]),
+        ]);
+        check!(select_entry(&graph, &evaluator, &state) == Some(DialogueNodeId::new(2)));
+
+        // Every entry mixes a true and a false condition: none holds.
+        let graph = entry_graph(vec![
+            (1, vec![has_key(), Condition::Never]),
+            (2, vec![Condition::Never, Condition::Always]),
+        ]);
+        check!(select_entry(&graph, &evaluator, &state).is_none());
+    }
+
+    #[test]
+    fn select_entry_none_holds() {
+        let graph = entry_graph(vec![(1, vec![has_key()]), (2, vec![Condition::Never])]);
+        let state = DialogWorldState::new();
+        check!(select_entry(&graph, &DefaultConditionEvaluator::new(), &state).is_none());
+    }
+
+    #[test]
+    fn select_entry_skips_missing_nodes_and_empty_graph() {
+        let state = DialogWorldState::new();
+        let evaluator = DefaultConditionEvaluator::new();
+        check!(select_entry(&DialogueGraph::new(), &evaluator, &state).is_none());
+
+        let mut graph = entry_graph(vec![(2, vec![])]);
+        graph.entry_nodes.insert(0, DialogueNodeId::new(7));
+        check!(select_entry(&graph, &evaluator, &state) == Some(DialogueNodeId::new(2)));
+    }
 
     #[test]
     fn host_outcomes_go_to_the_host_handler() {

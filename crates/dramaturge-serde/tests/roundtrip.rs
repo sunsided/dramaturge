@@ -352,9 +352,9 @@ fn node() -> impl Strategy<Value = DialogueNode> {
 }
 
 fn graph() -> impl Strategy<Value = DialogueGraph> {
-    (vec(node(), 0..4), proptest::option::of(0u64..8)).prop_map(|(nodes, entry)| DialogueGraph {
+    (vec(node(), 0..4), vec(0u64..8, 0..3)).prop_map(|(nodes, entries)| DialogueGraph {
         nodes,
-        entry_node: entry.map(DialogueNodeId::new),
+        entry_nodes: entries.into_iter().map(DialogueNodeId::new).collect(),
     })
 }
 
@@ -475,6 +475,34 @@ fn world_state_without_event_log_field_keeps_the_log_on() {
 }
 
 #[test]
+fn dialogue_graph_reads_the_old_entry_node_field() {
+    let dto: DialogueGraphDto = serde_json::from_str(r#"{"nodes":[],"entry_node":3}"#).unwrap();
+    check!(dto.entry_nodes == vec![3]);
+
+    let both: DialogueGraphDto =
+        serde_json::from_str(r#"{"nodes":[],"entry_node":3,"entry_nodes":[5,3]}"#).unwrap();
+    check!(both.entry_nodes == vec![5, 3]);
+    // With `entry_nodes` given, the old field does not change the order.
+    let newer: DialogueGraphDto =
+        serde_json::from_str(r#"{"nodes":[],"entry_node":7,"entry_nodes":[5]}"#).unwrap();
+    check!(newer.entry_nodes == vec![5]);
+    // An explicit empty list also wins over the old field.
+    let empty: DialogueGraphDto =
+        serde_json::from_str(r#"{"nodes":[],"entry_node":7,"entry_nodes":[]}"#).unwrap();
+    check!(empty.entry_nodes.is_empty());
+
+    let none: DialogueGraphDto = serde_json::from_str(r#"{"nodes":[]}"#).unwrap();
+    check!(none.entry_nodes.is_empty());
+
+    let json = serde_json::to_string(&DialogueGraphDto::<()> {
+        nodes: vec![],
+        entry_nodes: vec![1, 2],
+    })
+    .unwrap();
+    check!(json == r#"{"nodes":[],"entry_nodes":[1,2]}"#);
+}
+
+#[test]
 fn host_outcomes_roundtrip_through_the_dtos() {
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case")]
@@ -500,7 +528,7 @@ fn host_outcomes_roundtrip_through_the_dtos() {
     node.options.push(option);
     let mut graph = DialogueGraph::typed();
     graph.nodes.push(node);
-    graph.entry_node = Some(DialogueNodeId::new(1));
+    graph.entry_nodes.push(DialogueNodeId::new(1));
 
     let json = serde_json::to_string(&DialogueGraphDto::from(&graph)).unwrap();
     check!(json.contains(r#"{"host":{"goto":"street"}}"#), "{json}");

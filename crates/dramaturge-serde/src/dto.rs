@@ -1797,22 +1797,57 @@ impl<H> IntoModel for DialogueNodeDto<H> {
 
 /// DTO for [`model::DialogueGraph`]. `H` is the host outcome type (see
 /// [`OutcomeDto`]).
+///
+/// Reads the field `entry_node` (one raw id) of DTOs written before 0.3 as
+/// the first entry node.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(bound(deserialize = "H: Deserialize<'de>"))]
+#[serde(
+    from = "DialogueGraphDtoRepr<H>",
+    bound(deserialize = "H: Deserialize<'de>")
+)]
 pub struct DialogueGraphDto<H = ()> {
     /// Nodes.
     pub nodes: Vec<DialogueNodeDto<H>>,
-    /// Entry node (raw id).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub entry_node: Option<u64>,
+    /// Entry nodes (raw ids), in priority order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entry_nodes: Vec<u64>,
+}
+
+/// The serialized form of [`DialogueGraphDto`], with the old single
+/// `entry_node` field.
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "H: Deserialize<'de>"))]
+struct DialogueGraphDtoRepr<H> {
+    nodes: Vec<DialogueNodeDto<H>>,
+    /// `None` when the field is absent, so that an explicit empty list
+    /// still wins over the old field.
+    #[serde(default)]
+    entry_nodes: Option<Vec<u64>>,
+    #[serde(default)]
+    entry_node: Option<u64>,
+}
+
+impl<H> From<DialogueGraphDtoRepr<H>> for DialogueGraphDto<H> {
+    fn from(repr: DialogueGraphDtoRepr<H>) -> Self {
+        // The old field counts only for an old DTO: when `entry_nodes` is
+        // present (also as an empty list), it decides alone.
+        let entry_nodes = match repr.entry_nodes {
+            Some(entry_nodes) => entry_nodes,
+            None => repr.entry_node.into_iter().collect(),
+        };
+        Self {
+            nodes: repr.nodes,
+            entry_nodes,
+        }
+    }
 }
 
 impl<H: Clone> From<&model::DialogueGraph<H>> for DialogueGraphDto<H> {
     fn from(g: &model::DialogueGraph<H>) -> Self {
-        let model::DialogueGraph { nodes, entry_node } = g;
+        let model::DialogueGraph { nodes, entry_nodes } = g;
         Self {
             nodes: dtos(nodes),
-            entry_node: entry_node.map(|n| n.0),
+            entry_nodes: entry_nodes.iter().map(|n| n.0).collect(),
         }
     }
 }
@@ -1822,7 +1857,7 @@ impl<H> IntoModel for DialogueGraphDto<H> {
     fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueGraph<H> {
         model::DialogueGraph {
             nodes: self.nodes.into_model_with(ids),
-            entry_node: self.entry_node.map(|n| ids.node(n)),
+            entry_nodes: self.entry_nodes.into_iter().map(|n| ids.node(n)).collect(),
         }
     }
 }
