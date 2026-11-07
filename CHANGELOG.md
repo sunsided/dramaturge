@@ -19,7 +19,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   create graph types for a host outcome type `H` (#72).
 - `OutcomeDto::Host(H)` (JSON `{"host": ...}`); the graph DTOs carry `H`.
   The conversion from the model needs `H: Clone`, and the DTOs serialize
-  when `H` does. The YAML format has no host outcomes (#72).
+  when `H` does. The `with` modules `dramaturge_serde::outcome` and
+  `dramaturge_serde::dialogue_graph` accept any such `H`. The YAML format has no host outcomes (#72).
 
 ### Changed
 
