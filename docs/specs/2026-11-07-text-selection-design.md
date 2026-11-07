@@ -181,7 +181,7 @@ pub trait ProgressStore {
 pub fn select<'p, X, J, P, R>(
     pool: &'p Pool<X>,
     pools: &'p Pools<X>,
-    caller: &str,                       // kept in the Selection for `commit`
+    caller: &str,                       // copied into `Selection::caller`
     query: &Query<X>,
     judge: &J,
     progress: &P,
@@ -191,6 +191,8 @@ where
     X: TextTypes, J: Judge<X> + ?Sized, P: ProgressStore + ?Sized, R: TextRng + ?Sized;
 
 pub struct Selection<'p, X: TextTypes> {
+    pub pool: Arc<str>,
+    pub caller: Arc<str>,               // `commit` counts the resolution for it
     pub shown: Vec<Shown<'p, X>>,       // leaves in order, nested pools flattened
     pub trace: Trace,
 }
@@ -202,8 +204,9 @@ pub struct Shown<'p, X: TextTypes> {
     pub learn: &'p [X::Learn],
 }
 
-/// Records what showed (shown counts, last and sticky variants, resolution
-/// counts) and hands each `learn` item to `learner` with the perceiver.
+/// Records what showed (shown counts, last and sticky variants) and the
+/// resolution of `selection.pool` by `selection.caller`, then hands each
+/// `learn` item to `learner` with the perceiver.
 pub fn commit<X, P, L>(selection: &Selection<'_, X>, query: &Query<X>, progress: &mut P, learner: &mut L)
 where
     X: TextTypes, P: ProgressStore + ?Sized, L: FnMut(&X::Learn, Option<&X::Actor>);
