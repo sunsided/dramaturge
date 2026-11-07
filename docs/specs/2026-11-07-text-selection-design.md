@@ -249,7 +249,7 @@ with this core.
 
 - The progress key is `{pool id}/{candidate key or index}`, and nested
   pools append segments. The shape is that of `resolve_text` today, but
-  there the first segment is the `owner` that the caller passes. An old key
+  there the first segment is the `owner` that the call site passes. An old key
   carries over only where the pool id is that same owner: an inline text of
   a node or a description keeps its keys; a named pool starts with new
   keys.
