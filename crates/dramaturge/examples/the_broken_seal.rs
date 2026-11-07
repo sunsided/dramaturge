@@ -159,7 +159,7 @@ impl GameState {
                 &mut self.rng,
             )
             .iter()
-            .map(|p| p.text.as_str().to_string())
+            .filter_map(|p| p.text.as_str().map(str::to_string))
             .collect::<Vec<_>>()
             .join(" ")
         };

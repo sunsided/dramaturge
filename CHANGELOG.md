@@ -110,7 +110,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   `available_options`, `choose_option` and `enter_node` are generic over
   `T`, and `OptionsIter<'a, T>` takes `T`. What can break: hosts that
   implement `DialogueRuntime` themselves change these signatures;
-  `ResolvedText::as_str` returns `""` for host text (use `as_host`);
+  `ResolvedText::as_str` returns `Option<&str>`: `None` for host text (use
+  `as_host`), so a string-only renderer can not drop host text in silence;
   `DialogText::inline`, `localized` and `fragments` make `DialogText<()>`
   only (for another `T` use the variants or `DialogText::host`); a
   `DialogText` literal whose type nothing fixes needs an annotation.

@@ -18,7 +18,8 @@
 //! ```rust
 //! use dramaturge_model::{Condition, DialogText, FactId, FactScope, Fact, FragmentMode, TextFragment};
 //! use dramaturge_runtime::{
-//!     DefaultConditionEvaluator, DialogWorldState, SplitMix64, TextProgress, resolve_text,
+//!     DefaultConditionEvaluator, DialogWorldState, ResolvedPiece, SplitMix64, TextProgress,
+//!     resolve_text,
 //! };
 //!
 //! let text = DialogText::fragments(vec![
@@ -39,11 +40,14 @@
 //! let mut rng = SplitMix64::new(7);
 //!
 //! let first = resolve_text(&text, "mara.intro", &state, &evaluator, &mut progress, &mut rng);
-//! assert_eq!(first.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(), ["Mara looks up.", "\"Again?\""]);
+//! let texts = |pieces: &[ResolvedPiece]| -> Vec<String> {
+//!     pieces.iter().filter_map(|p| p.text.as_str()).map(str::to_string).collect()
+//! };
+//! assert_eq!(texts(&first), ["Mara looks up.", "\"Again?\""]);
 //!
 //! state.set_fact(FactScope::World, Fact::bool("trusted", true));
 //! let second = resolve_text(&text, "mara.intro", &state, &evaluator, &mut progress, &mut rng);
-//! assert_eq!(second.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(), ["Mara looks up.", "She smiles.", "\"You.\""]);
+//! assert_eq!(texts(&second), ["Mara looks up.", "She smiles.", "\"You.\""]);
 //! ```
 
 use std::collections::BTreeMap;
@@ -176,15 +180,17 @@ pub enum ResolvedText<T = ()> {
 }
 
 impl<T> ResolvedText<T> {
-    /// Returns the inline text, or the localization key.
+    /// Returns the inline text or the localization key, or `None` for host
+    /// text.
     ///
-    /// Host text has no string form here: it returns an empty string. Use
-    /// [`as_host`](Self::as_host) for host text.
-    pub fn as_str(&self) -> &str {
+    /// Host text has no string form here. Use [`as_host`](Self::as_host)
+    /// for it. The `None` makes a renderer that only knows strings see the
+    /// host text, so it does not drop it in silence.
+    pub fn as_str(&self) -> Option<&str> {
         match self {
-            ResolvedText::Inline(s) => s,
-            ResolvedText::Localized(k) => k,
-            ResolvedText::Host(_) => "",
+            ResolvedText::Inline(s) => Some(s),
+            ResolvedText::Localized(k) => Some(k),
+            ResolvedText::Host(_) => None,
         }
     }
 
@@ -215,6 +221,7 @@ pub struct ResolvedPiece<T = ()> {
 /// prefixes all progress keys. Plain `Inline`, `LocalizedKey` and `Host`
 /// text resolves to one piece and records nothing. Host text is cloned
 /// into a [`ResolvedText::Host`] piece; dramaturge does not look into it.
+
 ///
 /// Rules for a fragment list, in order:
 ///
@@ -369,7 +376,10 @@ mod tests {
     use dramaturge_model::{Condition, Fact, FactId, FactScope};
 
     fn texts(pieces: &[ResolvedPiece]) -> Vec<&str> {
-        pieces.iter().map(|p| p.text.as_str()).collect()
+        pieces
+            .iter()
+            .map(|p| p.text.as_str().expect("plain text"))
+            .collect()
     }
 
     fn run(text: &DialogText, n: usize, seed: u64) -> Vec<Vec<String>> {
@@ -381,7 +391,7 @@ mod tests {
             .map(|_| {
                 resolve_text(text, "owner", &state, &evaluator, &mut progress, &mut rng)
                     .into_iter()
-                    .map(|p| p.text.as_str().to_string())
+                    .map(|p| p.text.as_str().expect("plain text").to_string())
                     .collect()
             })
             .collect()
@@ -491,7 +501,7 @@ mod tests {
         check!(out.len() == 1);
         check!(out[0].text == ResolvedText::Host(Markup("*Hi.*")));
         check!(out[0].text.as_host() == Some(&Markup("*Hi.*")));
-        check!(out[0].text.as_str().is_empty());
+        check!(out[0].text.as_str().is_none());
         check!(out[0].source.is_none());
 
         // Fragment selection works for host text, too.
