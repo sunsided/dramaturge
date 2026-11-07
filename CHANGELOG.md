@@ -79,7 +79,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 - Validator: `next` targets count for reachability, cycles, `MissingTarget`
   and `SelfLoop`; a node with `next` is not a dead end. The new kind
   `ValidationIssueKind::NextLoop` (Error) reports a loop of `next` targets
-  through nodes without options. `UnkeyedProgress` also checks the lines;
+  through nodes without options and without conditions: a loop that never
+  stops, whatever the state. It does not follow `Return` targets, and it
+  does not report loops that only state can stop or keep going;
+  `advance` stops those at its limit. `UnkeyedProgress` also checks the lines;
   `EmptyText` does not, since a line that resolves to no text is how a line
   depends on the state (#74).
 - Serde: `DialogueNodeDto` has `lines` (`DialogLineDto`) and `next`, both
