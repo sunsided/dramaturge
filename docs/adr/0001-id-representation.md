@@ -58,7 +58,12 @@ Option 2.
 - 0.3 (#76): the YAML shape is the dialogue shape of `dramaturge-syntax`
   (decision D3). Keys stay keys: node keys are the keys of the `nodes` map,
   and `go`, `next` and `start` name them. A number is still an error. See
-  `docs/migration-0.3-yaml.md`.
+  `docs/migration-0.3-yaml.md`. This supersedes the three bullets below
+  for 0.3: `YamlDialogueGraph` is removed (`load_yaml` returns
+  `LoadedDialogue`); entities are interned in the order the lowering meets
+  them (the player, `with`, then speakers and other keys), not sorted; and the
+  key `player` is the player (`SymbolTable::player`), not a declared
+  character. Ids are still not stable across content edits; only keys are.
 - `YamlDialogueGraph::to_model` returns `LoadedDialogue` instead of
   `DialogueGraph` (breaking).
 - Ids are assigned in interning order. Characters are interned first, sorted

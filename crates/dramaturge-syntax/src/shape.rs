@@ -69,8 +69,10 @@ fn key<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
     Key::deserialize(d).map(|k| k.0)
 }
 
+/// An optional key. An explicit null (`id:` with no value) is `None`, as
+/// a missing field is.
 fn opt_key<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
-    Key::deserialize(d).map(|k| Some(k.0))
+    Option::<Key>::deserialize(d).map(|k| k.map(|k| k.0))
 }
 
 /// `start` takes one key or a list of keys.
@@ -176,6 +178,15 @@ impl<C: Serialize, X: Serialize, E: Serialize, M: Serialize> Serialize
     for NodesOut<'_, C, X, E, M>
 {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        // A map can not hold a key twice. Refuse an AST with a duplicate
+        // node key, which `check` reports as an error too.
+        let mut seen = std::collections::HashSet::new();
+        if let Some(n) = self.0.iter().find(|n| !seen.insert(n.key.as_str())) {
+            return Err(serde::ser::Error::custom(format!(
+                "duplicate node key `{}`",
+                n.key
+            )));
+        }
         let mut map = s.serialize_map(Some(self.0.len()))?;
         for n in self.0 {
             map.serialize_entry(

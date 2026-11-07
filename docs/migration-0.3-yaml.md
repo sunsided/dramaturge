@@ -11,6 +11,9 @@ This page tells you how to change a 0.2 file. The example
 
 ## Before and after
 
+An excerpt: the nodes `mara.confession` and `orren.intro` are left out in
+both versions. A file that you load must define every node that `go` names.
+
 0.2:
 
 ```yaml
@@ -114,9 +117,12 @@ nodes:
 
 ## Conditions
 
+`when:` is a string. Put a condition in quotes when YAML would read it as
+another type: `when: "true"`, `when: "false"`.
+
 | 0.2 | 0.3 `when:` |
 |---|---|
-| `{ type: always }` | `true` |
+| `{ type: always }` | `"true"` (in quotes: a bare `true` is a YAML boolean, not a string) |
 | `{ type: fact_exists, fact: f }` | `exists(f)` |
 | `{ type: fact_equals, fact: f, value: v }` | `f == v` (`f` alone for `f == true`) |
 | `{ type: fact_at_least, fact: f, value: n }` | `f >= n` |
@@ -128,6 +134,10 @@ nodes:
 
 ## Other changes
 
+- `set` and `add` read the scope prefixes `player.`, `party.` and `world.`,
+  as conditions do. A 0.2 fact name that starts with one of these words and
+  a dot (`world.flag`) is now `flag` in that scope; rename it if it must
+  keep the full name.
 - The key `player` is the player: `SymbolTable::player()` (`@player`). In 0.2
   `player` was an ordinary character key. Look the player up with
   `symbols.entity(SymbolTable::PLAYER_KEY)`.

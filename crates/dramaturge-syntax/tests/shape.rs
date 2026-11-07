@@ -434,3 +434,91 @@ fn plain_notes_are_strings() {
     check!(d.notes == ["Mara is the clerk."]);
     check!(lower_plain(&d).is_ok());
 }
+
+// ------------------------------------------------------------- review fixes
+
+#[test]
+fn an_empty_say_needs_a_hint() {
+    for say in ["\"\"", "[]"] {
+        let yaml = format!(
+            "with: m\nstart: a\nnodes:\n  a:\n    say: Hi.\n    options:\n      - say: {say}\n"
+        );
+        let d: Dialogue = serde_saphyr::from_str(&yaml).unwrap();
+        let err = lower_plain(&d).unwrap_err();
+        assert!(let LowerError::Check(issues) = &err);
+        check!(issues[0].kind == IssueKind::NoLabel);
+        check!(issues[0].path == "nodes.a.options[0]");
+
+        let hinted = yaml.replace("      - say:", "      - hint: leave\n        say:");
+        let d: Dialogue = serde_saphyr::from_str(&hinted).unwrap();
+        let loaded = lower_plain(&d).unwrap();
+        check!(loaded.graph.nodes[0].options[0].text == DialogText::inline("Leave..."));
+    }
+}
+
+#[test]
+fn a_generated_option_key_can_not_collide_with_an_id() {
+    let yaml = r#"
+with: m
+start: a
+nodes:
+  a:
+    say: Hi.
+    options:
+      - { id: "b#0", say: "One.", go: b }
+  b:
+    say: Bye.
+    options:
+      - { say: "Two." }
+"#;
+    let d: Dialogue = serde_saphyr::from_str(yaml).unwrap();
+    let issues = check(&d);
+    check!(issues.iter().any(|i| i.kind == IssueKind::DuplicateOption
+        && i.path == "nodes.b.options[0]"
+        && i.message.contains("`b#0`")));
+}
+
+#[test]
+fn a_single_mode_fragment_takes_one_text() {
+    let yaml = r#"
+with: m
+start: a
+nodes:
+  a:
+    say:
+      - variants: ["One.", "Two."]
+    next: end
+"#;
+    let d: Dialogue = serde_saphyr::from_str(yaml).unwrap();
+    let err = lower_plain(&d).unwrap_err();
+    check!(err.to_string().contains("shows one text"), "{err}");
+    let cycle = yaml.replace(
+        "      - variants:",
+        "      - mode: cycle\n        variants:",
+    );
+    let d: Dialogue = serde_saphyr::from_str(&cycle).unwrap();
+    check!(lower_plain(&d).is_ok());
+}
+
+#[test]
+fn an_explicit_null_key_is_no_key() {
+    let yaml = "with: m\nstart: a\nnodes:\n  a:\n    speaker:\n    say: Hi.\n    options:\n      - { id: ~, say: Bye. }\n";
+    let d: Dialogue = serde_saphyr::from_str(yaml).unwrap();
+    check!(d.nodes[0].speaker.is_none());
+    check!(d.nodes[0].options[0].id.is_none());
+    let json: Dialogue = serde_json::from_str(
+        r#"{"with":"m","start":["a"],"nodes":{"a":{"speaker":null,"say":"Hi.","next":"end"}}}"#,
+    )
+    .unwrap();
+    check!(json.nodes[0].speaker.is_none());
+}
+
+#[test]
+fn a_duplicate_node_key_does_not_serialize() {
+    let d: Dialogue = Dialogue::new("m")
+        .with_start("a")
+        .with_node(dramaturge_syntax::Node::new("a", "One.".into()))
+        .with_node(dramaturge_syntax::Node::new("a", "Two.".into()));
+    let err = serde_json::to_string(&d).unwrap_err();
+    check!(err.to_string().contains("duplicate node key `a`"));
+}

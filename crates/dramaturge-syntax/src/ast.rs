@@ -5,7 +5,7 @@
 //! (`say`), more [`Line`]s with their own speakers, a `next` target, the
 //! [`Outcomes`] that apply on enter, and the player's [`Choice`]s.
 //!
-//! The AST is generic over three host payloads:
+//! The AST is generic over four host payloads:
 //!
 //! - `C`: a condition (`when`). Default: [`String`], in the
 //!   [default condition language](crate::condition).
@@ -329,11 +329,15 @@ impl Target {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Outcomes<E = Effect> {
-    /// Set facts: `{ met_mara: true }`. The default lowering reads a
-    /// `player.` prefix as the player scope, and all other names as the
-    /// world scope.
+    /// Set facts: `{ met_mara: true }`. The default lowering reads the
+    /// scope prefixes of the [condition language](crate::condition):
+    /// `player.gold` is `gold` in the player scope, `party.x` is `x` in the
+    /// party scope, and `world.x` is `x` in the world scope. A name without
+    /// one of these prefixes is a world fact with the full name, dots
+    /// included (`mara.met`).
     pub set: BTreeMap<String, Value>,
-    /// Add to integer facts: `{ visits: 1 }`.
+    /// Add to integer facts: `{ visits: 1 }`. The names take the same
+    /// scope prefixes as [`set`](Self::set).
     pub add: BTreeMap<String, i64>,
     /// Add to the relation of the player to the speaker of the node:
     /// `{ trust: 1 }`.

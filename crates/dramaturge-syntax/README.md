@@ -53,7 +53,7 @@ nodes:
 | `next` | node | The target when no option is available |
 | `options` | node | The choices of the player |
 | `go` | option | A node key, `end` (the default) or `back` |
-| `set`, `add` | node, option | Facts: `{ name: value }`, `{ name: delta }`; `player.` prefix for the player scope |
+| `set`, `add` | node, option | Facts: `{ name: value }`, `{ name: delta }`; prefixes `player.`, `party.`, `world.` for the scope (as in conditions) |
 | `relation` | node, option | Add to the relation of the player to the node's speaker |
 | `remember` | node, option | Memories that the node's speaker keeps |
 | `then` | node, option | Host effects. Plain dramaturge: `relation` and `custom` |

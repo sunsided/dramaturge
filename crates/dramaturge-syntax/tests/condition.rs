@@ -98,3 +98,28 @@ fn parse_keeps_the_structure() {
     check!(parse("player . gold >= 3").unwrap() == parse("player.gold >= 3").unwrap());
     assert!(let Expr::Remembers { .. } = parse("remembers ( mara , x )").unwrap());
 }
+
+#[test]
+fn string_escapes() {
+    let text = |src: &str| match parse(src).unwrap() {
+        Expr::Compare {
+            value: dramaturge_syntax::condition::Literal::Text(t),
+            ..
+        } => t,
+        other => panic!("{other:?}"),
+    };
+    check!(text(r#"a == "x\ny\t\"\\\u{e9}""#) == "x\ny\t\"\\\u{e9}");
+    let e = parse(r#"a == "\q""#).unwrap_err();
+    check!(e.message == "unknown escape `\\q`");
+    check!(e.range == (6..8));
+    check!(parse(r#"a == "\u{zz}""#).is_err());
+    check!(parse(r#"a == "\u{d800}""#).unwrap_err().message == "not a unicode character");
+}
+
+#[test]
+fn strict_comparisons_at_the_bounds_never_hold() {
+    check!(lower(&format!("gold > {}", i64::MAX)).0 == Condition::Never);
+    check!(lower(&format!("gold < {}", i64::MIN + 1)).0 != Condition::Never);
+    check!(lower(&format!("relation(trust) > {}", i32::MAX)).0 == Condition::Never);
+    check!(lower(&format!("relation(trust) < {}", i32::MIN)).0 == Condition::Never);
+}

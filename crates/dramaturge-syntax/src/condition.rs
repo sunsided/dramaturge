@@ -9,6 +9,7 @@
 //! | `met_mara` | the fact is `true` |
 //! | `gold >= 10`, `gold > 9`, `gold <= 3`, `gold < 4` | integer fact compare |
 //! | `name == "Ada"`, `met == false`, `gold != 0` | fact equals (or not) a value |
+//! | `"a\"b\n"` | string escapes: `\n`, `\t`, `\r`, `\0`, `\\`, `\"`, `\'`, `\u{..}` |
 //! | `exists(met_mara)` | the fact exists |
 //! | `player.gold >= 10` | a fact in the player scope (also `world.`, `party.`) |
 //! | `relation(trust) >= 3` | relation of the player to the speaker of the node |
@@ -220,20 +221,73 @@ fn lex(src: &str) -> Result<Vec<(Tok, Range<usize>)>, ParseError> {
             b'"' => {
                 let mut text = String::new();
                 let mut j = i + 1;
-                let mut chars = src[j..].char_indices();
+                let body = j;
+                let mut chars = src[body..].char_indices().peekable();
+                let unclosed = || ParseError::new("unclosed string", start..src.len());
                 loop {
                     match chars.next() {
-                        None => return Err(ParseError::new("unclosed string", start..src.len())),
+                        None => return Err(unclosed()),
                         Some((k, '"')) => {
-                            j += k + 1;
+                            j = body + k + 1;
                             break;
                         }
-                        Some((_, '\\')) => match chars.next() {
-                            Some((_, c)) => text.push(c),
-                            None => {
-                                return Err(ParseError::new("unclosed string", start..src.len()));
-                            }
-                        },
+                        Some((k, '\\')) => {
+                            let at = body + k;
+                            let escape = match chars.next() {
+                                None => return Err(unclosed()),
+                                Some((_, 'n')) => '\n',
+                                Some((_, 't')) => '\t',
+                                Some((_, 'r')) => '\r',
+                                Some((_, '0')) => '\0',
+                                Some((_, '\\')) => '\\',
+                                Some((_, '"')) => '"',
+                                Some((_, '\'')) => '\'',
+                                Some((_, 'u')) => {
+                                    let mut hex = String::new();
+                                    let mut end = at + 2;
+                                    if chars.next().map(|(_, c)| c) != Some('{') {
+                                        return Err(ParseError::new(
+                                            "expected `\\u{...}`",
+                                            at..end,
+                                        ));
+                                    }
+                                    loop {
+                                        match chars.next() {
+                                            Some((k, '}')) => {
+                                                end = body + k + 1;
+                                                break;
+                                            }
+                                            Some((k, c))
+                                                if c.is_ascii_hexdigit() && hex.len() < 6 =>
+                                            {
+                                                hex.push(c);
+                                                end = body + k + 1;
+                                            }
+                                            _ => {
+                                                return Err(ParseError::new(
+                                                    "expected `\\u{...}` with 1 to 6 hex digits",
+                                                    at..end,
+                                                ));
+                                            }
+                                        }
+                                    }
+                                    u32::from_str_radix(&hex, 16)
+                                        .ok()
+                                        .and_then(char::from_u32)
+                                        .ok_or_else(|| {
+                                            ParseError::new("not a unicode character", at..end)
+                                        })?
+                                }
+                                Some((k, c)) => {
+                                    let end = body + k + c.len_utf8();
+                                    return Err(ParseError::new(
+                                        format!("unknown escape `\\{c}`"),
+                                        at..end,
+                                    ));
+                                }
+                            };
+                            text.push(escape);
+                        }
                         Some((_, c)) => text.push(c),
                     }
                 }
@@ -541,9 +595,9 @@ impl Expr {
                     };
                     match op {
                         Op::Ge => at(true, n),
-                        Op::Gt => at(true, n.saturating_add(1)),
+                        Op::Gt => n.checked_add(1).map_or(Condition::Never, |v| at(true, v)),
                         Op::Le => at(false, n),
-                        Op::Lt => at(false, n.saturating_sub(1)),
+                        Op::Lt => n.checked_sub(1).map_or(Condition::Never, |v| at(false, v)),
                         Op::Eq => Condition::All(vec![at(true, n), at(false, n)]),
                         Op::Ne => Condition::Not(Box::new(Condition::All(vec![
                             at(true, n),
@@ -580,20 +634,27 @@ fn fact_compare(fact: &Fact, op: Op, value: &Literal) -> Condition {
             fact_id,
             value: n,
         },
-        Op::Gt => Condition::FactAtLeast {
-            scope,
-            fact_id,
-            value: n.saturating_add(1),
+        // `x > MAX` and `x < MIN` never hold.
+        Op::Gt => match n.checked_add(1) {
+            Some(value) => Condition::FactAtLeast {
+                scope,
+                fact_id,
+                value,
+            },
+            None => Condition::Never,
         },
         Op::Le => Condition::FactAtMost {
             scope,
             fact_id,
             value: n,
         },
-        Op::Lt => Condition::FactAtMost {
-            scope,
-            fact_id,
-            value: n.saturating_sub(1),
+        Op::Lt => match n.checked_sub(1) {
+            Some(value) => Condition::FactAtMost {
+                scope,
+                fact_id,
+                value,
+            },
+            None => Condition::Never,
         },
     }
 }

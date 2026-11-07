@@ -42,7 +42,7 @@ fn the_token_form_reads_the_same_ast() {
     check!(intro.outcomes.set["player.gold"] == Value::Int(-5));
     check!(intro.options[0].go == Target::Node("names".into()));
     check!(intro.options[0].outcomes.relation["trust"] == 1);
-    check!(intro.options[1].when.as_deref() == Some("relation (trust) >= 1"));
+    check!(intro.options[1].when.as_deref() == Some("relation ( trust ) >= 1"));
     check!(intro.options[1].go == Target::Back);
     check!(intro.options[2].id.as_deref() == Some("bye"));
     assert!(let [Effect::Custom { key, args }] = intro.options[2].outcomes.then.as_slice());
@@ -127,4 +127,51 @@ fn a_node_without_a_line_says_how_to_write_one() {
     );
     // The suggested line parses.
     check!(messages("with mara start a { a { mara: \"Hi.\"; -> end; } }").is_empty());
+}
+
+#[test]
+fn a_key_like_a_keyword_is_a_line() {
+    let s = parse(
+        "with mara start a { a { mara: \"Hi.\"; then: \"I am Then.\"; remember.me: \"Me too.\"; -> end; } }",
+    )
+    .unwrap();
+    s.check(true).unwrap();
+    let a = s.dialogue.node("a").unwrap();
+    let speakers: Vec<_> = a.lines.iter().map(|l| l.speaker.as_str()).collect();
+    check!(speakers == ["then", "remember.me"]);
+    check!(a.outcomes.is_empty());
+}
+
+#[test]
+fn a_promoted_first_line_keeps_its_speaker() {
+    let m = messages("with mara start a { a { speaker mara; player: \"Hello.\"; -> end; } }");
+    check!(
+        m[0].contains("has `speaker` but no line of its own"),
+        "{m:?}"
+    );
+
+    let s = parse("with mara start a {\n a {\n  player: \"Hello.\";\n  -> end;\n } }").unwrap();
+    check!(s.dialogue.nodes[0].speaker.as_deref() == Some("player"));
+    let say = s.span(&Place::NodeSay(0));
+    check!(
+        (say.start().line, say.start().column) == (3, 10),
+        "the text, not the key"
+    );
+    let speaker = s.span(&Place::NodeSpeaker(0));
+    check!((speaker.start().line, speaker.start().column) == (3, 2));
+}
+
+#[test]
+fn a_condition_error_points_at_its_token() {
+    let err = parse("with mara start a { a: \"Hi.\" {\n \"Pay.\" when gold >= lots => end;\n } }")
+        .unwrap_err();
+    let span = err.span();
+    check!(
+        (span.start().line, span.start().column) == (2, 21),
+        "at `lots`"
+    );
+    let err = parse("with mara start a { a: \"Hi.\" {\n \"Pay.\" when gold >= => end;\n } }")
+        .unwrap_err();
+    let at = err.span().start();
+    check!(at.column == 19, "at the last token, `=`");
 }

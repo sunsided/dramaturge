@@ -109,21 +109,23 @@ impl From<serde_saphyr::Error> for YamlError {
 
 /// Reads a dialogue from YAML.
 ///
-/// `C`, `X` and `E` are the condition, text and effect payloads. For plain
-/// dramaturge, use `from_yaml::<String, Text, Effect>` (the defaults of
-/// [`Dialogue`]): `let d: Dialogue = from_yaml(yaml)?;`.
-pub fn from_yaml<C, X, E>(yaml: &str) -> Result<Dialogue<C, X, E>, YamlError>
+/// `C`, `X`, `E` and `M` are the condition, text, effect and note
+/// payloads. For plain dramaturge, use the defaults of [`Dialogue`]:
+/// `let d: Dialogue = from_yaml(yaml)?;`. A host with its own note type
+/// (for example loremaster's `Note`) sets `M`.
+pub fn from_yaml<C, X, E, M>(yaml: &str) -> Result<Dialogue<C, X, E, M>, YamlError>
 where
     C: DeserializeOwned,
     X: DeserializeOwned,
     E: DeserializeOwned,
+    M: DeserializeOwned,
 {
     serde_saphyr::from_str(yaml).map_err(YamlError::from)
 }
 
 /// Writes a dialogue as YAML.
-pub fn to_yaml<C: Serialize, X: Serialize, E: Serialize>(
-    dialogue: &Dialogue<C, X, E>,
+pub fn to_yaml<C: Serialize, X: Serialize, E: Serialize, M: Serialize>(
+    dialogue: &Dialogue<C, X, E, M>,
 ) -> Result<String, YamlError> {
     serde_saphyr::to_string(dialogue).map_err(|e| YamlError {
         message: e.to_string(),
@@ -257,7 +259,7 @@ nodes:
 
     #[test]
     fn test_yaml_error_has_line_and_column() {
-        let err = from_yaml::<String, dramaturge_syntax::Text, dramaturge_syntax::Effect>(
+        let err = from_yaml::<String, dramaturge_syntax::Text, dramaturge_syntax::Effect, String>(
             "with: mara\nstart: [a\nnodes: {}\n",
         )
         .unwrap_err();
@@ -271,5 +273,25 @@ nodes:
         let err = load_yaml(&yaml).unwrap_err();
         assert!(let LoadError::Yaml(e) = &err);
         check!(e.message().contains("nxet"), "{e}");
+    }
+
+    #[test]
+    fn test_host_note_type() {
+        #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+        struct Note {
+            text: String,
+            #[serde(default)]
+            todo: bool,
+        }
+        let yaml = EXCHANGE.replace(
+            "with: mara\n",
+            "with: mara\nnotes:\n  - { text: \"Check the pacing.\", todo: true }\n",
+        );
+        let d: Dialogue<String, dramaturge_syntax::Text, dramaturge_syntax::Effect, Note> =
+            from_yaml(&yaml).unwrap();
+        check!(d.notes[0].todo);
+        let again: Dialogue<String, dramaturge_syntax::Text, dramaturge_syntax::Effect, Note> =
+            from_yaml(&to_yaml(&d).unwrap()).unwrap();
+        check!(again == d);
     }
 }

@@ -98,7 +98,8 @@ fn target(p: &TokenStream, t: &Target) -> TokenStream {
             quote!(#p::Target::Node(#key))
         }
         Target::Back => quote!(#p::Target::Back),
-        _ => quote!(#p::Target::End),
+        Target::End => quote!(#p::Target::End),
+        _ => quote!(::core::compile_error!("dialogue!: unknown target")),
     }
 }
 

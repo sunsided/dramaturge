@@ -124,14 +124,16 @@ pub enum IssueKind {
     DuplicateNode,
     /// A node has the key `end` or `back`.
     ReservedKey,
-    /// Two options have the same `id`.
+    /// Two options have the same key (the `id`, or `<node>#<index>`).
     DuplicateOption,
     /// `start`, `go` or `next` names a node that does not exist.
     UnknownTarget,
     /// A node has no options and no `next`: the talk ends there without
     /// saying so.
     NoWayOn,
-    /// An option has no line and no hint.
+    /// An option has no line (or an empty line) and no hint. [`check`]
+    /// sees only a missing `say`; [`lower`](crate::lower()) also reports
+    /// a `say` that lowers to empty text.
     NoLabel,
 }
 
@@ -166,7 +168,8 @@ impl fmt::Display for Issue {
 ///
 /// - `start` is empty, or names a node that does not exist.
 /// - Two nodes have the same key, or a node has the key `end` or `back`.
-/// - Two options have the same `id`.
+/// - Two options have the same key: the `id`, or `<node>#<index>` for an
+///   option without `id`.
 /// - A `go` or `next` names a node that does not exist.
 /// - An option has no `say` and no `hint`.
 ///
@@ -230,7 +233,7 @@ pub fn check<C, X, E, M>(dialogue: &Dialogue<C, X, E, M>) -> Vec<Issue> {
         Target::Node(key) if !keys.contains(key.as_str()) => Some(key.clone()),
         _ => None,
     };
-    let mut option_ids = HashSet::new();
+    let mut option_keys = HashSet::new();
     for (n, node) in dialogue.nodes.iter().enumerate() {
         if let Some(key) = node.next.as_ref().and_then(unknown) {
             push(
@@ -269,14 +272,24 @@ pub fn check<C, X, E, M>(dialogue: &Dialogue<C, X, E, M>) -> Vec<Issue> {
                     "the option has no `say` and no `hint`".into(),
                 );
             }
-            if let Some(id) = &option.id
-                && !option_ids.insert(id.as_str())
-            {
+            // The key that the lowering interns: the `id`, or `<node>#<index>`.
+            let key = option
+                .id
+                .clone()
+                .unwrap_or_else(|| format!("{}#{o}", node.key));
+            if !option_keys.insert(key.clone()) {
                 push(
                     Severity::Error,
                     IssueKind::DuplicateOption,
-                    Place::OptionId(n, o),
-                    format!("duplicate option id `{id}`"),
+                    if option.id.is_some() {
+                        Place::OptionId(n, o)
+                    } else {
+                        Place::Option(n, o)
+                    },
+                    format!(
+                        "duplicate option key `{key}` (an option without `id` has the key \
+                         `<node>#<index>`)"
+                    ),
                 );
             }
         }

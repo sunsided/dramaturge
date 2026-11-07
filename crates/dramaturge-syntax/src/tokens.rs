@@ -42,7 +42,10 @@
 //! value     = "true" | "false" | ["-"] int | string
 //! ```
 //!
-//! A node without `: text` takes its first line as its own line. The
+//! A statement `key: text;` is always a line, also when the key is a
+//! word such as `when`, `then` or `remember`. A node without `: text`
+//! takes its first line as its own line, with the speaker of that line;
+//! such a node can not also have `speaker`. The
 //! [`ParseHost`] reads the payloads: conditions, text and effects.
 //! [`Plain`] reads string literals as text, the tokens of a condition as
 //! the [default condition language](crate::condition) (or a string literal
@@ -90,10 +93,14 @@ impl ParseHost for Plain {
     type Effect = Effect;
 
     fn condition(&mut self, tokens: TokenStream, span: Span) -> syn::Result<String> {
-        let source = condition_source(tokens);
-        crate::condition::parse(&source)
-            .map_err(|e| syn::Error::new(span, format!("in the condition `{source}`: {e}")))?;
-        Ok(source)
+        let source = ConditionSource::new(tokens, span);
+        crate::condition::parse(&source.text).map_err(|e| {
+            syn::Error::new(
+                source.span_of(&e.range),
+                format!("in the condition `{}`: {e}", source.text),
+            )
+        })?;
+        Ok(source.text)
     }
 
     fn text(&mut self, input: ParseStream<'_>) -> syn::Result<Text> {
@@ -102,7 +109,7 @@ impl ParseHost for Plain {
     }
 
     fn peek_effect(&self, input: ParseStream<'_>) -> bool {
-        peek_word(input, "then")
+        peek_keyword(input, "then")
     }
 
     fn effect(&mut self, input: ParseStream<'_>) -> syn::Result<Effect> {
@@ -148,15 +155,102 @@ impl ParseHost for Plain {
 }
 
 /// The text of a condition: the value of a single string literal, or the
-/// tokens as text.
+/// tokens as text (see [`ConditionSource`]).
 pub fn condition_source(tokens: TokenStream) -> String {
-    let mut iter = tokens.clone().into_iter();
-    if let (Some(TokenTree::Literal(lit)), None) = (iter.next(), iter.next())
-        && let Ok(s) = syn::parse2::<LitStr>(TokenTree::Literal(lit).into())
-    {
-        return s.value();
+    ConditionSource::new(tokens, Span::call_site()).text
+}
+
+/// The text of a condition, with the span of each token in it, so a parse
+/// error (a byte range in the text) points at its token.
+#[derive(Debug, Clone)]
+pub struct ConditionSource {
+    /// The condition text: the value of a single string literal, or the
+    /// tokens joined with spaces (no space after a joint punctuation, so
+    /// `>=` stays one operator).
+    pub text: String,
+    pieces: Vec<(std::ops::Range<usize>, Span)>,
+    span: Span,
+}
+
+impl ConditionSource {
+    /// Builds the text of `tokens`. `span` is the span for errors that no
+    /// token covers.
+    pub fn new(tokens: TokenStream, span: Span) -> Self {
+        let mut iter = tokens.clone().into_iter();
+        if let (Some(TokenTree::Literal(lit)), None) = (iter.next(), iter.next()) {
+            let lit_span = lit.span();
+            if let Ok(s) = syn::parse2::<LitStr>(TokenTree::Literal(lit).into()) {
+                return Self {
+                    text: s.value(),
+                    pieces: Vec::new(),
+                    span: lit_span,
+                };
+            }
+        }
+        let mut out = Self {
+            text: String::new(),
+            pieces: Vec::new(),
+            span,
+        };
+        let mut glue = false;
+        out.walk(tokens, &mut glue);
+        out
     }
-    tokens.to_string()
+
+    fn push(&mut self, text: &str, span: Span, glue: &mut bool) {
+        if !self.text.is_empty() && !*glue {
+            self.text.push(' ');
+        }
+        let start = self.text.len();
+        self.text.push_str(text);
+        self.pieces.push((start..self.text.len(), span));
+        *glue = false;
+    }
+
+    fn walk(&mut self, tokens: TokenStream, glue: &mut bool) {
+        use proc_macro2::{Delimiter, Spacing};
+        for tt in tokens {
+            match tt {
+                TokenTree::Group(g) => {
+                    let (open, close) = match g.delimiter() {
+                        Delimiter::Parenthesis => ("(", ")"),
+                        Delimiter::Bracket => ("[", "]"),
+                        Delimiter::Brace => ("{", "}"),
+                        Delimiter::None => ("", ""),
+                    };
+                    if !open.is_empty() {
+                        self.push(open, g.span_open(), glue);
+                    }
+                    self.walk(g.stream(), glue);
+                    if !close.is_empty() {
+                        self.push(close, g.span_close(), glue);
+                    }
+                }
+                TokenTree::Punct(p) => {
+                    self.push(&p.as_char().to_string(), p.span(), glue);
+                    *glue = p.spacing() == Spacing::Joint;
+                }
+                TokenTree::Ident(i) => self.push(&i.to_string(), i.span(), glue),
+                TokenTree::Literal(l) => self.push(&l.to_string(), l.span(), glue),
+            }
+        }
+    }
+
+    /// Returns the span of the first token that overlaps `range`, or the
+    /// span of the condition.
+    pub fn span_of(&self, range: &std::ops::Range<usize>) -> Span {
+        self.pieces
+            .iter()
+            .find(|(r, _)| r.end > range.start && (r.start < range.end.max(range.start + 1)))
+            // An error at the end of the text ("expected a number") points
+            // at the last token.
+            .or_else(|| {
+                self.pieces
+                    .last()
+                    .filter(|_| range.start >= self.text.len())
+            })
+            .map_or(self.span, |(_, span)| *span)
+    }
 }
 
 /// A dialogue with the span of each part.
@@ -230,11 +324,15 @@ fn peek_line(input: ParseStream<'_>) -> bool {
     parse_key(&fork).is_ok() && fork.peek(Token![:]) && !fork.peek(Token![::])
 }
 
-/// `true` if the next word is `word` and no `:` follows (so it is not a
-/// line spoken by a character with that key).
+/// `true` if the next key is exactly `word` (not a dotted key that starts
+/// with it) and no `:` follows (so it is not a line spoken by a character
+/// with that key).
 fn peek_keyword(input: ParseStream<'_>, word: &str) -> bool {
+    if input.peek(LitStr) {
+        return false;
+    }
     let fork = input.fork();
-    fork.call(Ident::parse_any).is_ok_and(|i| i == word) && !fork.peek(Token![:])
+    parse_key(&fork).is_ok_and(|(key, _)| key == word) && !fork.peek(Token![:])
 }
 
 /// Reads a key: `ident(.ident)*` or a string literal.
@@ -403,6 +501,7 @@ impl<P: ParseHost> Ctx<'_, P> {
         let mut speaker = None;
         let mut when = None;
         let mut lines: Vec<Line<P::Text>> = Vec::new();
+        let mut line_say_spans = Vec::new();
         let mut next = None;
         let mut outcomes = Outcomes::default();
         let mut options = Vec::new();
@@ -412,7 +511,17 @@ impl<P: ParseHost> Ctx<'_, P> {
             let body;
             braced!(body in input);
             while !body.is_empty() {
-                if body.peek(Token![->]) {
+                // `key: text;` is always a line, also for a speaker key
+                // such as `then` or `when`, so test it first.
+                if peek_line(&body) {
+                    let (who, span) = parse_key(&body)?;
+                    body.parse::<Token![:]>()?;
+                    let say_span = body.span();
+                    let text = self.host.text(&body)?;
+                    self.spans.insert(Place::Line(n, lines.len()), span);
+                    line_say_spans.push(say_span);
+                    lines.push(Line::new(who, text));
+                } else if body.peek(Token![->]) {
                     body.parse::<Token![->]>()?;
                     let (target, span) = parse_target(&body)?;
                     self.spans.insert(Place::Next(n), span);
@@ -428,12 +537,6 @@ impl<P: ParseHost> Ctx<'_, P> {
                     self.spans.insert(Place::NodeSpeaker(n), span);
                     speaker = Some(who);
                 } else if self.outcome(&body, &mut outcomes, &|o| Place::NodeOutcome(n, o))? {
-                } else if peek_line(&body) {
-                    let (who, span) = parse_key(&body)?;
-                    body.parse::<Token![:]>()?;
-                    let text = self.host.text(&body)?;
-                    self.spans.insert(Place::Line(n, lines.len()), span);
-                    lines.push(Line::new(who, text));
                 } else {
                     let o = options.len();
                     options.push(self.option(&body, n, o)?);
@@ -445,6 +548,21 @@ impl<P: ParseHost> Ctx<'_, P> {
         let say = match say {
             Some(say) => say,
             None if !lines.is_empty() => {
+                // The first line becomes the node's line, with its own
+                // speaker. A `speaker` statement would contradict it.
+                if speaker.is_some() {
+                    return Err(syn::Error::new(
+                        self.spans
+                            .get(&Place::NodeSpeaker(n))
+                            .copied()
+                            .unwrap_or(key_span),
+                        format!(
+                            "node `{key}` has `speaker` but no line of its own; its first \
+                             line names its own speaker. Write `{key}: \"...\"` for the \
+                             node's line, or remove `speaker`"
+                        ),
+                    ));
+                }
                 let first = lines.remove(0);
                 // Line indices move down by one.
                 let mut moved = HashMap::new();
@@ -452,7 +570,7 @@ impl<P: ParseHost> Ctx<'_, P> {
                     match place {
                         Place::Line(m, 0) if m == n => {
                             moved.insert(Place::NodeSpeaker(n), span);
-                            moved.insert(Place::NodeSay(n), span);
+                            moved.insert(Place::NodeSay(n), line_say_spans[0]);
                         }
                         Place::Line(m, l) if m == n => {
                             moved.insert(Place::Line(m, l - 1), span);
@@ -463,7 +581,7 @@ impl<P: ParseHost> Ctx<'_, P> {
                     }
                 }
                 self.spans = moved;
-                speaker = speaker.or(Some(first.speaker));
+                speaker = Some(first.speaker);
                 first.say
             }
             None => {

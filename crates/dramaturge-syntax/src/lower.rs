@@ -10,7 +10,7 @@
 //! [default condition language](crate::condition), [`Text`] and [`Effect`].
 
 use crate::ast::{Dialogue, Effect, Fragment, FragmentMode, Hint, Target, Text, Value};
-use crate::check::{Issue, OutcomePlace, Place, Severity, check};
+use crate::check::{Issue, IssueKind, OutcomePlace, Place, Severity, check};
 use crate::condition::{self, ParseError};
 use dramaturge_model::{
     CharacterId, Condition, CustomDialogTag, DialogLine, DialogTarget, DialogText, DialogueGraph,
@@ -71,8 +71,9 @@ pub trait Lower<C, X, E> {
         then: &[E],
     ) -> Result<Vec<Outcome<Self::Host>>, Self::Error>;
 
-    /// Lowers one `set` entry. The default sets the fact in the world
-    /// scope, or in the player scope for a `player.` prefix.
+    /// Lowers one `set` entry. The default reads the scope prefixes
+    /// `player.`, `party.` and `world.` (see [`Outcomes::set`](crate::Outcomes::set));
+    /// other names are world facts.
     fn set(
         &mut self,
         cx: &mut Cx<'_>,
@@ -329,17 +330,36 @@ pub fn lower<C, X, E, M, L: Lower<C, X, E>>(
             };
             let option_id = cx.symbols.intern_option(&key);
             let hint = choice.hint.as_ref().map(hint_to_model);
-            let text = match &choice.say {
+            let said = match &choice.say {
                 Some(say) => {
                     cx.place = Place::Option(n, o);
-                    host.text(&mut cx, say)
-                        .map_err(|e| fail(Place::Option(n, o), e))?
+                    Some(
+                        host.text(&mut cx, say)
+                            .map_err(|e| fail(Place::Option(n, o), e))?,
+                    )
                 }
-                None => DialogText::Inline(
-                    hint.as_ref()
-                        .map(NavigationHint::default_text)
-                        .unwrap_or_default(),
-                ),
+                None => None,
+            };
+            // An empty line (`say: ""`, `say: []`) is no label: the hint
+            // gives it, as for a missing `say`.
+            let empty = |t: &DialogText<L::Text>| match t {
+                DialogText::Inline(s) => s.is_empty(),
+                DialogText::Fragments(f) => f.is_empty(),
+                _ => false,
+            };
+            let text = match (said, &hint) {
+                (Some(text), _) if !empty(&text) => text,
+                (_, Some(hint)) => DialogText::Inline(hint.default_text()),
+                (_, None) => {
+                    let place = Place::Option(n, o);
+                    return Err(LowerError::Check(vec![Issue {
+                        severity: Severity::Error,
+                        kind: IssueKind::NoLabel,
+                        path: place.path(dialogue),
+                        place,
+                        message: "the option has an empty `say` and no `hint`".into(),
+                    }]));
+                }
             };
             let to = target(&mut cx, &choice.go);
             let mut option = DialogueOption::typed(option_id.0, text, to, node_id);
@@ -472,6 +492,18 @@ fn fragment<T>(
     if f.variants.is_empty() {
         return Err(ParseError {
             message: "a fragment needs `text` or `variants`".into(),
+            range: 0..0,
+        });
+    }
+    let single = matches!(
+        f.mode,
+        FragmentMode::Always | FragmentMode::FirstTime | FragmentMode::Once
+    );
+    if single && f.variants.len() > 1 {
+        return Err(ParseError {
+            message: "this fragment mode shows one text; use `variants` only with \
+                      `cycle`, `shuffle` or `sticky`"
+                .into(),
             range: 0..0,
         });
     }
