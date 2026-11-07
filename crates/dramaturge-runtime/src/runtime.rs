@@ -260,9 +260,11 @@ mod tests {
             dramaturge_model::DialogueNodeId::new(1),
         );
         option.outcomes.push(dramaturge_model::Outcome::Host(()));
-        rt.choose_option(&option, &mut state);
-        // Only the DialogOptionChosen event.
+        let target = rt.choose_option(&option, &mut state);
+        check!(target == DialogTarget::End);
+        // Only the DialogOptionChosen event; the host outcome changes nothing.
         check!(state.events().len() == 1);
+        check!(let dramaturge_model::EventKind::DialogOptionChosen { .. } = &state.events()[0].kind);
     }
 
     #[test]
