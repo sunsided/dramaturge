@@ -223,6 +223,9 @@ pub enum Verdict { Won, Shown, Lost, TupleMismatch, ConditionFalse, Exhausted, E
 `TextTypes` with `Leaf = DialogText`, `Cond = Condition`, `Learn = Fact`,
 `Actor = CharacterId` and `Topic = Arc<str>`. `Condition` gets a variant
 `SeenBy(CharacterId)` (non-breaking: `Condition` is `#[non_exhaustive]`).
+`ConditionDto` in `dramaturge-serde` needs the same variant and the mapping
+in both directions. Without it, the conversion reaches its
+`unknown_variant("Condition")` arm and panics on a `SeenBy` condition.
 `DefaultJudge { evaluator, state }` walks `All`, `Any` and `Not`, answers
 `SeenBy` from the query, and gives every other test to the
 `ConditionEvaluator`. A `ConditionEvaluator` alone has no perceiver, so it
