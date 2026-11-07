@@ -47,6 +47,10 @@
 //!     next: mara.names
 //! ```
 //!
+//! YAML has no `Return` target (for `next` and for option targets): only
+//! a node key or `end`. Set `DialogTarget::Return` in the model after
+//! loading.
+//!
 //! # Host outcomes
 //!
 //! The YAML format has no host outcomes
@@ -311,6 +315,12 @@ pub struct YamlNode {
     pub lines: Vec<YamlLine>,
     /// Where the talk goes on without a choice (`DialogueNode::next`): a
     /// node key, or the special value `end`.
+    ///
+    /// YAML has no `Return` target, for `next` and for option targets
+    /// alike: a keyword such as `return` or `back` would take a name that a
+    /// node can have. A value that names no node loads as a node key, and
+    /// the validator reports it as `MissingTarget`. A host that needs
+    /// `Return` sets `next` in the model after loading.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next: Option<YamlKey>,
 }

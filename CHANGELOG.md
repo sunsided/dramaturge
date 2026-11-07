@@ -88,7 +88,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 - Serde: `DialogueNodeDto` has `lines` (`DialogLineDto`) and `next`, both
   left out when empty; older DTOs still load. YAML: a node has `lines`
   (`- { speaker: player, text: "..." }`, text as a string or fragments) and
-  `next` (a node key or `end`) (#74).
+  `next` (a node key or `end`). YAML has no `Return` target, as for option
+  targets: a keyword would take a name that a node can have (#74).
 - Example `exchange`: a scripted exchange that runs to a choice (#74).
 
 ### Changed
