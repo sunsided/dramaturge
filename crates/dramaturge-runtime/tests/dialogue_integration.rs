@@ -18,6 +18,8 @@ fn make_node(id: u64, options: Vec<DialogueOption>) -> DialogueNode {
         conditions: vec![],
         outcomes_on_enter: vec![],
         options,
+        lines: vec![],
+        next: None,
     }
 }
 

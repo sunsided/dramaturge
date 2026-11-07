@@ -3,15 +3,15 @@
 use assert2::check;
 use dramaturge_model::{
     AlignmentAxisId, AlignmentPoleId, CharacterId, Condition, Confidence, CustomDialogTag,
-    DialogIntentions, DialogTarget, DialogText, DialogueGraph, DialogueNode, DialogueNodeId,
-    DialogueOption, DialogueOptionId, EntityId, EventKind, Fact, FactId, FactScope, FactValue,
-    FragmentMode, Intention, Memory, MemoryId, MemoryQuery, MemoryTag, NavigationHint, Outcome,
-    RelationshipAxisId, SymbolTable, TextFragment,
+    DialogIntentions, DialogLine, DialogTarget, DialogText, DialogueGraph, DialogueNode,
+    DialogueNodeId, DialogueOption, DialogueOptionId, EntityId, EventKind, Fact, FactId, FactScope,
+    FactValue, FragmentMode, Intention, Memory, MemoryId, MemoryQuery, MemoryTag, NavigationHint,
+    Outcome, RelationshipAxisId, SymbolTable, TextFragment,
 };
 use dramaturge_runtime::{DialogCursor, DialogWorldState, FragmentProgress, TextProgress};
 use dramaturge_serde::dto::{
-    ConditionDto, DialogCursorDto, DialogTextDto, DialogueGraphDto, IntoModel, OutcomeDto,
-    TextProgressDto, WorldStateDto,
+    ConditionDto, DialogCursorDto, DialogTextDto, DialogueGraphDto, DialogueNodeDto, IntoModel,
+    OutcomeDto, TextProgressDto, WorldStateDto,
 };
 use dramaturge_serde::save::{OrphanedKey, SavedDialogCursor, SavedWorldState, SymbolKind};
 use proptest::collection::vec;
@@ -338,15 +338,22 @@ fn node() -> impl Strategy<Value = DialogueNode> {
             vec(condition(), 0..2),
             vec(outcome(), 0..2),
             vec(option(id), 0..3),
+            vec((entity(), text()), 0..3),
+            proptest::option::of(target()),
         )
             .prop_map(
-                move |(speaker, text, conditions, outcomes, options)| DialogueNode {
+                move |(speaker, text, conditions, outcomes, options, lines, next)| DialogueNode {
                     id: DialogueNodeId::new(id),
                     speaker: CharacterId::new(speaker),
                     text,
                     conditions,
                     outcomes_on_enter: outcomes,
                     options,
+                    lines: lines
+                        .into_iter()
+                        .map(|(speaker, text)| DialogLine::new(CharacterId::new(speaker), text))
+                        .collect(),
+                    next,
                 },
             )
     })
@@ -600,6 +607,32 @@ fn with_modules_take_a_host_outcome_type() {
     check!(back.graph == content.graph);
     check!(back.on_leave == content.on_leave);
     check!(back.plain == content.plain);
+}
+
+#[test]
+fn lines_and_next_in_the_node_dto() {
+    let mara = CharacterId::new(EntityId::new(1));
+    let player = CharacterId::new(EntityId::new(2));
+    let node = DialogueNode::new(1, mara, DialogText::inline("Sit."))
+        .with_line(player, DialogText::inline("Who are you?"))
+        .with_next(DialogTarget::node(2));
+    let json = serde_json::to_string(&DialogueNodeDto::from(&node)).unwrap();
+    check!(
+        json.ends_with(
+            r#""lines":[{"speaker":2,"text":{"inline":"Who are you?"}}],"next":{"node":2}}"#
+        ),
+        "{json}"
+    );
+    let back: DialogueNodeDto = serde_json::from_str(&json).unwrap();
+    check!(back.into_model() == node);
+
+    // A node without lines and next writes neither, and a DTO without them
+    // (written before 0.3) still loads.
+    let plain = DialogueNode::new(2, mara, DialogText::inline("Hi."));
+    let json = serde_json::to_string(&DialogueNodeDto::from(&plain)).unwrap();
+    check!(json == r#"{"id":2,"speaker":1,"text":{"inline":"Hi."}}"#);
+    let back: DialogueNodeDto = serde_json::from_str(&json).unwrap();
+    check!(back.into_model() == plain);
 }
 
 #[test]

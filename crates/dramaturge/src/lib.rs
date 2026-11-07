@@ -54,6 +54,10 @@
 //! - **Host outcomes** — put typed host effects in `Outcome::Host(H)`
 //!   (`Outcome<H>`, `DialogueGraph<H>`; `H` defaults to `()`) and apply
 //!   them with a [`HostHandler`] on the same handler type.
+//! - **Scripted exchanges** — give a node more [`DialogLine`]s with their
+//!   own speakers and a `next` target; [`DialogueRuntime::advance`] enters
+//!   such nodes one after the other until a node offers a choice. See the
+//!   `exchange` example.
 //! - **Host text** — put text in your own format (for example compiled
 //!   markup) in `DialogText::Host(T)` (`DialogText<T>`,
 //!   `DialogueGraph<H, T>`; `T` defaults to `()`). `resolve_text` returns
@@ -74,18 +78,18 @@
 pub use dramaturge_model::{
     AlignmentAxis, AlignmentAxisId, AlignmentPole, AlignmentPoleId, AlignmentScore, Character,
     CharacterId, CharacterKey, CharacterTrait, Condition, Confidence, CustomDialogTag,
-    DialogIntentions, DialogTag, DialogTagKind, DialogTarget, DialogText, DialogueGraph,
-    DialogueNode, DialogueNodeId, DialogueOption, DialogueOptionId, EntityId, Event, EventContext,
-    EventId, EventKind, Fact, FactId, FactScope, FactValue, FragmentMode, Intention, Memory,
-    MemoryId, MemoryQuery, MemoryTag, Outcome, RelationshipAxisId, RelationshipScore, ScopedFact,
-    SymbolTable, TextFragment,
+    DialogIntentions, DialogLine, DialogTag, DialogTagKind, DialogTarget, DialogText,
+    DialogueGraph, DialogueNode, DialogueNodeId, DialogueOption, DialogueOptionId, EntityId, Event,
+    EventContext, EventId, EventKind, Fact, FactId, FactScope, FactValue, FragmentMode, Intention,
+    Memory, MemoryId, MemoryQuery, MemoryTag, Outcome, RelationshipAxisId, RelationshipScore,
+    ScopedFact, SymbolTable, TextFragment,
 };
 pub use dramaturge_runtime::{
-    ConditionEvaluator, CustomHandler, DefaultConditionEvaluator, DefaultOutcomeApplier,
-    DefaultRuntime, DialogCursor, DialogWorldState, DialogueRuntime, EnterResult,
-    EvaluationContext, EvaluationResult, FragmentProgress, HasDialogWorldState, HostHandler,
-    NarrativeState, NoCustom, OutcomeApplier, ResolvedPiece, ResolvedText, SplitMix64,
-    TextProgress, TextRng, resolve_text, select_entry,
+    ADVANCE_LIMIT, Advance, AdvanceStop, ConditionEvaluator, CustomHandler,
+    DefaultConditionEvaluator, DefaultOutcomeApplier, DefaultRuntime, DialogCursor,
+    DialogWorldState, DialogueRuntime, EnterResult, EvaluationContext, EvaluationResult,
+    FragmentProgress, HasDialogWorldState, HostHandler, NarrativeState, NoCustom, OutcomeApplier,
+    ResolvedPiece, ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text, select_entry,
 };
 
 #[cfg(test)]

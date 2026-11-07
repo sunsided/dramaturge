@@ -49,6 +49,12 @@ assert!(evaluator.evaluate(&condition, &world));
 cargo run -p dramaturge --example the_broken_seal
 ```
 
+[`exchange`](crates/dramaturge/examples/exchange.rs) plays a scripted exchange: nodes with lines for more than one speaker, which continue without a choice until the player has one. Run it with:
+
+```bash
+cargo run -p dramaturge --example exchange
+```
+
 ## Workspace Layout
 
 | Crate | Purpose |

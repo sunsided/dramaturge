@@ -1757,6 +1757,36 @@ impl<H, T> IntoModel for DialogueOptionDto<H, T> {
     }
 }
 
+/// DTO for [`model::DialogLine`]. `T` is the host text type (see
+/// [`DialogTextDto`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub struct DialogLineDto<T = ()> {
+    /// Speaker (raw entity id).
+    pub speaker: u64,
+    /// Spoken text.
+    pub text: DialogTextDto<T>,
+}
+
+impl<T: Clone> From<&model::DialogLine<T>> for DialogLineDto<T> {
+    fn from(l: &model::DialogLine<T>) -> Self {
+        Self {
+            speaker: l.speaker.0.0,
+            text: (&l.text).into(),
+        }
+    }
+}
+
+impl<T> IntoModel for DialogLineDto<T> {
+    type Model = model::DialogLine<T>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogLine<T> {
+        model::DialogLine::new(
+            model::CharacterId::new(ids.entity(self.speaker)),
+            self.text.into_model_with(ids),
+        )
+    }
+}
+
 /// DTO for [`model::DialogueNode`]. `H` is the host outcome type (see
 /// [`OutcomeDto`]) and `T` the host text type (see [`DialogTextDto`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1777,6 +1807,12 @@ pub struct DialogueNodeDto<H = (), T = ()> {
     /// Options.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<DialogueOptionDto<H, T>>,
+    /// Further lines, each with its own speaker.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lines: Vec<DialogLineDto<T>>,
+    /// Where the talk goes on without a choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<DialogTargetDto>,
 }
 
 impl<H: Clone, T: Clone> From<&model::DialogueNode<H, T>> for DialogueNodeDto<H, T> {
@@ -1788,6 +1824,8 @@ impl<H: Clone, T: Clone> From<&model::DialogueNode<H, T>> for DialogueNodeDto<H,
             conditions,
             outcomes_on_enter,
             options,
+            lines,
+            next,
         } = n;
         Self {
             id: id.0,
@@ -1796,6 +1834,8 @@ impl<H: Clone, T: Clone> From<&model::DialogueNode<H, T>> for DialogueNodeDto<H,
             conditions: dtos(conditions),
             outcomes_on_enter: dtos(outcomes_on_enter),
             options: dtos(options),
+            lines: dtos(lines),
+            next: next.as_ref().map(Into::into),
         }
     }
 }
@@ -1810,6 +1850,8 @@ impl<H, T> IntoModel for DialogueNodeDto<H, T> {
             conditions: self.conditions.into_model_with(ids),
             outcomes_on_enter: self.outcomes_on_enter.into_model_with(ids),
             options: self.options.into_model_with(ids),
+            lines: self.lines.into_model_with(ids),
+            next: self.next.into_model_with(ids),
         }
     }
 }

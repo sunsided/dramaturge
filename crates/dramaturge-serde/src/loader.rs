@@ -29,6 +29,28 @@
 //!         target: end
 //! ```
 //!
+//! # Lines and auto-continue
+//!
+//! A node can have more `lines`, each with its own speaker, after its own
+//! text, and a `next` target: the node key, or `end`. The talk goes on to
+//! `next` without a choice when the node has no available option. Use them
+//! for scripted exchanges and cutscenes:
+//!
+//! ```yaml
+//! nodes:
+//!   - id: mara.meet
+//!     speaker: mara
+//!     text: "Sit, if you like."
+//!     lines:
+//!       - { speaker: player, text: "Who are you?" }
+//!       - { speaker: mara, text: "They call me Mara." }
+//!     next: mara.names
+//! ```
+//!
+//! YAML has no `Return` target (for `next` and for option targets): only
+//! a node key or `end`. Set `DialogTarget::Return` in the model after
+//! loading.
+//!
 //! # Host outcomes
 //!
 //! The YAML format has no host outcomes
@@ -287,6 +309,29 @@ pub struct YamlNode {
     /// Dialogue options.
     #[serde(default)]
     pub options: Vec<YamlOption>,
+    /// Further lines after `text`, each with its own speaker
+    /// (`DialogueNode::lines`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lines: Vec<YamlLine>,
+    /// Where the talk goes on without a choice (`DialogueNode::next`): a
+    /// node key, or the special value `end`.
+    ///
+    /// YAML has no `Return` target, for `next` and for option targets
+    /// alike: a keyword such as `return` or `back` would take a name that a
+    /// node can have. A value that names no node loads as a node key, and
+    /// the validator reports it as `MissingTarget`. A host that needs
+    /// `Return` sets `next` in the model after loading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<YamlKey>,
+}
+
+/// One more line of a node, with its own speaker.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YamlLine {
+    /// Character key who speaks.
+    pub speaker: String,
+    /// Line text: a string, or a list of fragments.
+    pub text: YamlText,
 }
 
 /// A dialogue option.
@@ -751,6 +796,22 @@ impl YamlDialogueGraph {
                 .to_model(&mut ctx)
                 .map_err(|msg| format!("node '{node_key}': text: {msg}"))?;
             let mut node = DialogueNode::new(node_id.0, speaker, text);
+
+            for (index, yaml_line) in yaml_node.lines.iter().enumerate() {
+                let at = |msg: String| format!("node '{node_key}': line {}: {msg}", index + 1);
+                let speaker = ctx
+                    .characters
+                    .get(&yaml_line.speaker)
+                    .copied()
+                    .ok_or_else(|| at(format!("unknown speaker '{}'", yaml_line.speaker)))?;
+                let text = yaml_line.text.to_model(&mut ctx).map_err(at)?;
+                node.lines.push(DialogLine::new(speaker, text));
+            }
+
+            node.next = yaml_node.next.as_ref().map(|next| match next.as_key() {
+                "end" => DialogTarget::End,
+                _ => DialogTarget::Node(ctx.node(next)),
+            });
 
             for yaml_option in &yaml_node.options {
                 let option_id = ctx.option(&yaml_option.id);
@@ -1596,6 +1657,64 @@ nodes:
         check!(fragments[2].key.as_deref() == Some("greeting"));
         check!(fragments[2].variants.len() == 2);
         check!(let model::DialogText::Fragments(_) = &loaded.graph.nodes[0].options[0].text);
+    }
+
+    const EXCHANGE: &str = r#"
+version: "2.0"
+entry_node: mara.meet
+characters:
+  mara: { name: "Mara Vey" }
+  player: { name: "Player" }
+nodes:
+  - id: mara.meet
+    speaker: mara
+    text: "Sit, if you like."
+    lines:
+      - { speaker: player, text: "Who are you?" }
+      - speaker: mara
+        text:
+          - text: "They call me Mara."
+          - { text: "You again.", mode: once, key: again }
+    next: mara.names
+  - id: mara.names
+    speaker: mara
+    text: "And you?"
+    next: end
+"#;
+
+    #[test]
+    fn test_lines_and_next() {
+        let yaml = YamlDialogueGraph::from_yaml(EXCHANGE).expect("Should parse");
+        let loaded = yaml.to_model().expect("Should convert");
+        check!(loaded.warnings.is_empty());
+        let mara = model::CharacterId::new(loaded.symbols.entities.get("mara").unwrap());
+        let player = model::CharacterId::new(loaded.symbols.entities.get("player").unwrap());
+        let names = loaded.symbols.nodes.get("mara.names").unwrap();
+
+        let meet = &loaded.graph.nodes[0];
+        let speakers: Vec<_> = meet.all_lines().map(|(speaker, _)| speaker).collect();
+        check!(speakers == vec![mara, player, mara]);
+        check!(meet.lines[0].text == model::DialogText::inline("Who are you?"));
+        check!(let model::DialogText::Fragments(_) = &meet.lines[1].text);
+        check!(meet.next == Some(model::DialogTarget::Node(names)));
+        check!(loaded.graph.nodes[1].next == Some(model::DialogTarget::End));
+
+        // A node without `lines` and `next` writes neither.
+        let back = serde_json::to_string(&yaml).expect("Should serialize");
+        check!(back.matches(r#""lines":"#).count() == 1);
+        check!(back.matches(r#""next":"#).count() == 2);
+        let again: YamlDialogueGraph = serde_json::from_str(&back).expect("Should parse again");
+        check!(again.to_model().expect("Should convert").graph == loaded.graph);
+    }
+
+    #[test]
+    fn test_line_with_unknown_speaker_fails() {
+        let yaml = EXCHANGE.replace("speaker: player, text", "speaker: ghost, text");
+        let err = YamlDialogueGraph::from_yaml(&yaml)
+            .expect("Should parse")
+            .to_model()
+            .expect_err("unknown speaker must fail");
+        check!(err == "node 'mara.meet': line 1: unknown speaker 'ghost'");
     }
 
     #[test]

@@ -62,6 +62,35 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   module `dramaturge_serde::dialog_text` serializes a `DialogText<T>`, and
   `dramaturge_serde::dialogue_graph` accepts any `H` and `T` that are
   `Clone` and serializable. The YAML format has no host text (#75).
+- Auto-continue: `DialogueNode::next: Option<DialogTarget>` is where the
+  talk goes on without a choice, when the node has no available option.
+  `DialogueNode::lines: Vec<DialogLine<T>>` holds more lines after the
+  node's own text, each with its own speaker (`DialogLine { speaker, text
+  }`, `DialogLine::new`). `DialogueNode::with_line`, `with_next` and
+  `all_lines` (the node's own line, then `lines`). Use them for scripted
+  exchanges, cutscenes and background talk (#74).
+- `DialogueRuntime::advance(graph, cursor, state) -> Advance` enters the
+  node at the cursor with `enter_node` (so the outcomes on enter apply per
+  node) and follows `next` through `DialogCursor::follow` until a node has
+  an available option. `Advance { entered, stop }` lists the entered nodes;
+  `AdvanceStop` is `Choice`, `End`, `Custom(key)`, `Blocked`, `Missing` or
+  `Limit`. `advance_limited` takes a node limit; `advance` uses
+  `ADVANCE_LIMIT` (1024). Both are default trait methods (#74).
+- Validator: `next` targets count for reachability, cycles, `MissingTarget`
+  and `SelfLoop`; a node with `next` is not a dead end. The new kind
+  `ValidationIssueKind::NextLoop` (Error) reports a loop of `next` targets
+  through nodes without options and without conditions: a loop that never
+  stops, whatever the state. It does not follow `Return` targets, and it
+  does not report loops that only state can stop or keep going;
+  `advance` stops those at its limit. `UnkeyedProgress` also checks the lines;
+  `EmptyText` does not, since a line that resolves to no text is how a line
+  depends on the state (#74).
+- Serde: `DialogueNodeDto` has `lines` (`DialogLineDto`) and `next`, both
+  left out when empty; older DTOs still load. YAML: a node has `lines`
+  (`- { speaker: player, text: "..." }`, text as a string or fragments) and
+  `next` (a node key or `end`). YAML has no `Return` target, as for option
+  targets: a keyword would take a name that a node can have (#74).
+- Example `exchange`: a scripted exchange that runs to a choice (#74).
 
 ### Changed
 
@@ -124,6 +153,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   graph and gives it back typed. A second parameter next to `H` keeps the
   two choices apart (a host can have host text without host outcomes) and
   keeps the R3 API as it is, and both default to `()`.
+
+- **Breaking:** `DialogueNode`, `DialogueNodeDto` and `YamlNode` have the
+  new public fields `lines` and `next`. Code that builds these structs with
+  a struct literal adds `lines: vec![]` and `next: None` (or uses
+  `DialogueNode::new`/`typed`), and code that destructures them without
+  `..` names the new fields (#74).
 
 ## [0.3.0-alpha.2] - 2026-11-07
 

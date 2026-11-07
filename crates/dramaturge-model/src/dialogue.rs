@@ -333,12 +333,64 @@ impl DialogTarget {
     }
 }
 
+/// One line in a node, with its own speaker.
+///
+/// A node can hold more than one line: the node's own
+/// [`speaker`](DialogueNode::speaker) and [`text`](DialogueNode::text)
+/// come first, then the [`lines`](DialogueNode::lines) in order. Use lines
+/// for scripted exchanges, cutscenes and background talk, where characters
+/// talk to each other without a choice.
+///
+/// A line has no conditions. For a line that depends on the state, use
+/// fragment text ([`DialogText::Fragments`]) with conditions; a host skips a
+/// line whose text resolves to nothing.
+///
+/// `T` is the type of [host text](DialogText::Host) (default `()`).
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct DialogLine<T = ()> {
+    /// The character who speaks this line.
+    pub speaker: CharacterId,
+    /// The spoken text.
+    pub text: DialogText<T>,
+}
+
+impl<T> DialogLine<T> {
+    /// Creates a line spoken by `speaker`.
+    pub fn new(speaker: CharacterId, text: DialogText<T>) -> Self {
+        Self { speaker, text }
+    }
+
+    /// Converts the host text of this line with `f`.
+    ///
+    /// See [`DialogText::map_text`].
+    pub fn map_text<U>(self, mut f: impl FnMut(T) -> U) -> DialogLine<U> {
+        self.map_text_with(&mut f)
+    }
+
+    fn map_text_with<U>(self, f: &mut impl FnMut(T) -> U) -> DialogLine<U> {
+        DialogLine {
+            speaker: self.speaker,
+            text: self.text.map_text_with(f),
+        }
+    }
+}
+
 /// A single step in a dialogue graph where a character speaks.
 ///
 /// Each node represents a moment in the conversation: a character says
-/// something (via `text`), and optionally presents options to continue.
-/// Nodes can have conditions that gate their entry and outcomes that
-/// apply when the node is entered.
+/// something (via `text`, and more [`lines`](Self::lines) with their own
+/// speakers), and optionally presents options to continue. Nodes can have
+/// conditions that gate their entry and outcomes that apply when the node
+/// is entered.
+///
+/// # Auto-continue
+///
+/// A node with [`next`](Self::next) continues by itself when it has no
+/// available option: the talk goes on to the next target without a
+/// choice. `DialogueRuntime::advance` in `dramaturge-runtime` follows these
+/// targets and enters each node. A node with an available option waits
+/// for the choice; `next` is then not used.
 ///
 /// `H` is the type of [host outcomes](Outcome::Host) and `T` the type of
 /// [host text](DialogText::Host). Both default to `()`.
@@ -361,6 +413,14 @@ pub struct DialogueNode<H = (), T = ()> {
     pub outcomes_on_enter: Vec<Outcome<H>>,
     /// Branching options presented to the player after this node.
     pub options: Vec<DialogueOption<H, T>>,
+    /// Further lines after [`text`](Self::text), each with its own speaker,
+    /// in order. Empty for a node with one line.
+    pub lines: Vec<DialogLine<T>>,
+    /// Where the talk goes on without a choice, when the node has no
+    /// available option. `None` ends the talk at such a node.
+    ///
+    /// See [Auto-continue](Self#auto-continue).
+    pub next: Option<DialogTarget>,
 }
 
 impl DialogueNode {
@@ -386,7 +446,41 @@ impl<H, T> DialogueNode<H, T> {
             conditions: Vec::new(),
             outcomes_on_enter: Vec::new(),
             options: Vec::new(),
+            lines: Vec::new(),
+            next: None,
         }
+    }
+
+    /// Adds a line spoken by `speaker` and returns the node.
+    pub fn with_line(mut self, speaker: CharacterId, text: DialogText<T>) -> Self {
+        self.lines.push(DialogLine::new(speaker, text));
+        self
+    }
+
+    /// Sets the [`next`](Self::next) target and returns the node.
+    pub fn with_next(mut self, target: DialogTarget) -> Self {
+        self.next = Some(target);
+        self
+    }
+
+    /// Returns every line of the node in order: first the node's own
+    /// speaker and text, then the [`lines`](Self::lines).
+    ///
+    /// ```rust
+    /// use dramaturge_model::{CharacterId, DialogText, DialogueNode, EntityId};
+    ///
+    /// let mara = CharacterId::new(EntityId::new(1));
+    /// let player = CharacterId::new(EntityId::new(2));
+    /// let node = DialogueNode::new(1, mara, DialogText::inline("Sit, if you like."))
+    ///     .with_line(player, DialogText::inline("Who are you?"))
+    ///     .with_line(mara, DialogText::inline("They call me Mara."));
+    ///
+    /// let speakers: Vec<_> = node.all_lines().map(|(speaker, _)| speaker).collect();
+    /// assert_eq!(speakers, [mara, player, mara]);
+    /// ```
+    pub fn all_lines(&self) -> impl Iterator<Item = (CharacterId, &DialogText<T>)> {
+        std::iter::once((self.speaker, &self.text))
+            .chain(self.lines.iter().map(|line| (line.speaker, &line.text)))
     }
 
     /// Converts the host outcomes of this node and its options with `f`.
@@ -397,6 +491,8 @@ impl<H, T> DialogueNode<H, T> {
             id: self.id,
             speaker: self.speaker,
             text: self.text,
+            lines: self.lines,
+            next: self.next,
             conditions: self.conditions,
             outcomes_on_enter: self
                 .outcomes_on_enter
@@ -419,6 +515,12 @@ impl<H, T> DialogueNode<H, T> {
             id: self.id,
             speaker: self.speaker,
             text: self.text.map_text_with(&mut f),
+            lines: self
+                .lines
+                .into_iter()
+                .map(|line| line.map_text_with(&mut f))
+                .collect(),
+            next: self.next,
             conditions: self.conditions,
             outcomes_on_enter: self.outcomes_on_enter,
             options: self
@@ -801,6 +903,31 @@ mod tests {
         // Host outcomes and host text map apart.
         let unit: DialogueGraph<(), ()> = graph.map_text(|_| ());
         check!(unit.nodes[0].text == DialogText::Host(()));
+    }
+
+    #[test]
+    fn node_with_lines_and_next() {
+        let mara = CharacterId::new(crate::character::EntityId::new(1));
+        let player = CharacterId::new(crate::character::EntityId::new(2));
+        let node = DialogueNode::new(1, mara, DialogText::inline("Sit."))
+            .with_line(player, DialogText::inline("Who are you?"))
+            .with_line(mara, DialogText::inline("Mara."))
+            .with_next(DialogTarget::node(2));
+        check!(node.lines.len() == 2);
+        check!(node.next == Some(DialogTarget::node(2)));
+        let lines: Vec<_> = node.all_lines().collect();
+        check!(lines.len() == 3);
+        check!(lines[1] == (player, &DialogText::inline("Who are you?")));
+
+        // Lines keep their speakers through both maps.
+        let typed: DialogueNode<u8, &str> = node.clone().map_host(|()| 0).map_text(|()| "never");
+        check!(typed.lines[1].speaker == mara);
+        check!(typed.next == Some(DialogTarget::node(2)));
+
+        let plain = DialogueNode::new(2, mara, DialogText::inline("Hi."));
+        check!(plain.lines.is_empty());
+        check!(plain.next.is_none());
+        check!(plain.all_lines().count() == 1);
     }
 
     #[test]

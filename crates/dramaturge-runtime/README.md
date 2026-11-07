@@ -66,7 +66,9 @@ assert!(evaluator.evaluate(&cond, &state));
 | `OutcomeApplier<S>` | Trait: applies an `Outcome` to mutable state |
 | `DefaultOutcomeApplier<H>` | Handles all built-in `Outcome` variants; `Outcome::Custom` goes to `H` |
 | `CustomHandler<S>` | Trait: host hook for `Custom` conditions and outcomes |
-| `DialogueRuntime` | Trait: filters options and drives a dialogue session |
+| `DialogueRuntime` | Trait: filters options and drives a dialogue session; `advance` continues through nodes without a choice |
+| `Advance`, `AdvanceStop` | What `advance` entered, and why it stopped |
+| `DialogCursor` | The current node and a return stack |
 | `DefaultRuntime` | Composes evaluator + applier to drive sessions |
 
 ## Part of the dramaturge workspace

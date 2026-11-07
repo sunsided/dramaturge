@@ -14,7 +14,10 @@
 //! [`DialogText::Host`](dramaturge_model::DialogText::Host): the runtime
 //! does not look at the text.
 
+use std::sync::Arc;
+
 use crate::context::DialogWorldState;
+use crate::cursor::DialogCursor;
 use crate::evaluation::{
     ConditionEvaluator, DefaultConditionEvaluator, DefaultOutcomeApplier, OutcomeApplier,
 };
@@ -49,6 +52,52 @@ impl EnterResult {
     pub fn has_options(&self) -> bool {
         matches!(self, Self::Entered { has_options: true })
     }
+}
+
+/// How many nodes [`DialogueRuntime::advance`] enters at most in one call.
+///
+/// The limit stops a loop of nodes that continue by themselves
+/// ([`DialogueNode::next`]) and never offer a choice.
+pub const ADVANCE_LIMIT: usize = 1024;
+
+/// What [`DialogueRuntime::advance`] did: the nodes it entered and why it
+/// stopped.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct Advance {
+    /// The nodes that were entered, in order. Their outcomes on enter were
+    /// applied. The host shows the lines of each node
+    /// ([`DialogueNode::all_lines`]) in this order.
+    pub entered: Vec<DialogueNodeId>,
+    /// Why the advance stopped.
+    pub stop: AdvanceStop,
+}
+
+/// Why [`DialogueRuntime::advance`] stopped.
+///
+/// In every case, the cursor is at the node where the advance stopped.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum AdvanceStop {
+    /// The node at the cursor has an available option. The host shows the
+    /// options and calls [`choose_option`](DialogueRuntime::choose_option).
+    Choice,
+    /// The talk ends at the node at the cursor: its
+    /// [`next`](DialogueNode::next) is `None`, [`DialogTarget::End`], or
+    /// [`DialogTarget::Return`] with an empty return stack.
+    End,
+    /// The `next` target of the node at the cursor is a
+    /// [`DialogTarget::Custom`] target. The host handles it.
+    Custom(Arc<str>),
+    /// The conditions of the node at the cursor do not hold. The node was
+    /// not entered and no outcome of it was applied.
+    Blocked,
+    /// The graph has no node with the id at the cursor.
+    Missing,
+    /// The advance entered the limit of nodes and stopped. The last
+    /// entered node continues by itself, so the graph probably has a loop
+    /// of `next` targets.
+    Limit,
 }
 
 /// Trait defining the interface for driving a dialogue session.
@@ -144,6 +193,106 @@ pub trait DialogueRuntime<S: NarrativeState + ?Sized = DialogWorldState, H = ()>
         self.apply_outcomes(&node.outcomes_on_enter, state);
         let has_options = self.available_options(node, state).next().is_some();
         EnterResult::Entered { has_options }
+    }
+
+    /// Enters the node at the cursor and continues through
+    /// [`next`](DialogueNode::next) targets until a node has a choice or
+    /// the talk ends.
+    ///
+    /// Each node is entered with [`enter_node`](Self::enter_node), so its
+    /// conditions are checked and its outcomes on enter apply once. A node
+    /// with an available option stops the advance
+    /// ([`AdvanceStop::Choice`]). A node without one follows its `next`
+    /// target through [`DialogCursor::follow`]: a `Node` target pushes on
+    /// the return stack, `Return` pops it. See [`AdvanceStop`] for the other
+    /// stops. The advance enters at most [`ADVANCE_LIMIT`] nodes.
+    ///
+    /// Call it once to start a talk (with the cursor at the entry node),
+    /// and once after each choice whose target moved the cursor.
+    ///
+    /// ```rust
+    /// use dramaturge_model::{
+    ///     CharacterId, DialogTarget, DialogText, DialogueGraph, DialogueNode, DialogueNodeId,
+    ///     DialogueOption, EntityId,
+    /// };
+    /// use dramaturge_runtime::{
+    ///     AdvanceStop, DefaultRuntime, DialogCursor, DialogWorldState, DialogueRuntime,
+    /// };
+    ///
+    /// let mara = CharacterId::new(EntityId::new(1));
+    /// let player = CharacterId::new(EntityId::new(2));
+    ///
+    /// // A scripted exchange, then a choice.
+    /// let meet = DialogueNode::new(1, mara, DialogText::inline("Sit, if you like."))
+    ///     .with_line(player, DialogText::inline("Who are you?"))
+    ///     .with_next(DialogTarget::node(2));
+    /// let mut names = DialogueNode::new(2, mara, DialogText::inline("They call me Mara."));
+    /// names.options.push(DialogueOption::new(
+    ///     1,
+    ///     DialogText::inline("Goodbye."),
+    ///     DialogTarget::End,
+    ///     names.id,
+    /// ));
+    /// let mut graph = DialogueGraph::new().with_entry_node(meet.id);
+    /// graph.nodes = vec![meet, names];
+    ///
+    /// let mut runtime = DefaultRuntime::new();
+    /// let mut state = DialogWorldState::new();
+    /// let mut cursor = DialogCursor::new(DialogueNodeId::new(1));
+    ///
+    /// let advance = runtime.advance(&graph, &mut cursor, &mut state);
+    /// assert_eq!(advance.entered, [DialogueNodeId::new(1), DialogueNodeId::new(2)]);
+    /// assert_eq!(advance.stop, AdvanceStop::Choice);
+    /// assert_eq!(cursor.current, DialogueNodeId::new(2));
+    /// ```
+    fn advance<T>(
+        &mut self,
+        graph: &DialogueGraph<H, T>,
+        cursor: &mut DialogCursor,
+        state: &mut S,
+    ) -> Advance {
+        self.advance_limited(graph, cursor, state, ADVANCE_LIMIT)
+    }
+
+    /// Like [`advance`](Self::advance), but enters at most `limit` nodes.
+    ///
+    /// With `limit` 0, nothing is entered and the result is
+    /// [`AdvanceStop::Limit`].
+    fn advance_limited<T>(
+        &mut self,
+        graph: &DialogueGraph<H, T>,
+        cursor: &mut DialogCursor,
+        state: &mut S,
+        limit: usize,
+    ) -> Advance {
+        let mut entered = Vec::new();
+        let stop = loop {
+            if entered.len() >= limit {
+                break AdvanceStop::Limit;
+            }
+            let Some(node) = graph.node(cursor.current) else {
+                break AdvanceStop::Missing;
+            };
+            match self.enter_node(node, state) {
+                EnterResult::Blocked => break AdvanceStop::Blocked,
+                EnterResult::Entered { has_options } => {
+                    entered.push(node.id);
+                    if has_options {
+                        break AdvanceStop::Choice;
+                    }
+                }
+            }
+            let Some(next) = &node.next else {
+                break AdvanceStop::End;
+            };
+            if cursor.follow(next).is_none() {
+                break match next {
+                    DialogTarget::Custom(key) => AdvanceStop::Custom(key.clone()),
+                    _ => AdvanceStop::End,
+                };
+            }
+        };
+        Advance { entered, stop }
     }
 }
 
@@ -449,6 +598,162 @@ mod tests {
         check!(rt.enter_node(&node, &mut state) == EnterResult::Entered { has_options: false });
     }
 
+    fn id(n: u64) -> DialogueNodeId {
+        DialogueNodeId::new(n)
+    }
+
+    /// A node that adds 1 to `visits` on enter and continues to `next`.
+    fn auto(n: u64, next: Option<DialogTarget>) -> DialogueNode {
+        let mut node = DialogueNode::new(n, speaker(), DialogText::inline("..."));
+        node.outcomes_on_enter.push(add_visits());
+        node.next = next;
+        node
+    }
+
+    fn with_choice(mut node: DialogueNode) -> DialogueNode {
+        node.options.push(DialogueOption::new(
+            node.id.0,
+            DialogText::inline("Bye."),
+            DialogTarget::End,
+            node.id,
+        ));
+        node
+    }
+
+    fn graph_of(nodes: Vec<DialogueNode>) -> DialogueGraph {
+        let mut graph = DialogueGraph::new().with_entry_node(nodes[0].id);
+        graph.nodes = nodes;
+        graph
+    }
+
+    fn advance_from(
+        graph: &DialogueGraph,
+        start: u64,
+    ) -> (Advance, DialogCursor, DialogWorldState) {
+        let mut rt = DefaultRuntime::new();
+        let mut state = DialogWorldState::new();
+        let mut cursor = DialogCursor::new(id(start));
+        let advance = rt.advance(graph, &mut cursor, &mut state);
+        (advance, cursor, state)
+    }
+
+    #[test]
+    fn advance_follows_next_and_applies_enter_outcomes_per_node() {
+        let graph = graph_of(vec![
+            auto(1, Some(DialogTarget::node(2))),
+            auto(2, Some(DialogTarget::node(3))),
+            with_choice(auto(3, Some(DialogTarget::node(4)))),
+            auto(4, None),
+        ]);
+        let (advance, cursor, state) = advance_from(&graph, 1);
+        check!(advance.entered == vec![id(1), id(2), id(3)]);
+        check!(advance.stop == AdvanceStop::Choice);
+        check!(cursor.current == id(3));
+        check!(cursor.back == vec![id(1), id(2)]);
+        check!(visits(&state) == Some(3));
+    }
+
+    #[test]
+    fn advance_ends_without_next_or_at_end() {
+        let graph = graph_of(vec![auto(1, Some(DialogTarget::node(2))), auto(2, None)]);
+        let (advance, cursor, _) = advance_from(&graph, 1);
+        check!(advance.entered == vec![id(1), id(2)]);
+        check!(advance.stop == AdvanceStop::End);
+        check!(cursor.current == id(2));
+
+        let graph = graph_of(vec![auto(1, Some(DialogTarget::End))]);
+        let (advance, cursor, _) = advance_from(&graph, 1);
+        check!(advance.entered == vec![id(1)]);
+        check!(advance.stop == AdvanceStop::End);
+        check!(cursor.current == id(1));
+    }
+
+    #[test]
+    fn advance_returns_through_the_stack() {
+        // 1 -> 2 -> return to 1? No: 1 has a choice, so the talk waits there.
+        let graph = graph_of(vec![
+            with_choice(auto(1, None)),
+            auto(2, Some(DialogTarget::Return)),
+        ]);
+        let mut rt = DefaultRuntime::new();
+        let mut state = DialogWorldState::new();
+        let mut cursor = DialogCursor::new(id(1));
+        cursor.follow(&DialogTarget::node(2));
+        let advance = rt.advance(&graph, &mut cursor, &mut state);
+        check!(advance.entered == vec![id(2), id(1)]);
+        check!(advance.stop == AdvanceStop::Choice);
+        check!(cursor.current == id(1));
+        check!(cursor.back.is_empty());
+
+        // `Return` with an empty stack ends the talk.
+        let graph = graph_of(vec![auto(1, Some(DialogTarget::Return))]);
+        let (advance, _, _) = advance_from(&graph, 1);
+        check!(advance.stop == AdvanceStop::End);
+    }
+
+    #[test]
+    fn advance_hands_custom_targets_to_the_host() {
+        let graph = graph_of(vec![auto(1, Some(DialogTarget::custom("shop")))]);
+        let (advance, cursor, _) = advance_from(&graph, 1);
+        check!(advance.entered == vec![id(1)]);
+        check!(advance.stop == AdvanceStop::Custom("shop".into()));
+        check!(cursor.current == id(1));
+    }
+
+    #[test]
+    fn advance_stops_at_a_blocked_or_missing_node() {
+        let mut blocked = auto(2, None);
+        blocked.conditions.push(Condition::Never);
+        let graph = graph_of(vec![auto(1, Some(DialogTarget::node(2))), blocked]);
+        let (advance, cursor, state) = advance_from(&graph, 1);
+        check!(advance.entered == vec![id(1)]);
+        check!(advance.stop == AdvanceStop::Blocked);
+        check!(cursor.current == id(2));
+        // The outcomes of the blocked node did not apply.
+        check!(visits(&state) == Some(1));
+
+        let graph = graph_of(vec![auto(1, Some(DialogTarget::node(9)))]);
+        let (advance, cursor, _) = advance_from(&graph, 1);
+        check!(advance.entered == vec![id(1)]);
+        check!(advance.stop == AdvanceStop::Missing);
+        check!(cursor.current == id(9));
+    }
+
+    #[test]
+    fn advance_uses_next_when_no_option_is_available() {
+        let mut gated = auto(1, Some(DialogTarget::node(2)));
+        let mut option =
+            DialogueOption::new(1, DialogText::inline("Never."), DialogTarget::End, gated.id);
+        option.conditions.push(Condition::Never);
+        gated.options.push(option);
+        let graph = graph_of(vec![gated, auto(2, None)]);
+        let (advance, _, _) = advance_from(&graph, 1);
+        check!(advance.entered == vec![id(1), id(2)]);
+        check!(advance.stop == AdvanceStop::End);
+    }
+
+    #[test]
+    fn advance_stops_a_loop_at_the_limit() {
+        let graph = graph_of(vec![
+            auto(1, Some(DialogTarget::node(2))),
+            auto(2, Some(DialogTarget::node(1))),
+        ]);
+        let mut rt = DefaultRuntime::new();
+        let mut state = DialogWorldState::new();
+        let mut cursor = DialogCursor::new(id(1));
+        let advance = rt.advance_limited(&graph, &mut cursor, &mut state, 5);
+        check!(advance.entered == vec![id(1), id(2), id(1), id(2), id(1)]);
+        check!(advance.stop == AdvanceStop::Limit);
+        check!(visits(&state) == Some(5));
+
+        let advance = rt.advance_limited(&graph, &mut cursor, &mut state, 0);
+        check!(advance.entered.is_empty());
+        check!(advance.stop == AdvanceStop::Limit);
+
+        let (advance, _, _) = advance_from(&graph, 1);
+        check!(advance.entered.len() == ADVANCE_LIMIT);
+    }
+
     fn entry_graph(conditions: Vec<(u64, Vec<Condition>)>) -> DialogueGraph {
         let speaker = CharacterId::new(EntityId::new(1));
         let mut graph = DialogueGraph::new();
@@ -661,6 +966,8 @@ mod tests {
             text: DialogText::inline("Hello"),
             conditions: vec![],
             outcomes_on_enter: vec![],
+            lines: vec![],
+            next: None,
             options: vec![
                 DialogueOption {
                     id: DialogueOptionId::new(1),
