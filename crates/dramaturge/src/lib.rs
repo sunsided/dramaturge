@@ -69,6 +69,12 @@
 //!   markup) in `DialogText::Host(T)` (`DialogText<T>`,
 //!   `DialogueGraph<H, T>`; `T` defaults to `()`). `resolve_text` returns
 //!   it as it is, and the validator does not check it.
+//! - **Text selection** — put lines in a text [`Pool`] with a [`Pick`] rule
+//!   (`all`, `first`, `best`), tuple keys (speaker, topic) and a perceiver
+//!   test ([`Condition::SeenBy`]). [`select`](fn@select) chooses with no side effect
+//!   and returns a [`Trace`]; [`commit`] records the progress and the
+//!   `learn` items. The pool types are generic over the host text leaf
+//!   ([`TextTypes`]). See the `text_selection` example.
 //!
 //! # Example
 //!
@@ -85,20 +91,23 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub use dramaturge_model::{
-    AlignmentAxis, AlignmentAxisId, AlignmentPole, AlignmentPoleId, AlignmentScore, Character,
-    CharacterId, CharacterKey, CharacterTrait, Condition, Confidence, CustomDialogTag,
-    DialogIntentions, DialogLine, DialogTag, DialogTagKind, DialogTarget, DialogText,
-    DialogueGraph, DialogueNode, DialogueNodeId, DialogueOption, DialogueOptionId, EntityId, Event,
-    EventContext, EventId, EventKind, Fact, FactId, FactScope, FactValue, FragmentMode, Intention,
-    Memory, MemoryId, MemoryQuery, MemoryTag, Outcome, RelationshipAxisId, RelationshipScore,
-    ScopedFact, SymbolTable, TextFragment,
+    AlignmentAxis, AlignmentAxisId, AlignmentPole, AlignmentPoleId, AlignmentScore, Candidate,
+    Character, CharacterId, CharacterKey, CharacterTrait, Condition, Confidence, CustomDialogTag,
+    DialogIntentions, DialogLine, DialogTag, DialogTagKind, DialogTarget, DialogText, DialogTypes,
+    DialogueGraph, DialogueNode, DialogueNodeId, DialogueOption, DialogueOptionId, EntityId, Entry,
+    Event, EventContext, EventId, EventKind, Fact, FactId, FactScope, FactValue, FragmentMode,
+    Intention, Memory, MemoryId, MemoryQuery, MemoryTag, Outcome, Pick, Pool, Pools,
+    RelationshipAxisId, RelationshipScore, ScopedFact, Specificity, SymbolTable, TextFragment,
+    TextTypes,
 };
 pub use dramaturge_runtime::{
-    ADVANCE_LIMIT, Advance, AdvanceStop, ConditionEvaluator, CustomHandler,
-    DefaultConditionEvaluator, DefaultOutcomeApplier, DefaultRuntime, DialogCursor,
+    ADVANCE_LIMIT, Advance, AdvanceStop, ConditionEvaluator, Count, CountKey, CustomHandler,
+    DefaultConditionEvaluator, DefaultJudge, DefaultOutcomeApplier, DefaultRuntime, DialogCursor,
     DialogWorldState, DialogueRuntime, EnterResult, EvaluationContext, EvaluationResult,
-    FragmentProgress, HasDialogWorldState, HostHandler, NarrativeState, NoCustom, OutcomeApplier,
-    ResolvedPiece, ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text, select_entry,
+    FragmentProgress, HasDialogWorldState, HostHandler, Judge, NarrativeState, NoCustom,
+    OutcomeApplier, ProgressStore, Query, ResolvedPiece, ResolvedText, Selection, Shown,
+    SplitMix64, Step, TextProgress, TextRng, Trace, TraceRow, Verdict, commit, resolve_text,
+    select, select_entry, select_named, world_learner,
 };
 
 /// The dialogue AST, its serde shape and its lowering to a
