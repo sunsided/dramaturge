@@ -1272,6 +1272,9 @@ impl IntoModel for ConditionDto {
 /// `H` is the host outcome type of [`model::Outcome::Host`] (default `()`).
 /// The DTO stores the host value as it is: it serializes when `H` does
 /// (the variant `host`), and [`IntoModel`] does not map ids inside it.
+///
+/// The conversion from `&model::Outcome<H>` clones the host value, so it
+/// needs `H: Clone`. The same holds for the option, node and graph DTOs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
