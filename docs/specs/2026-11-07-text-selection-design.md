@@ -132,6 +132,7 @@ pub enum Pick { All, First, Best }
 
 pub struct Pool<X: TextTypes> {
     pub id: Arc<str>,
+    pub named: bool,                    // set when the pool is put into `Pools`
     pub pick: Pick,
     pub candidates: Vec<Candidate<X>>,
 }
@@ -169,11 +170,18 @@ pub trait ProgressStore {
     /// `None`: the candidate has not shown yet.
     fn fragment_progress(&self, key: &str) -> Option<FragmentProgress>;
     fn set_fragment_progress(&mut self, key: &str, progress: FragmentProgress);
-    /// True on the first resolution of `pool` by `caller`. The caller is a
-    /// scope that the host chooses (section 4). A host can answer from its
+    /// True on the first resolution under `count`. A host can answer from its
     /// own data (loremaster: the first visit of the room).
-    fn first_time(&self, pool: &str, caller: &str) -> bool;
-    fn count_resolution(&mut self, pool: &str, caller: &str);
+    fn first_time(&self, count: Count<'_>) -> bool;
+    fn count_resolution(&mut self, count: Count<'_>);
+}
+
+/// What a resolution counts against (section 4).
+pub enum Count<'a> {
+    /// An inline pool: its owner, as in `resolve_text` today.
+    Inline { owner: &'a str },
+    /// A named pool, per caller. The caller is a scope that the host chooses.
+    Named { pool: &'a str, caller: &'a str },
 }
 
 /// Chooses, without a change to the progress. Shuffle and sticky draw from
@@ -262,14 +270,18 @@ with this core.
   loremaster passes the room for room text, and the current room for a
   rule or a dialogue line. Thus a rule and a dialogue node in one room
   share one first time, and `first_time` means "first visit" as today.
-- `TextProgress` and its DTO (`dramaturge-serde`) store the progress. No new
-  save field is necessary for users of dramaturge alone.
-- The resolution counts stay in the `owners` map of `TextProgress`. The
-  key is the caller alone when the pool id is the caller (an inline text:
-  `resolve_text` passes the owner as both). Otherwise the key is
-  `{pool id}@{caller}`. The validator rejects `@` in pool ids, so the keys
-  cannot clash. Old counts are keyed by the bare owner, so they load for
-  inline texts. Named pools are new and have no old counts.
+- `TextProgress` and its DTO (`dramaturge-serde`) store the progress.
+- The kind of pool decides where its resolutions count, not a string
+  compare. `Pool::named` is true for a pool in `Pools`.
+  `Count::Inline { owner }` counts in the `owners` map, keyed by the owner,
+  as today. `Count::Named { pool, caller }` counts in a new map of
+  `TextProgress`, keyed by the pair `(pool id, caller)`. The two maps are
+  separate and the key is a pair, so no id or owner can clash, whatever
+  characters it has.
+- The DTO gets one new field for the new map, with a serde default. Old
+  saves load: their `owners` counts keep their meaning for inline texts,
+  and named pools start with no counts. A named pool never reads an
+  `owners` count, even when its id is the same string as an owner.
 - `ProgressStore` uses its own method names (`fragment_progress`,
   `set_fragment_progress`). Thus the inherent `TextProgress::fragment` and
   `set_fragment` do not shadow the trait methods. The impl for
