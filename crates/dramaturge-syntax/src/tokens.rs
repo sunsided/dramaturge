@@ -470,7 +470,8 @@ impl<P: ParseHost> Ctx<'_, P> {
                 return Err(syn::Error::new(
                     key_span,
                     format!(
-                        "node `{key}` has no line; write `{key}: \"...\"` or a line `speaker: \"...\";`"
+                        "node `{key}` has no line; write `{key}: \"...\"`, or a line with \
+                         its speaker key in the body, for example `mara: \"...\";`"
                     ),
                 ));
             }

@@ -155,5 +155,9 @@ nodes:
 7. Change each `outcomes:` list to `set`, `add`, `relation` and `then`.
 8. Change `navigation_hint`, `go_to_target`, `display_prefix` and the
    intention lists.
-9. Load the file and fix the errors. Each error names its place, for example
-   `nodes.mara.intro.options[0].go: no node `mara.confesion``.
+9. Load the file and fix the errors. Each error names its place. For
+   example, a `go: mara.confesion` (a typo of `mara.confession`) gives:
+
+   ```text
+   nodes.mara.intro.options[0].go: no node `mara.confesion`
+   ```

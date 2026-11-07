@@ -116,3 +116,15 @@ fn spans_point_at_the_tokens() {
     check!(span.start().line == 3);
     check!(span.start().column == 9);
 }
+
+#[test]
+fn a_node_without_a_line_says_how_to_write_one() {
+    let m = messages("with mara start a { a { -> end; } }");
+    check!(
+        m == [
+            "node `a` has no line; write `a: \"...\"`, or a line with its speaker key in the body, for example `mara: \"...\";`"
+        ]
+    );
+    // The suggested line parses.
+    check!(messages("with mara start a { a { mara: \"Hi.\"; -> end; } }").is_empty());
+}
