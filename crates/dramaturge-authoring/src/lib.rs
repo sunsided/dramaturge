@@ -11,27 +11,33 @@
 //!
 //! Each check reports issues of the kinds in parentheses.
 //!
-//! 1. **Missing targets** — Options referencing non-existent node IDs
+//! 1. **Missing targets** — Options or `next` targets referencing non-existent node IDs
 //!    ([`MissingTarget`](ValidationIssueKind::MissingTarget))
 //! 2. **Unreachable nodes** — Nodes not reachable from any entry node via BFS
+//!    (through option targets and `next` targets)
 //!    ([`Unreachable`](ValidationIssueKind::Unreachable),
 //!    [`NoEntryNode`](ValidationIssueKind::NoEntryNode),
 //!    [`EntryNodeNotFound`](ValidationIssueKind::EntryNodeNotFound))
-//! 3. **Dead-end nodes** — Reachable nodes with no options or enter outcomes
+//! 3. **Dead-end nodes** — Reachable nodes with no options, no `next` and no enter outcomes
 //!    ([`DeadEnd`](ValidationIssueKind::DeadEnd))
-//! 4. **Self-loops** — Options whose target is their own parent node
+//! 4. **Self-loops** — Options or `next` targets that point to their own node
 //!    ([`SelfLoop`](ValidationIssueKind::SelfLoop))
 //! 5. **Cycles** — Nodes participating in cycles, reporting all cycle members
-//!    ([`Cycle`](ValidationIssueKind::Cycle))
+//!    ([`Cycle`](ValidationIssueKind::Cycle)). A cycle of `next` targets
+//!    through nodes without options never stops
+//!    ([`NextLoop`](ValidationIssueKind::NextLoop))
 //! 6. **Always-false conditions** — Options with conditions that evaluate to always false via constant folding
 //!    ([`AlwaysFalse`](ValidationIssueKind::AlwaysFalse))
 //! 7. **Orphaned fact references** — Facts referenced in conditions but never set by any outcome
 //!    ([`OrphanFact`](ValidationIssueKind::OrphanFact))
 //! 8. **Mismatched source node IDs** — Options whose `source_node_id` does not match their parent `DialogueNode`
 //!    ([`SourceNodeMismatch`](ValidationIssueKind::SourceNodeMismatch))
-//! 9. **Possibly empty text** — Fragment texts where no fragment is guaranteed to show
+//! 9. **Possibly empty text** — Fragment texts of nodes and options where no fragment is guaranteed to show
 //!    ([`EmptyText`](ValidationIssueKind::EmptyText)). Host text
-//!    (`DialogText::Host`) is not checked: it counts as text.
+//!    (`DialogText::Host`) is not checked: it counts as text. The
+//!    [`lines`](dramaturge_model::DialogueNode::lines) of a node are not
+//!    checked: a line that resolves to no text is how a line depends on
+//!    the state.
 //! 10. **Unkeyed progress fragments** — `Once`/`Cycle`/`Sticky` fragments without a key, whose progress resets when a fragment is inserted before them
 //!     ([`UnkeyedProgress`](ValidationIssueKind::UnkeyedProgress))
 //!
@@ -103,7 +109,8 @@ pub enum ValidationIssueKind {
     EntryNodeNotFound,
     /// A node is not reachable from any entry node. (Warning)
     Unreachable,
-    /// A reachable node has no options and no enter outcomes. (Info)
+    /// A reachable node has no options, no `next` and no enter outcomes.
+    /// (Info)
     DeadEnd,
     /// An option targets its own node. (Warning)
     SelfLoop,
@@ -119,6 +126,10 @@ pub enum ValidationIssueKind {
     EmptyText,
     /// A `Once`/`Cycle`/`Sticky` fragment has no key. (Warning)
     UnkeyedProgress,
+    /// A node is part of a loop of `next` targets through nodes without
+    /// options: the talk never stops for a choice. Reported once per node.
+    /// (Error)
+    NextLoop,
 }
 
 /// Switches for [`GraphValidator`]: which kinds of issues to report.
@@ -230,7 +241,7 @@ impl ValidationIssue {
 
 /// Validates a [`DialogueGraph`] for structural correctness.
 ///
-/// Runs ten validation checks covering graph integrity, reachability,
+/// Runs validation checks covering graph integrity, reachability,
 /// condition validity, and fact reference consistency. [`ValidationOptions`]
 /// switch checks off.
 ///
@@ -266,7 +277,7 @@ impl GraphValidator {
         &self.options
     }
 
-    /// Runs all ten validation checks and returns the list of issues found.
+    /// Runs all validation checks and returns the list of issues found.
     ///
     /// Messages show raw numeric ids (`#3`). Use
     /// [`validate_with_symbols`](Self::validate_with_symbols) to show author keys.
@@ -274,7 +285,7 @@ impl GraphValidator {
         self.validate_with_symbols(graph, &SymbolTable::new())
     }
 
-    /// Runs all ten validation checks, naming nodes and options by the
+    /// Runs all validation checks, naming nodes and options by the
     /// keys in `symbols` (falling back to `#<number>` for unknown ids).
     ///
     /// Issues of kinds that the [options](ValidationOptions) skip are not
@@ -305,6 +316,9 @@ impl GraphValidator {
         }
         if on(K::Cycle) {
             self.check_cycles(graph, symbols, &node_map, &mut issues);
+        }
+        if on(K::NextLoop) {
+            self.check_next_loops(graph, symbols, &node_map, &mut issues);
         }
         if on(K::AlwaysFalse) {
             self.check_always_false_conditions(graph, symbols, &node_map, &mut issues);
@@ -338,6 +352,22 @@ impl GraphValidator {
         let existing_ids: HashSet<DialogueNodeId> = node_map.keys().copied().collect();
 
         for node in &graph.nodes {
+            if let Some(DialogTarget::Node(target_id)) = &node.next
+                && !existing_ids.contains(target_id)
+            {
+                issues.push(
+                    ValidationIssue::new(
+                        ValidationIssueKind::MissingTarget,
+                        ValidationSeverity::Error,
+                        format!(
+                            "Next of node {} targets nonexistent node {}",
+                            symbols.display_node(node.id),
+                            symbols.display_node(*target_id)
+                        ),
+                    )
+                    .with_node(node.id),
+                );
+            }
             for option in &node.options {
                 if let DialogTarget::Node(target_id) = &option.target
                     && !existing_ids.contains(target_id)
@@ -440,14 +470,15 @@ impl GraphValidator {
             if let Some(node) = node_map.get(node_id) {
                 let has_options = !node.options.is_empty();
                 let has_enter_outcomes = !node.outcomes_on_enter.is_empty();
+                let has_next = node.next.is_some();
 
-                if !has_options && !has_enter_outcomes {
+                if !has_options && !has_enter_outcomes && !has_next {
                     issues.push(
                         ValidationIssue::new(
                             ValidationIssueKind::DeadEnd,
                             ValidationSeverity::Info,
                             format!(
-                                "Node {} has no options or enter outcomes (potential dead end)",
+                                "Node {} has no options, next or enter outcomes (potential dead end)",
                                 symbols.display_node(node.id)
                             ),
                         )
@@ -467,6 +498,21 @@ impl GraphValidator {
         issues: &mut Vec<ValidationIssue>,
     ) {
         for node in &graph.nodes {
+            if let Some(DialogTarget::Node(target_id)) = &node.next
+                && *target_id == node.id
+            {
+                issues.push(
+                    ValidationIssue::new(
+                        ValidationIssueKind::SelfLoop,
+                        ValidationSeverity::Warning,
+                        format!(
+                            "Next of node {} targets the same node (self-loop)",
+                            symbols.display_node(node.id)
+                        ),
+                    )
+                    .with_node(node.id),
+                );
+            }
             for option in &node.options {
                 if let DialogTarget::Node(target_id) = &option.target
                     && *target_id == node.id
@@ -526,10 +572,8 @@ impl GraphValidator {
             stack.push(current);
 
             if let Some(node) = node_map.get(&current) {
-                for option in &node.options {
-                    if let DialogTarget::Node(target_id) = &option.target {
-                        dfs(*target_id, node_map, visited, stack, cycle_nodes);
-                    }
+                for target_id in node_targets(node) {
+                    dfs(target_id, node_map, visited, stack, cycle_nodes);
                 }
             }
 
@@ -569,6 +613,66 @@ impl GraphValidator {
                     .with_node(node.id),
                 );
             }
+        }
+    }
+
+    /// Detects loops of `next` targets through nodes without options. Such
+    /// a loop never stops for a choice: `DialogueRuntime::advance` runs to
+    /// its limit. Each node has at most one `next`, so following `next`
+    /// from each node finds every such loop.
+    fn check_next_loops<H, T>(
+        &self,
+        graph: &DialogueGraph<H, T>,
+        symbols: &SymbolTable,
+        node_map: &HashMap<DialogueNodeId, &DialogueNode<H, T>>,
+        issues: &mut Vec<ValidationIssue>,
+    ) {
+        /// The `next` node of a node without options, if any.
+        fn auto_next<H, T>(
+            id: DialogueNodeId,
+            node_map: &HashMap<DialogueNodeId, &DialogueNode<H, T>>,
+        ) -> Option<DialogueNodeId> {
+            let node = node_map.get(&id)?;
+            if !node.options.is_empty() {
+                return None;
+            }
+            match node.next {
+                Some(DialogTarget::Node(next)) if node_map.contains_key(&next) => Some(next),
+                _ => None,
+            }
+        }
+
+        let mut done: HashSet<DialogueNodeId> = HashSet::new();
+        let mut in_loop: BTreeSet<DialogueNodeId> = BTreeSet::new();
+        for node in &graph.nodes {
+            let mut path: Vec<DialogueNodeId> = Vec::new();
+            let mut current = Some(node.id);
+            while let Some(id) = current {
+                if done.contains(&id) {
+                    break;
+                }
+                if let Some(pos) = path.iter().position(|&p| p == id) {
+                    in_loop.extend(&path[pos..]);
+                    break;
+                }
+                path.push(id);
+                current = auto_next(id, node_map);
+            }
+            done.extend(path);
+        }
+
+        for node_id in in_loop {
+            issues.push(
+                ValidationIssue::new(
+                    ValidationIssueKind::NextLoop,
+                    ValidationSeverity::Error,
+                    format!(
+                        "Node {} is part of a loop of next targets without a choice",
+                        symbols.display_node(node_id)
+                    ),
+                )
+                .with_node(node_id),
+            );
         }
     }
 
@@ -883,6 +987,22 @@ impl GraphValidator {
                     .with_node(node.id),
                 );
             }
+            for (index, line) in node.lines.iter().enumerate() {
+                for _ in 0..count_unkeyed(&line.text) {
+                    issues.push(
+                        ValidationIssue::new(
+                            ValidationIssueKind::UnkeyedProgress,
+                            ValidationSeverity::Warning,
+                            format!(
+                                "A fragment in line {} of node {} {HINT}",
+                                index + 1,
+                                symbols.display_node(node.id)
+                            ),
+                        )
+                        .with_node(node.id),
+                    );
+                }
+            }
             for option in &node.options {
                 for _ in 0..count_unkeyed(&option.text) {
                     issues.push(
@@ -935,8 +1055,20 @@ impl GraphValidator {
     }
 }
 
+/// Returns the node targets of `node`: its `next` target, then the targets
+/// of its options. Only `DialogTarget::Node` targets count.
+fn node_targets<H, T>(node: &DialogueNode<H, T>) -> impl Iterator<Item = DialogueNodeId> + '_ {
+    node.next
+        .iter()
+        .chain(node.options.iter().map(|option| &option.target))
+        .filter_map(|target| match target {
+            DialogTarget::Node(id) => Some(*id),
+            _ => None,
+        })
+}
+
 /// Returns the nodes reachable from the entry nodes (breadth-first, through
-/// `DialogTarget::Node` targets). Only ids with a node in `node_map` are
+/// `DialogTarget::Node` targets of options and `next`). Only ids with a node in `node_map` are
 /// returned: missing entry nodes and dangling option targets are left out.
 fn reachable_from_entries<H, T>(
     graph: &DialogueGraph<H, T>,
@@ -952,12 +1084,9 @@ fn reachable_from_entries<H, T>(
 
     while let Some(current_id) = queue.pop_front() {
         if let Some(node) = node_map.get(&current_id) {
-            for option in &node.options {
-                if let DialogTarget::Node(target_id) = &option.target
-                    && node_map.contains_key(target_id)
-                    && visited.insert(*target_id)
-                {
-                    queue.push_back(*target_id);
+            for target_id in node_targets(node) {
+                if node_map.contains_key(&target_id) && visited.insert(target_id) {
+                    queue.push_back(target_id);
                 }
             }
         }
@@ -982,6 +1111,8 @@ mod tests {
             conditions: vec![],
             outcomes_on_enter: vec![],
             options,
+            lines: vec![],
+            next: None,
         }
     }
 
@@ -1187,6 +1318,99 @@ mod tests {
         let issues = GraphValidator::new().validate(&g);
         check!(issues.iter().all(|i| i.kind == K::OrphanFact), "{issues:?}");
         check!(issues.len() == 1);
+    }
+
+    fn next_graph(nexts: &[(u64, Option<DialogTarget>)]) -> DialogueGraph {
+        let mut g = DialogueGraph::new().with_entry_node(DialogueNodeId::new(nexts[0].0));
+        for (id, next) in nexts {
+            let mut node = make_node(*id, vec![]);
+            node.next = next.clone();
+            g.nodes.push(node);
+        }
+        g
+    }
+
+    #[test]
+    fn next_counts_for_reachability_and_dead_ends() {
+        use ValidationIssueKind as K;
+        let g = next_graph(&[
+            (1, Some(DialogTarget::node(2))),
+            (2, Some(DialogTarget::End)),
+            (3, None),
+        ]);
+        let validator = GraphValidator::new();
+        let unreachable = of_kind(&validator, &g, K::Unreachable);
+        check!(unreachable.len() == 1);
+        check!(unreachable[0].node_id == Some(DialogueNodeId::new(3)));
+        // Nodes with `next` are not dead ends; node 3 is not reachable.
+        check!(of_kind(&validator, &g, K::DeadEnd).is_empty());
+
+        let g = next_graph(&[(1, Some(DialogTarget::node(2))), (2, None)]);
+        let dead = of_kind(&validator, &g, K::DeadEnd);
+        check!(dead.len() == 1);
+        check!(dead[0].node_id == Some(DialogueNodeId::new(2)));
+    }
+
+    #[test]
+    fn next_targets_are_checked() {
+        use ValidationIssueKind as K;
+        let validator = GraphValidator::new();
+
+        let g = next_graph(&[(1, Some(DialogTarget::node(9)))]);
+        let missing = of_kind(&validator, &g, K::MissingTarget);
+        check!(missing.len() == 1);
+        check!(missing[0].node_id == Some(DialogueNodeId::new(1)));
+        check!(missing[0].option_id.is_none());
+        check!(missing[0].message.contains("Next of node #1"));
+
+        let g = next_graph(&[(1, Some(DialogTarget::node(1)))]);
+        check!(of_kind(&validator, &g, K::SelfLoop).len() == 1);
+        check!(of_kind(&validator, &g, K::NextLoop).len() == 1);
+    }
+
+    #[test]
+    fn detects_next_loops_without_a_choice() {
+        use ValidationIssueKind as K;
+        let validator = GraphValidator::new();
+
+        // 1 -> 2 -> 3 -> 2: nodes 2 and 3 loop; 1 only leads in.
+        let g = next_graph(&[
+            (1, Some(DialogTarget::node(2))),
+            (2, Some(DialogTarget::node(3))),
+            (3, Some(DialogTarget::node(2))),
+        ]);
+        let loops = of_kind(&validator, &g, K::NextLoop);
+        let ids: Vec<_> = loops.iter().filter_map(|i| i.node_id).collect();
+        check!(ids == vec![DialogueNodeId::new(2), DialogueNodeId::new(3)]);
+        check!(loops[0].severity == ValidationSeverity::Error);
+        check!(of_kind(&validator, &g, K::Cycle).len() == 2);
+
+        // An option on the loop gives the talk a place to stop.
+        let mut g = g;
+        let option = make_option(1, DialogTarget::End, DialogueNodeId::new(3));
+        g.nodes[2].options.push(option);
+        check!(of_kind(&validator, &g, K::NextLoop).is_empty());
+    }
+
+    #[test]
+    fn checks_progress_keys_in_lines() {
+        use ValidationIssueKind as K;
+        use dramaturge_model::TextFragment;
+
+        let mut g = next_graph(&[(1, Some(DialogTarget::End))]);
+        g.nodes[0] = g.nodes[0].clone().with_line(
+            CharacterId::new(EntityId::new(2)),
+            DialogText::fragments(vec![TextFragment::with_mode(
+                FragmentMode::Once,
+                vec![DialogText::inline("Only once.")],
+            )]),
+        );
+        let validator = GraphValidator::new();
+        let unkeyed = of_kind(&validator, &g, K::UnkeyedProgress);
+        check!(unkeyed.len() == 1);
+        check!(unkeyed[0].message.contains("line 1 of node #1"));
+        // A line may resolve to no text.
+        check!(of_kind(&validator, &g, K::EmptyText).is_empty());
     }
 
     #[test]

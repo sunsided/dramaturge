@@ -38,7 +38,9 @@
 //!
 //! [`DefaultRuntime`] composes an evaluator and an applier to drive a
 //! dialogue session: it enters nodes ([`DialogueRuntime::enter_node`]
-//! checks the node conditions and applies the outcomes on enter), filters
+//! checks the node conditions and applies the outcomes on enter),
+//! continues through nodes without a choice ([`DialogueRuntime::advance`]
+//! follows [`DialogueNode::next`](dramaturge_model::DialogueNode::next)), filters
 //! available options by evaluating their conditions, and applies outcomes
 //! when an option is chosen. [`DialogCursor`] follows the option targets
 //! and keeps a return stack for [`DialogTarget::Return`](dramaturge_model::DialogTarget::Return).
@@ -116,7 +118,8 @@ pub use evaluation::{
     EvaluationResult, HostHandler, NoCustom, OutcomeApplier, partial_eq_values,
 };
 pub use runtime::{
-    AvailableOptionsIter, DefaultRuntime, DialogueRuntime, EnterResult, select_entry,
+    ADVANCE_LIMIT, Advance, AdvanceStop, AvailableOptionsIter, DefaultRuntime, DialogueRuntime,
+    EnterResult, select_entry,
 };
 pub use state::{HasDialogWorldState, NarrativeState};
 pub use text::{
