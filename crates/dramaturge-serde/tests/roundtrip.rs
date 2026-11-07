@@ -8,9 +8,10 @@ use dramaturge_model::{
     FragmentMode, Intention, Memory, MemoryId, MemoryQuery, MemoryTag, NavigationHint, Outcome,
     RelationshipAxisId, SymbolTable, TextFragment,
 };
-use dramaturge_runtime::{DialogWorldState, FragmentProgress, TextProgress};
+use dramaturge_runtime::{DialogCursor, DialogWorldState, FragmentProgress, TextProgress};
 use dramaturge_serde::dto::{
-    ConditionDto, DialogueGraphDto, IntoModel, OutcomeDto, TextProgressDto, WorldStateDto,
+    ConditionDto, DialogCursorDto, DialogueGraphDto, IntoModel, OutcomeDto, TextProgressDto,
+    WorldStateDto,
 };
 use dramaturge_serde::save::{OrphanedKey, SavedWorldState, SymbolKind};
 use proptest::collection::vec;
@@ -473,6 +474,32 @@ fn world_state_without_event_log_field_keeps_the_log_on() {
     check!(!back.into_model().event_log_enabled());
 }
 
+proptest! {
+    #[test]
+    fn dialog_cursor_roundtrips(current in 0u64..8, targets in vec(proptest::option::of(0u64..8), 0..8)) {
+        let mut cursor = DialogCursor::new(DialogueNodeId::new(current));
+        for target in targets {
+            match target {
+                Some(n) => cursor.follow(&DialogTarget::node(n)),
+                None => cursor.follow(&DialogTarget::Return),
+            };
+        }
+        let back = json_roundtrip(&DialogCursorDto::from(&cursor)).into_model();
+        prop_assert_eq!(back, cursor);
+    }
+}
+
+#[test]
+fn dialog_cursor_json_shape() {
+    let mut cursor = DialogCursor::new(DialogueNodeId::new(1));
+    check!(serde_json::to_string(&DialogCursorDto::from(&cursor)).unwrap() == r#"{"current":1}"#);
+    cursor.follow(&DialogTarget::node(4));
+    check!(
+        serde_json::to_string(&DialogCursorDto::from(&cursor)).unwrap()
+            == r#"{"current":4,"back":[1]}"#
+    );
+}
+
 #[test]
 fn enums_are_externally_tagged_snake_case() {
     let c = Condition::FactExists {
@@ -502,6 +529,22 @@ fn with_module_embeds_state_in_host_struct() {
     let back: GameState = serde_json::from_str(&json).unwrap();
     check!(back.room == "shore");
     check!(back.dialog == game.dialog);
+}
+
+#[test]
+fn with_module_embeds_cursor_in_host_struct() {
+    #[derive(Serialize, Deserialize)]
+    struct Talk {
+        #[serde(with = "dramaturge_serde::dialog_cursor")]
+        cursor: DialogCursor,
+    }
+
+    let mut cursor = DialogCursor::new(DialogueNodeId::new(1));
+    cursor.follow(&DialogTarget::node(2));
+    let json = serde_json::to_string(&Talk { cursor }).unwrap();
+    let back: Talk = serde_json::from_str(&json).unwrap();
+    check!(back.cursor.current == DialogueNodeId::new(2));
+    check!(back.cursor.back == vec![DialogueNodeId::new(1)]);
 }
 
 #[test]

@@ -6,6 +6,27 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `DialogueRuntime::enter_node(node, state) -> EnterResult` checks the
+  node's `conditions`, applies its `outcomes_on_enter` once and reports if
+  the node has an available option (checked after the outcomes).
+  `EnterResult` is `Blocked` or `Entered { has_options }`. The default
+  implementation uses the new trait methods `conditions_hold` and
+  `apply_outcomes`, which `DefaultRuntime` implements (#73).
+- `DialogCursor { current, back }` in `dramaturge-runtime`: `follow(target)`
+  pushes the current node on `Node`, pops on `Return` and returns `None`
+  when the talk ends (`End`, `Return` with an empty stack) or for a
+  `Custom` target. `DialogCursorDto` and the `with` module
+  `dramaturge_serde::dialog_cursor` serialize it (#73).
+
+### Changed
+
+- **Breaking:** `DialogueRuntime` has two new required methods,
+  `conditions_hold(conditions, state)` and `apply_outcomes(outcomes,
+  state)`. Only hosts that implement `DialogueRuntime` themselves must add
+  them; `DefaultRuntime` implements them (#73).
+
 ## [0.3.0-alpha.2] - 2026-11-07
 
 ### Added

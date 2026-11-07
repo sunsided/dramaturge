@@ -78,3 +78,9 @@ with_module!(
     dramaturge_runtime::TextProgress,
     crate::dto::TextProgressDto
 );
+with_module!(
+    /// `with` module for [`DialogCursor`](dramaturge_runtime::DialogCursor).
+    dialog_cursor,
+    dramaturge_runtime::DialogCursor,
+    crate::dto::DialogCursorDto
+);

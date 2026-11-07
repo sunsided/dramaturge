@@ -7,6 +7,7 @@
 //! # Modules
 //!
 //! - [`context`] — [`DialogWorldState`], the mutable game state evaluated against conditions
+//! - [`cursor`] — [`DialogCursor`], the current node and a return stack
 //! - [`evaluation`] — [`ConditionEvaluator`] and [`OutcomeApplier`] traits with defaults
 //! - [`runtime`] — [`DialogueRuntime`] trait and [`DefaultRuntime`] implementation
 //! - [`state`] — [`NarrativeState`], the state abstraction evaluators work against
@@ -34,8 +35,11 @@
 //! `NarrativeState` for free.
 //!
 //! [`DefaultRuntime`] composes an evaluator and an applier to drive a
-//! dialogue session: it filters available options by evaluating their
-//! conditions, and applies outcomes when an option is chosen.
+//! dialogue session: it enters nodes ([`DialogueRuntime::enter_node`]
+//! checks the node conditions and applies the outcomes on enter), filters
+//! available options by evaluating their conditions, and applies outcomes
+//! when an option is chosen. [`DialogCursor`] follows the option targets
+//! and keeps a return stack for [`DialogTarget::Return`](dramaturge_model::DialogTarget::Return).
 //!
 //! # Extension Points
 //!
@@ -97,17 +101,19 @@
 //! ```
 
 pub mod context;
+pub mod cursor;
 pub mod evaluation;
 pub mod runtime;
 pub mod state;
 pub mod text;
 
 pub use context::{DialogWorldState, EvaluationContext};
+pub use cursor::DialogCursor;
 pub use evaluation::{
     ConditionEvaluator, CustomHandler, DefaultConditionEvaluator, DefaultOutcomeApplier,
     EvaluationResult, NoCustom, OutcomeApplier, partial_eq_values,
 };
-pub use runtime::{AvailableOptionsIter, DefaultRuntime, DialogueRuntime};
+pub use runtime::{AvailableOptionsIter, DefaultRuntime, DialogueRuntime, EnterResult};
 pub use state::{HasDialogWorldState, NarrativeState};
 pub use text::{
     FragmentProgress, ResolvedPiece, ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text,
