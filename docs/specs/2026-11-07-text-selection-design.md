@@ -79,7 +79,8 @@ variants. loremaster keeps `first_visit` as an alias of `first_time` in
 rooms. The mode chooses the **variant** of the winning candidate:
 
 - `cycle`: variant `shown % len`.
-- `shuffle`: a random variant, not the one shown last.
+- `shuffle`: a random variant, not the one shown last. With one variant,
+  that variant shows each time (as in `resolve_text` today).
 - `sticky`: a random variant the first time, then always the same one.
 
 Only the candidates that show get progress. A candidate that lost does not
