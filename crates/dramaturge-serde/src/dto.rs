@@ -1461,7 +1461,10 @@ impl<H> IntoModel for OutcomeDto<H> {
 /// `T` is the host text type of [`model::DialogText::Host`] (default `()`).
 /// The DTO stores the host text as it is: it serializes when `T` does
 /// (the variant `host`, JSON `{"host": ...}`), and [`IntoModel`] does not
-/// map ids inside it.
+/// map ids inside it. dramaturge does not know the structure of `T`. A
+/// host that keeps entity, node or option ids in its text maps them
+/// itself after the conversion, for example with
+/// [`DialogueGraph::map_text`](model::DialogueGraph::map_text).
 ///
 /// The conversion from `&model::DialogText<T>` clones the host text, so it
 /// needs `T: Clone`. The same holds for the fragment, option, node and

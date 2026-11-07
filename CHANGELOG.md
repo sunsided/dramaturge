@@ -53,7 +53,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   give a graph a host text type. Host text can be a fragment variant, so
   fragment selection works for it (#75).
 - `resolve_text` returns host text as it is, as `ResolvedText::Host(T)`
-  (`ResolvedText::as_host`). The validator does not check host text: the
+  (`ResolvedText::as_host`). Each call clones the selected host text; use
+  a type that is cheap to clone (such as `Arc<Markup>`) for large text. The validator does not check host text: the
   `EmptyText` check counts it as text, and `UnkeyedProgress` checks only the
   fragments around it (#75).
 - `DialogTextDto::Host(T)` (JSON `{"host": ...}`); the text, fragment and

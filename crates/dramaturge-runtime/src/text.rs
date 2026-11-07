@@ -221,7 +221,10 @@ pub struct ResolvedPiece<T = ()> {
 /// prefixes all progress keys. Plain `Inline`, `LocalizedKey` and `Host`
 /// text resolves to one piece and records nothing. Host text is cloned
 /// into a [`ResolvedText::Host`] piece; dramaturge does not look into it.
-
+///
+/// Every call clones the host text it selects, as it clones inline text.
+/// For large host text (for example compiled markup), use a type that is
+/// cheap to clone, such as `Arc<Markup>`.
 ///
 /// Rules for a fragment list, in order:
 ///
