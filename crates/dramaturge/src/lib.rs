@@ -54,6 +54,10 @@
 //! - **Host outcomes** — put typed host effects in `Outcome::Host(H)`
 //!   (`Outcome<H>`, `DialogueGraph<H>`; `H` defaults to `()`) and apply
 //!   them with a [`HostHandler`] on the same handler type.
+//! - **Host text** — put text in your own format (for example compiled
+//!   markup) in `DialogText::Host(T)` (`DialogText<T>`,
+//!   `DialogueGraph<H, T>`; `T` defaults to `()`). `resolve_text` returns
+//!   it as it is, and the validator does not check it.
 //!
 //! # Example
 //!

@@ -43,6 +43,11 @@
 //! each holding text, a speaker, [`DialogueOption`]s, and optional enter/exit
 //! [`Outcome`]s. No evaluation logic lives here.
 //!
+//! [`DialogText`] is inline text, a localization key, a list of
+//! [`TextFragment`]s, or host text ([`DialogText::Host`]): text in a format
+//! that only the host knows. The type parameter `T` on [`DialogText`] and
+//! the graph types sets the host text type; the default is `()`.
+//!
 //! ## Conditions
 //!
 //! [`Condition`] is a composable boolean expression tree evaluated against world

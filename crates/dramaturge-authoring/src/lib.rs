@@ -30,7 +30,8 @@
 //! 8. **Mismatched source node IDs** — Options whose `source_node_id` does not match their parent `DialogueNode`
 //!    ([`SourceNodeMismatch`](ValidationIssueKind::SourceNodeMismatch))
 //! 9. **Possibly empty text** — Fragment texts where no fragment is guaranteed to show
-//!    ([`EmptyText`](ValidationIssueKind::EmptyText))
+//!    ([`EmptyText`](ValidationIssueKind::EmptyText)). Host text
+//!    (`DialogText::Host`) is not checked: it counts as text.
 //! 10. **Unkeyed progress fragments** — `Once`/`Cycle`/`Sticky` fragments without a key, whose progress resets when a fragment is inserted before them
 //!     ([`UnkeyedProgress`](ValidationIssueKind::UnkeyedProgress))
 //!
@@ -237,6 +238,13 @@ impl ValidationIssue {
 /// ([`Outcome::Host`](dramaturge_model::Outcome::Host)). It does not look
 /// into host outcomes: a fact that only a host outcome sets is an orphan
 /// fact.
+///
+/// The validator also accepts any host text type `T`
+/// ([`DialogText::Host`]). It does not
+/// check host text: [`EmptyText`](ValidationIssueKind::EmptyText) counts a
+/// host text leaf as never empty, and
+/// [`UnkeyedProgress`](ValidationIssueKind::UnkeyedProgress) checks only the
+/// fragments around it.
 #[derive(Debug, Clone, Default)]
 pub struct GraphValidator {
     options: ValidationOptions,
@@ -262,7 +270,7 @@ impl GraphValidator {
     ///
     /// Messages show raw numeric ids (`#3`). Use
     /// [`validate_with_symbols`](Self::validate_with_symbols) to show author keys.
-    pub fn validate<H>(&self, graph: &DialogueGraph<H>) -> Vec<ValidationIssue> {
+    pub fn validate<H, T>(&self, graph: &DialogueGraph<H, T>) -> Vec<ValidationIssue> {
         self.validate_with_symbols(graph, &SymbolTable::new())
     }
 
@@ -271,15 +279,15 @@ impl GraphValidator {
     ///
     /// Issues of kinds that the [options](ValidationOptions) skip are not
     /// returned.
-    pub fn validate_with_symbols<H>(
+    pub fn validate_with_symbols<H, T>(
         &self,
-        graph: &DialogueGraph<H>,
+        graph: &DialogueGraph<H, T>,
         symbols: &SymbolTable,
     ) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
         let on = |kind| self.options.reports(kind);
 
-        let node_map: HashMap<DialogueNodeId, &DialogueNode<H>> =
+        let node_map: HashMap<DialogueNodeId, &DialogueNode<H, T>> =
             graph.nodes.iter().map(|n| (n.id, n)).collect();
 
         use ValidationIssueKind as K;
@@ -320,11 +328,11 @@ impl GraphValidator {
 
     /// Detects options that target non-existent node IDs.
     /// Uses set difference between all target IDs and existing node IDs.
-    fn check_missing_targets<H>(
+    fn check_missing_targets<H, T>(
         &self,
-        graph: &DialogueGraph<H>,
+        graph: &DialogueGraph<H, T>,
         symbols: &SymbolTable,
-        node_map: &HashMap<DialogueNodeId, &DialogueNode<H>>,
+        node_map: &HashMap<DialogueNodeId, &DialogueNode<H, T>>,
         issues: &mut Vec<ValidationIssue>,
     ) {
         let existing_ids: HashSet<DialogueNodeId> = node_map.keys().copied().collect();
@@ -354,11 +362,11 @@ impl GraphValidator {
     }
 
     /// Detects nodes not reachable from any entry node via BFS traversal.
-    fn check_unreachable_nodes<H>(
+    fn check_unreachable_nodes<H, T>(
         &self,
-        graph: &DialogueGraph<H>,
+        graph: &DialogueGraph<H, T>,
         symbols: &SymbolTable,
-        node_map: &HashMap<DialogueNodeId, &DialogueNode<H>>,
+        node_map: &HashMap<DialogueNodeId, &DialogueNode<H, T>>,
         issues: &mut Vec<ValidationIssue>,
     ) {
         if graph.entry_nodes.is_empty() {
@@ -416,11 +424,11 @@ impl GraphValidator {
 
     /// Detects nodes with no options and no enter outcomes that are reachable
     /// from an entry node. These are potential dead ends in the conversation flow.
-    fn check_dead_end_nodes<H>(
+    fn check_dead_end_nodes<H, T>(
         &self,
-        graph: &DialogueGraph<H>,
+        graph: &DialogueGraph<H, T>,
         symbols: &SymbolTable,
-        node_map: &HashMap<DialogueNodeId, &DialogueNode<H>>,
+        node_map: &HashMap<DialogueNodeId, &DialogueNode<H, T>>,
         issues: &mut Vec<ValidationIssue>,
     ) {
         let mut visited: Vec<_> = reachable_from_entries(graph, node_map)
@@ -451,11 +459,11 @@ impl GraphValidator {
     }
 
     /// Detects options whose target is the same node as their parent (self-loop).
-    fn check_self_loops<H>(
+    fn check_self_loops<H, T>(
         &self,
-        graph: &DialogueGraph<H>,
+        graph: &DialogueGraph<H, T>,
         symbols: &SymbolTable,
-        _node_map: &HashMap<DialogueNodeId, &DialogueNode<H>>,
+        _node_map: &HashMap<DialogueNodeId, &DialogueNode<H, T>>,
         issues: &mut Vec<ValidationIssue>,
     ) {
         for node in &graph.nodes {
@@ -483,11 +491,11 @@ impl GraphValidator {
 
     /// Detects cycles using DFS with a recursion stack that tracks path order.
     /// When a back-edge is found, all nodes in the cycle are reported.
-    fn check_cycles<H>(
+    fn check_cycles<H, T>(
         &self,
-        graph: &DialogueGraph<H>,
+        graph: &DialogueGraph<H, T>,
         symbols: &SymbolTable,
-        node_map: &HashMap<DialogueNodeId, &DialogueNode<H>>,
+        node_map: &HashMap<DialogueNodeId, &DialogueNode<H, T>>,
         issues: &mut Vec<ValidationIssue>,
     ) {
         if graph.entry_nodes.is_empty() {
@@ -497,9 +505,9 @@ impl GraphValidator {
         let mut visited = HashSet::new();
         let mut cycle_nodes = HashSet::new();
 
-        fn dfs<H>(
+        fn dfs<H, T>(
             current: DialogueNodeId,
-            node_map: &HashMap<DialogueNodeId, &DialogueNode<H>>,
+            node_map: &HashMap<DialogueNodeId, &DialogueNode<H, T>>,
             visited: &mut HashSet<DialogueNodeId>,
             stack: &mut Vec<DialogueNodeId>,
             cycle_nodes: &mut HashSet<DialogueNodeId>,
@@ -567,11 +575,11 @@ impl GraphValidator {
     /// Detects options with conditions that are always false.
     /// Uses constant folding to properly evaluate composite conditions:
     /// `Any([Never, Always])` is satisfiable, `Not(Never)` is always true.
-    fn check_always_false_conditions<H>(
+    fn check_always_false_conditions<H, T>(
         &self,
-        graph: &DialogueGraph<H>,
+        graph: &DialogueGraph<H, T>,
         symbols: &SymbolTable,
-        _node_map: &HashMap<DialogueNodeId, &DialogueNode<H>>,
+        _node_map: &HashMap<DialogueNodeId, &DialogueNode<H, T>>,
         issues: &mut Vec<ValidationIssue>,
     ) {
         fn is_always_false(cond: &Condition) -> bool {
@@ -620,9 +628,9 @@ impl GraphValidator {
     /// Detects fact IDs referenced in conditions but never set by any outcome.
     /// Collects fact IDs from conditions only (not outcomes), then flags those
     /// never set by any `SetFact`, `AddFact`, `StartQuest`, or `AdvanceQuest` outcome.
-    fn check_orphaned_fact_references<H>(
+    fn check_orphaned_fact_references<H, T>(
         &self,
-        graph: &DialogueGraph<H>,
+        graph: &DialogueGraph<H, T>,
         issues: &mut Vec<ValidationIssue>,
     ) {
         struct FactRef {
@@ -756,9 +764,9 @@ impl GraphValidator {
 
     /// Detects fragment texts that can resolve to no text at all: no fragment
     /// is guaranteed to show (unconditional, repeatable mode) with non-empty text.
-    fn check_possibly_empty_text<H>(
+    fn check_possibly_empty_text<H, T>(
         &self,
-        graph: &DialogueGraph<H>,
+        graph: &DialogueGraph<H, T>,
         symbols: &SymbolTable,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -772,7 +780,7 @@ impl GraphValidator {
         }
 
         /// Returns `true` if `text` always resolves to some non-empty text.
-        fn never_empty(text: &DialogText) -> bool {
+        fn never_empty<T>(text: &DialogText<T>) -> bool {
             match text {
                 DialogText::Inline(s) => !s.is_empty(),
                 DialogText::LocalizedKey(_) => true,
@@ -789,12 +797,16 @@ impl GraphValidator {
                         && !f.variants.is_empty()
                         && f.variants.iter().all(never_empty)
                 }),
+                // Host text belongs to the host; it is not checked.
+                DialogText::Host(_) => true,
                 // Text kinds this validator does not know are not checked.
                 _ => true,
             }
         }
 
-        let is_fragments = |t: &DialogText| matches!(t, DialogText::Fragments(_));
+        fn is_fragments<T>(t: &DialogText<T>) -> bool {
+            matches!(t, DialogText::Fragments(_))
+        }
         for node in &graph.nodes {
             if is_fragments(&node.text) && !never_empty(&node.text) {
                 issues.push(
@@ -832,15 +844,15 @@ impl GraphValidator {
     /// Detects `Once`, `Cycle` and `Sticky` fragments without a key. Their
     /// progress is tracked by position, so inserting a fragment before them
     /// resets it.
-    fn check_unkeyed_progress_fragments<H>(
+    fn check_unkeyed_progress_fragments<H, T>(
         &self,
-        graph: &DialogueGraph<H>,
+        graph: &DialogueGraph<H, T>,
         symbols: &SymbolTable,
         issues: &mut Vec<ValidationIssue>,
     ) {
-        fn count_unkeyed(text: &DialogText) -> usize {
+        fn count_unkeyed<T>(text: &DialogText<T>) -> usize {
             match text {
-                DialogText::Inline(_) | DialogText::LocalizedKey(_) => 0,
+                DialogText::Inline(_) | DialogText::LocalizedKey(_) | DialogText::Host(_) => 0,
                 DialogText::Fragments(fragments) => fragments
                     .iter()
                     .map(|f| {
@@ -893,9 +905,9 @@ impl GraphValidator {
 
     /// Detects options whose `source_node_id` does not match their parent node's ID.
     /// A mismatch corrupts runtime event history recorded by `DefaultRuntime::choose_option`.
-    fn check_source_node_ids<H>(
+    fn check_source_node_ids<H, T>(
         &self,
-        graph: &DialogueGraph<H>,
+        graph: &DialogueGraph<H, T>,
         symbols: &SymbolTable,
         issues: &mut Vec<ValidationIssue>,
     ) {
@@ -926,9 +938,9 @@ impl GraphValidator {
 /// Returns the nodes reachable from the entry nodes (breadth-first, through
 /// `DialogTarget::Node` targets). Only ids with a node in `node_map` are
 /// returned: missing entry nodes and dangling option targets are left out.
-fn reachable_from_entries<H>(
-    graph: &DialogueGraph<H>,
-    node_map: &HashMap<DialogueNodeId, &DialogueNode<H>>,
+fn reachable_from_entries<H, T>(
+    graph: &DialogueGraph<H, T>,
+    node_map: &HashMap<DialogueNodeId, &DialogueNode<H, T>>,
 ) -> HashSet<DialogueNodeId> {
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
@@ -1175,6 +1187,42 @@ mod tests {
         let issues = GraphValidator::new().validate(&g);
         check!(issues.iter().all(|i| i.kind == K::OrphanFact), "{issues:?}");
         check!(issues.len() == 1);
+    }
+
+    #[test]
+    fn does_not_check_host_text() {
+        use ValidationIssueKind as K;
+        use dramaturge_model::TextFragment;
+
+        /// Host markup; an empty string is valid host text.
+        #[derive(Debug, Clone, PartialEq)]
+        struct Markup(&'static str);
+
+        let speaker = CharacterId::new(EntityId::new(1));
+        let mut node = DialogueNode::<(), Markup>::typed(1, speaker, DialogText::host(Markup("")));
+        node.options.push(DialogueOption::typed(
+            1,
+            DialogText::Fragments(vec![TextFragment::always(DialogText::host(Markup("")))]),
+            DialogTarget::End,
+            node.id,
+        ));
+        let mut g = DialogueGraph::typed().with_entry_node(node.id);
+        g.nodes.push(node);
+
+        let issues = GraphValidator::new().validate(&g);
+        check!(issues.is_empty(), "{issues:?}");
+
+        // The fragments around host text are still checked.
+        g.nodes[0].text = DialogText::Fragments(vec![TextFragment::with_mode(
+            FragmentMode::Once,
+            vec![DialogText::host(Markup("Once."))],
+        )]);
+        let kinds: Vec<_> = GraphValidator::new()
+            .validate(&g)
+            .into_iter()
+            .map(|i| i.kind)
+            .collect();
+        check!(kinds == vec![K::EmptyText, K::UnkeyedProgress]);
     }
 
     #[test]
