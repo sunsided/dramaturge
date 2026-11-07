@@ -27,7 +27,8 @@
 //! │  dramaturge-model     pure domain types, no I/O      │
 //! │  dramaturge-runtime   evaluation traits + defaults   │
 //! │  dramaturge-authoring validation, graph checks       │
-//! │  dramaturge-macros    derive macros for ergonomics   │
+//! │  dramaturge-syntax    dialogue AST, parsers, lowering│
+//! │  dramaturge-macros    dialogue! and derive macros    │
 //! │  dramaturge-serde     optional serde / YAML support  │
 //! └──────────────────────────────────────────────────────┘
 //! ```
@@ -58,6 +59,12 @@
 //!   own speakers and a `next` target; [`DialogueRuntime::advance`] enters
 //!   such nodes one after the other until a node offers a choice. See the
 //!   `exchange` example.
+//! - **One dialogue format** — write a dialogue as YAML (feature `yaml`,
+//!   `dramaturge_serde::loader::load_yaml`) or as Rust tokens with
+//!   `dialogue!` (feature `macros`). Both read into the AST of
+//!   `dramaturge::syntax` (feature `syntax`) and make the same graph. A host
+//!   with its own conditions, text or effects lowers the AST through its
+//!   own `syntax::Lower` hooks. See the `dialogue_macro` example.
 //! - **Host text** — put text in your own format (for example compiled
 //!   markup) in `DialogText::Host(T)` (`DialogText<T>`,
 //!   `DialogueGraph<H, T>`; `T` defaults to `()`). `resolve_text` returns
@@ -75,6 +82,8 @@
 //! assert!(graph.nodes.is_empty());
 //! ```
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 pub use dramaturge_model::{
     AlignmentAxis, AlignmentAxisId, AlignmentPole, AlignmentPoleId, AlignmentScore, Character,
     CharacterId, CharacterKey, CharacterTrait, Condition, Confidence, CustomDialogTag,
@@ -91,6 +100,17 @@ pub use dramaturge_runtime::{
     FragmentProgress, HasDialogWorldState, HostHandler, NarrativeState, NoCustom, OutcomeApplier,
     ResolvedPiece, ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text, select_entry,
 };
+
+/// The dialogue AST, its serde shape and its lowering to a
+/// [`DialogueGraph`] (the `dramaturge-syntax` crate).
+#[cfg(feature = "syntax")]
+#[cfg_attr(docsrs, doc(cfg(feature = "syntax")))]
+pub use dramaturge_syntax as syntax;
+
+/// The macros: [`dialogue!`] builds a dialogue graph from Rust tokens.
+#[cfg(feature = "macros")]
+#[cfg_attr(docsrs, doc(cfg(feature = "macros")))]
+pub use dramaturge_macros::{ConditionBuilder, DialogTag, FactValue, dialogue};
 
 #[cfg(test)]
 mod tests {

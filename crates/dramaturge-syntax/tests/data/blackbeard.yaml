@@ -1,0 +1,54 @@
+# The talk with the figure in the corner. The first talk starts at `meet`;
+# every later talk starts at `again`. What he says about the Marigold
+# depends on how much he trusts the player.
+with: blackbeard
+start: [again, meet]
+nodes:
+  meet:
+    say: 'The figure looks up. It is a man, grim-looking, with eyes like nails. "Sit, if you like."'
+    options:
+      - say: '"Who are you?"'
+        go: names
+      - say: '"I am looking for the *Marigold*."'
+        go: marigold
+      - say: '"Not tonight."'
+        go: end
+
+  names:
+    say: '"They call me Blackbeard," he says. "And you''re looking for a ship."'
+    set: { knows_blackbeard_name: true }
+    relation: { trust: 1 }
+    options:
+      - say: '"The *Marigold*. Where did she go?"'
+        go: marigold
+      - say: '"Just passing through."'
+        relation: { trust: -1 }
+        go: end
+
+  marigold:
+    say: '{blackbeard.trust >= 1 ? "South, past the breakwater," he says quietly. "Two nights ago. Nobody else saw her go." | He shrugs. "Ships come and go. Why should I tell a stranger?"}'
+    remember: [asked_marigold]
+    options:
+      - say: '"Thank you."'
+        when: blackbeard.trust >= 1
+        relation: { trust: 1 }
+        then:
+          - say: "He tips his head at the door. You take the hint and step out into the rain."
+          - goto: street
+      - say: '"Who are you, anyway?"'
+        when: not knows_blackbeard_name
+        go: names
+      - say: '"Never mind."'
+        go: end
+
+  again:
+    when: blackbeard.talked > 1
+    say: '{blackbeard.The} looks up from his drink. {remembers(blackbeard, asked_marigold) ? "Still after that ship?" | "Back again."}'
+    options:
+      - say: '"Who are you?"'
+        when: not knows_blackbeard_name
+        go: names
+      - say: '"Tell me about the *Marigold*."'
+        go: marigold
+      - say: '"Nothing. Goodbye."'
+        go: end

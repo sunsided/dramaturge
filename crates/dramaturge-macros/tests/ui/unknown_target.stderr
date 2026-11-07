@@ -1,0 +1,5 @@
+error: no node `nmaes`
+ --> tests/ui/unknown_target.rs:7:35
+  |
+7 |                 "Who are you?" => nmaes;
+  |                                   ^^^^^

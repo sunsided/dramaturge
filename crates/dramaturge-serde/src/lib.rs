@@ -7,20 +7,20 @@
 //!
 //! # YAML Loader
 //!
-//! With the `yaml` feature, load a [`DialogueGraph`] from a YAML file:
+//! With the `yaml` feature, load a [`DialogueGraph`] from a YAML file. The
+//! shape is the dialogue shape of `dramaturge-syntax` (`with`, `start`,
+//! `nodes` with `say`, `when`, `options` and `go`):
 //!
 //! ```ignore
-//! use dramaturge_serde::loader::YamlDialogueGraph;
+//! use dramaturge_serde::loader::load_yaml;
 //!
 //! let raw = std::fs::read_to_string("dialogue.yaml").unwrap();
-//! let loaded = YamlDialogueGraph::from_yaml(&raw)
-//!     .expect("invalid YAML")
-//!     .to_model()
-//!     .expect("invalid graph structure");
-//! let graph = loaded.graph;
+//! let loaded = load_yaml(&raw).expect("invalid dialogue");
+//! let graph = loaded.graph; // also loaded.symbols and loaded.warnings
 //! ```
 //!
-//! See `crates/dramaturge/examples/dialogue.yaml` for the full YAML format.
+//! See `crates/dramaturge/examples/dialogue.yaml` for a full dialogue, and
+//! `docs/migration-0.3-yaml.md` for the change from the 0.2 shape.
 //!
 //! # Model and State Serialization
 //!

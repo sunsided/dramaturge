@@ -11,7 +11,7 @@ Serialization goes through DTO types defined in this crate — `dramaturge-model
 | Feature | What it enables |
 |---|---|
 | *(default)* | Lossless DTOs (`dto`) for every model type and `DialogWorldState`, `with` modules, keyed save games (`save`); `pub use serde` and `pub use model::*` re-exports |
-| `yaml` | YAML dialogue graph loader (backed by `serde-saphyr`) |
+| `yaml` | YAML dialogue loader (backed by `serde-saphyr` and `dramaturge-syntax`) |
 
 ## Saving state
 
@@ -38,23 +38,44 @@ changes. See `docs/adr/0002-serialization.md`.
 dramaturge-serde = { version = "...", features = ["yaml"] }
 ```
 
-```rust
-use dramaturge_serde::loader::YamlDialogueGraph;
-
-let raw = std::fs::read_to_string("dialogue.yaml").unwrap();
-let loaded = YamlDialogueGraph::from_yaml(&raw)
-    .expect("invalid YAML") // YamlError carries line and column
-    .to_model()
-    .expect("invalid graph structure");
-
-// `loaded.graph` is the model, `loaded.symbols` maps keys such as
-// `mara.intro` to ids, and `loaded.warnings` lists non-fatal messages.
+```yaml
+with: mara
+start: [again, intro]
+nodes:
+  intro:
+    say: "Hello, traveller."
+    set: { met_mara: true }
+    options:
+      - say: "Who are you?"
+        go: names
+        relation: { trust: 1 }
+      - { say: "Goodbye.", go: end }
+  again:
+    when: met_mara
+    say: "You again."
+    options:
+      - { say: "Goodbye.", go: end }
+  names:
+    say: "They call me Mara."
+    next: end
 ```
 
-All references in the YAML format are stable keys (`target: mara.confession.soft`,
-`source: player`); see `docs/adr/0001-id-representation.md`. Numeric ids
-(`id: 2`) are an error since 0.3; write `id: "2"` to keep such a key. Node and option
-`text` can be a string or a list of fragments.
+```rust
+use dramaturge_serde::loader::load_yaml;
+
+let raw = std::fs::read_to_string("dialogue.yaml").unwrap();
+let loaded = load_yaml(&raw).expect("invalid dialogue"); // errors name the place
+
+// `loaded.graph` is the model, `loaded.symbols` maps keys such as
+// `intro` to ids, and `loaded.warnings` lists non-fatal issues.
+```
+
+The shape is the dialogue shape of `dramaturge-syntax` (one format for YAML,
+JSON and the `dialogue!` macro; see its README for every field). It changed in
+0.3: see `docs/migration-0.3-yaml.md`. All references are stable keys; numeric
+ids are an error (`go: "2"` in quotes is a key). `from_yaml` and `to_yaml`
+read and write the AST, generic over the condition, text and effect payloads
+of a host.
 
 See [`crates/dramaturge/examples/dialogue.yaml`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge/examples/dialogue.yaml) in the repository for the full YAML schema.
 
