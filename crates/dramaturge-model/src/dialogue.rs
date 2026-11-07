@@ -38,6 +38,7 @@ impl DialogueOptionId {
 /// Text content that can be inline, localized, or assembled from
 /// state-dependent fragments.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum DialogText {
     /// Direct string text.
     Inline(String),
@@ -108,6 +109,7 @@ impl TextFragment {
 
 /// How a [`TextFragment`] picks its text over repeated resolutions.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum FragmentMode {
     /// Show the first variant every time.
     #[default]
@@ -143,6 +145,7 @@ impl DialogText {
 
 /// Where a dialogue option leads.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum DialogTarget {
     /// Transitions to another dialogue node.
     Node(DialogueNodeId),
@@ -160,6 +163,7 @@ pub enum DialogTarget {
 /// (e.g., "[Continue]", "[Leave]", "[End]"). These replace hardcoded
 /// prefixes in dialogue text with semantic, localizable navigation markers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum NavigationHint {
     /// Continue to the next node (→ Continue / [Continue]).
     Continue,

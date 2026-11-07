@@ -14,6 +14,7 @@ use std::sync::Arc;
 /// Each variant represents a distinct communicative goal. Variants that
 /// reference facts use [`FactId`] to identify the specific fact involved.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Intention {
     /// Attempt to learn a fact from the other party.
     Learn(FactId),

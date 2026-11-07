@@ -758,10 +758,7 @@ impl YamlOutcome {
 
                 Ok(Outcome::SetFact {
                     scope: fact_scope,
-                    fact: Fact {
-                        id: FactId::new(fact.as_str()),
-                        value: fact_value,
-                    },
+                    fact: Fact::new(fact.as_str(), fact_value),
                 })
             }
             YamlOutcome::AddRelationship {

@@ -57,6 +57,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Classification of issue importance.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ValidationSeverity {
     /// Informational note — no action required.
     Info,
@@ -68,6 +69,7 @@ pub enum ValidationSeverity {
 
 /// A problem found during graph validation.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ValidationIssue {
     /// How important this issue is.
     pub severity: ValidationSeverity,
@@ -633,6 +635,8 @@ impl GraphValidator {
                         && !f.variants.is_empty()
                         && f.variants.iter().all(never_empty)
                 }),
+                // Text kinds this validator does not know are not checked.
+                _ => true,
             }
         }
 
@@ -692,6 +696,7 @@ impl GraphValidator {
                             + f.variants.iter().map(count_unkeyed).sum::<usize>()
                     })
                     .sum(),
+                _ => 0,
             }
         }
 

@@ -61,6 +61,24 @@ impl FactId {
     }
 }
 
+impl From<&str> for FactId {
+    fn from(id: &str) -> Self {
+        Self::new(id)
+    }
+}
+
+impl From<String> for FactId {
+    fn from(id: String) -> Self {
+        Self::new(id)
+    }
+}
+
+impl From<Arc<str>> for FactId {
+    fn from(id: Arc<str>) -> Self {
+        Self(id)
+    }
+}
+
 /// The value stored in a fact.
 ///
 /// Supports boolean, integer, floating-point, text, entity references,
@@ -84,7 +102,11 @@ pub enum FactValue {
 }
 
 /// A single named piece of information with a typed value.
+///
+/// The struct is `#[non_exhaustive]`: build it with [`Fact::new`] or one of
+/// the typed constructors ([`Fact::bool`], [`Fact::int`], ...).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Fact {
     /// Unique fact identifier.
     pub id: FactId,
@@ -93,6 +115,14 @@ pub struct Fact {
 }
 
 impl Fact {
+    /// Creates a fact with the given ID and value.
+    pub fn new(id: impl Into<FactId>, value: FactValue) -> Self {
+        Self {
+            id: id.into(),
+            value,
+        }
+    }
+
     /// Creates a boolean fact with the given ID and value.
     pub fn bool(id: impl Into<Arc<str>>, value: bool) -> Self {
         Self {
@@ -148,6 +178,7 @@ impl Fact {
 /// know a secret that a character does not, or a faction may have
 /// information not shared with the world.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum FactScope {
     /// Fact known globally (objective truth).
     World,
@@ -182,6 +213,15 @@ mod tests {
     fn fact_id_construction() {
         let id = FactId::new("met_hero");
         check!(&*id.0 == "met_hero");
+    }
+
+    #[test]
+    fn fact_new_construction() {
+        let f = Fact::new("gold", FactValue::Int(3));
+        check!(&*f.id.0 == "gold");
+        check!(f.value == FactValue::Int(3));
+        let g = Fact::new(FactId::new("gold"), FactValue::Int(3));
+        check!(f == g);
     }
 
     #[test]
