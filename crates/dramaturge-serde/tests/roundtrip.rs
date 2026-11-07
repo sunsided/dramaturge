@@ -241,6 +241,7 @@ fn outcome() -> impl Strategy<Value = Outcome> {
         key().prop_map(|quest_id| Outcome::StartQuest { quest_id }),
         (key(), key()).prop_map(|(quest_id, stage)| Outcome::AdvanceQuest { quest_id, stage }),
         (key(), vec(fact_value(), 0..3)).prop_map(|(key, args)| Outcome::Custom { key, args }),
+        Just(Outcome::Host(())),
     ]
 }
 
@@ -471,6 +472,79 @@ fn world_state_without_event_log_field_keeps_the_log_on() {
     check!(json.contains(r#""event_log":false"#), "{json}");
     let back: WorldStateDto = serde_json::from_str(&json).unwrap();
     check!(!back.into_model().event_log_enabled());
+}
+
+#[test]
+fn host_outcomes_roundtrip_through_the_dtos() {
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum Effect {
+        Goto(String),
+    }
+
+    let unit: Outcome = Outcome::Host(());
+    check!(serde_json::to_string(&OutcomeDto::from(&unit)).unwrap() == r#"{"host":null}"#);
+
+    let mut node = DialogueNode::<Effect>::typed(
+        1,
+        CharacterId::new(EntityId::new(1)),
+        DialogText::inline("Bye."),
+    );
+    node.outcomes_on_enter
+        .push(Outcome::Host(Effect::Goto("street".into())));
+    let mut option =
+        DialogueOption::typed(1, DialogText::inline("Go."), DialogTarget::End, node.id);
+    option
+        .outcomes
+        .push(Outcome::Host(Effect::Goto("hall".into())));
+    node.options.push(option);
+    let mut graph = DialogueGraph::typed();
+    graph.nodes.push(node);
+    graph.entry_node = Some(DialogueNodeId::new(1));
+
+    let json = serde_json::to_string(&DialogueGraphDto::from(&graph)).unwrap();
+    check!(json.contains(r#"{"host":{"goto":"street"}}"#), "{json}");
+    let back: DialogueGraphDto<Effect> = serde_json::from_str(&json).unwrap();
+    check!(back.into_model() == graph);
+}
+
+#[test]
+fn with_modules_take_a_host_outcome_type() {
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    enum Effect {
+        Goto(String),
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct Content {
+        #[serde(with = "dramaturge_serde::dialogue_graph")]
+        graph: DialogueGraph<Effect>,
+        #[serde(with = "dramaturge_serde::outcome")]
+        on_leave: Outcome<Effect>,
+        #[serde(with = "dramaturge_serde::dialogue_graph")]
+        plain: DialogueGraph,
+    }
+
+    let mut node = DialogueNode::<Effect>::typed(
+        1,
+        CharacterId::new(EntityId::new(1)),
+        DialogText::inline("Bye."),
+    );
+    node.outcomes_on_enter
+        .push(Outcome::Host(Effect::Goto("street".into())));
+    let mut graph = DialogueGraph::typed();
+    graph.nodes.push(node);
+    let content = Content {
+        graph,
+        on_leave: Outcome::Host(Effect::Goto("hall".into())),
+        plain: DialogueGraph::new(),
+    };
+
+    let json = serde_json::to_string(&content).unwrap();
+    let back: Content = serde_json::from_str(&json).unwrap();
+    check!(back.graph == content.graph);
+    check!(back.on_leave == content.on_leave);
+    check!(back.plain == content.plain);
 }
 
 #[test]

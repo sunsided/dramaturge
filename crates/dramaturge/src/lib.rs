@@ -51,6 +51,9 @@
 //!   [`CustomDialogTag`] directly. See [`dramaturge_model::tag`] for details.
 //! - **Custom outcomes** — handle `Outcome::Custom` in the same
 //!   [`CustomHandler`], passed to [`DefaultOutcomeApplier::with_custom`].
+//! - **Host outcomes** — put typed host effects in `Outcome::Host(H)`
+//!   (`Outcome<H>`, `DialogueGraph<H>`; `H` defaults to `()`) and apply
+//!   them with a [`HostHandler`] on the same handler type.
 //!
 //! # Example
 //!
@@ -76,8 +79,8 @@ pub use dramaturge_model::{
 pub use dramaturge_runtime::{
     ConditionEvaluator, CustomHandler, DefaultConditionEvaluator, DefaultOutcomeApplier,
     DefaultRuntime, DialogWorldState, DialogueRuntime, EvaluationContext, EvaluationResult,
-    FragmentProgress, HasDialogWorldState, NarrativeState, NoCustom, OutcomeApplier, ResolvedPiece,
-    ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text,
+    FragmentProgress, HasDialogWorldState, HostHandler, NarrativeState, NoCustom, OutcomeApplier,
+    ResolvedPiece, ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text,
 };
 
 #[cfg(test)]

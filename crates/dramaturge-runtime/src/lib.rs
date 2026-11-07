@@ -26,8 +26,10 @@
 //!
 //! - [`OutcomeApplier`] takes an [`Outcome`](dramaturge_model::Outcome) and
 //!   mutable state and applies the state change. The default implementation
-//!   ([`DefaultOutcomeApplier`]) handles all built-in variants and hands
-//!   [`Outcome::Custom`](dramaturge_model::Outcome::Custom) to a [`CustomHandler`].
+//!   ([`DefaultOutcomeApplier`]) handles all built-in variants, hands
+//!   [`Outcome::Custom`](dramaturge_model::Outcome::Custom) to a [`CustomHandler`]
+//!   and typed host outcomes ([`Outcome::Host`](dramaturge_model::Outcome::Host))
+//!   to a [`HostHandler`].
 //!
 //! Any type implementing [`NarrativeState`] can be evaluated. A host that
 //! embeds a [`DialogWorldState`] implements [`HasDialogWorldState`] and gets
@@ -105,7 +107,7 @@ pub mod text;
 pub use context::{DialogWorldState, EvaluationContext};
 pub use evaluation::{
     ConditionEvaluator, CustomHandler, DefaultConditionEvaluator, DefaultOutcomeApplier,
-    EvaluationResult, NoCustom, OutcomeApplier, partial_eq_values,
+    EvaluationResult, HostHandler, NoCustom, OutcomeApplier, partial_eq_values,
 };
 pub use runtime::{AvailableOptionsIter, DefaultRuntime, DialogueRuntime};
 pub use state::{HasDialogWorldState, NarrativeState};
