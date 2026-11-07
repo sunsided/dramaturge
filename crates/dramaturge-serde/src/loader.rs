@@ -110,6 +110,10 @@ impl<'de> Deserialize<'de> for YamlKey {
             fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<YamlKey, E> {
                 Err(E::custom(format!("numeric id {v}: {NUMERIC_ID_REMOVED}")))
             }
+
+            fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<YamlKey, E> {
+                Err(E::custom(format!("numeric id {v}: {NUMERIC_ID_REMOVED}")))
+            }
         }
 
         deserializer.deserialize_any(KeyVisitor)
@@ -1101,6 +1105,14 @@ nodes:
             .replace("id: 3", "id: intro.bye")
             .replace("target: end", "target: 2");
         check!(numeric_id_error(&target).message().contains("numeric id 2"));
+
+        // A float is a number too.
+        let float = option.replace("id: 3", "id: 3.5");
+        check!(
+            numeric_id_error(&float)
+                .message()
+                .contains("numeric id 3.5")
+        );
     }
 
     #[test]
