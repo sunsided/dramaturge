@@ -6,6 +6,30 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `dramaturge_runtime::select_entry(graph, evaluator, state)` and
+  `DefaultRuntime::select_entry(graph, state)` return the first entry node
+  whose `conditions` hold, or `None` (#71).
+- `DialogueGraph::entry_node()` (the first entry node),
+  `with_entry_node`, `node(id)` and `entries()` (#71).
+- YAML: `entry_node` takes one key or a list of keys
+  (`entry_node: [mara.again, mara.intro]`; also `entry_nodes:`), and a
+  node has optional `conditions` (#71).
+
+### Changed
+
+- **Breaking:** `DialogueGraph::entry_node: Option<DialogueNodeId>` is now
+  `entry_nodes: Vec<DialogueNodeId>`, in priority order. Replace
+  `graph.entry_node` with `graph.entry_node()` (first entry node) or
+  `select_entry` (first entry node whose conditions hold). The validator
+  walks from every entry node: `Unreachable` and `DeadEnd` use all entry
+  nodes, and `EntryNodeNotFound` is reported once per missing entry node.
+  `DialogueGraphDto::entry_node: Option<u64>` is now `entry_nodes:
+  Vec<u64>`; a DTO with the old `entry_node` field still loads.
+  `YamlDialogueGraph::entry_node: YamlKey` is now `entry_nodes:
+  Vec<YamlKey>`, and `YamlNode` has the new field `conditions` (#71).
+
 ## [0.3.0-alpha.2] - 2026-11-07
 
 ### Added

@@ -1782,21 +1782,51 @@ impl IntoModel for DialogueNodeDto {
 }
 
 /// DTO for [`model::DialogueGraph`].
+///
+/// Reads the field `entry_node` (one raw id) of DTOs written before 0.3 as
+/// the first entry node.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(from = "DialogueGraphDtoRepr")]
 pub struct DialogueGraphDto {
     /// Nodes.
     pub nodes: Vec<DialogueNodeDto>,
-    /// Entry node (raw id).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub entry_node: Option<u64>,
+    /// Entry nodes (raw ids), in priority order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entry_nodes: Vec<u64>,
+}
+
+/// The serialized form of [`DialogueGraphDto`], with the old single
+/// `entry_node` field.
+#[derive(Deserialize)]
+struct DialogueGraphDtoRepr {
+    nodes: Vec<DialogueNodeDto>,
+    #[serde(default)]
+    entry_nodes: Vec<u64>,
+    #[serde(default)]
+    entry_node: Option<u64>,
+}
+
+impl From<DialogueGraphDtoRepr> for DialogueGraphDto {
+    fn from(repr: DialogueGraphDtoRepr) -> Self {
+        let mut entry_nodes = repr.entry_nodes;
+        if let Some(old) = repr.entry_node
+            && !entry_nodes.contains(&old)
+        {
+            entry_nodes.insert(0, old);
+        }
+        Self {
+            nodes: repr.nodes,
+            entry_nodes,
+        }
+    }
 }
 
 impl From<&model::DialogueGraph> for DialogueGraphDto {
     fn from(g: &model::DialogueGraph) -> Self {
-        let model::DialogueGraph { nodes, entry_node } = g;
+        let model::DialogueGraph { nodes, entry_nodes } = g;
         Self {
             nodes: dtos(nodes),
-            entry_node: entry_node.map(|n| n.0),
+            entry_nodes: entry_nodes.iter().map(|n| n.0).collect(),
         }
     }
 }
@@ -1806,7 +1836,7 @@ impl IntoModel for DialogueGraphDto {
     fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueGraph {
         model::DialogueGraph {
             nodes: self.nodes.into_model_with(ids),
-            entry_node: self.entry_node.map(|n| ids.node(n)),
+            entry_nodes: self.entry_nodes.into_iter().map(|n| ids.node(n)).collect(),
         }
     }
 }

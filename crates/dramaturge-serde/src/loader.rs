@@ -48,8 +48,65 @@ pub struct YamlDialogueGraph {
     pub characters: BTreeMap<String, YamlCharacter>,
     /// All nodes in the graph.
     pub nodes: Vec<YamlNode>,
-    /// Entry point node key.
-    pub entry_node: YamlKey,
+    /// Entry node keys, in priority order.
+    ///
+    /// The YAML key is `entry_node` (or `entry_nodes`). It takes one key
+    /// (`entry_node: mara.intro`) or a list of keys
+    /// (`entry_node: [mara.again, mara.intro]`).
+    #[serde(
+        rename = "entry_node",
+        alias = "entry_nodes",
+        deserialize_with = "one_or_many_keys"
+    )]
+    pub entry_nodes: Vec<YamlKey>,
+}
+
+/// Reads one [`YamlKey`] or a list of keys.
+fn one_or_many_keys<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<YamlKey>, D::Error> {
+    struct KeysVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for KeysVisitor {
+        type Value = Vec<YamlKey>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("a key string or a list of key strings")
+        }
+
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            Ok(vec![YamlKey::from(v)])
+        }
+
+        fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
+            Ok(vec![YamlKey(v)])
+        }
+
+        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Self::Value, E> {
+            Err(E::custom(format!("numeric id {v}: {NUMERIC_ID_REMOVED}")))
+        }
+
+        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Self::Value, E> {
+            Err(E::custom(format!("numeric id {v}: {NUMERIC_ID_REMOVED}")))
+        }
+
+        fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Self::Value, E> {
+            Err(E::custom(format!("numeric id {v}: {NUMERIC_ID_REMOVED}")))
+        }
+
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut seq: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut keys = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+            while let Some(key) = seq.next_element::<YamlKey>()? {
+                keys.push(key);
+            }
+            Ok(keys)
+        }
+    }
+
+    deserializer.deserialize_any(KeysVisitor)
 }
 
 /// A stable author key such as `dlg.mara.intro`.
@@ -185,6 +242,10 @@ pub struct YamlNode {
     pub speaker: String,
     /// Dialogue text: a string, or a list of fragments.
     pub text: YamlText,
+    /// Conditions for entering the node. An entry node whose conditions
+    /// do not hold is skipped by `dramaturge_runtime::select_entry`.
+    #[serde(default)]
+    pub conditions: Vec<YamlCondition>,
     /// Outcomes applied when node is entered.
     #[serde(default)]
     pub outcomes: Vec<YamlOutcome>,
@@ -612,7 +673,9 @@ impl YamlDialogueGraph {
         }
 
         let mut graph = DialogueGraph::new();
-        graph.entry_node = Some(ctx.node(&self.entry_node));
+        // Entry nodes are interned first, so the first entry node gets the
+        // first node id.
+        graph.entry_nodes = self.entry_nodes.iter().map(|k| ctx.node(k)).collect();
 
         for yaml_node in &self.nodes {
             let node_id = ctx.node(&yaml_node.id);
@@ -707,6 +770,15 @@ impl YamlDialogueGraph {
                 }
 
                 node.options.push(option);
+            }
+
+            // Convert entry conditions
+            for yaml_condition in &yaml_node.conditions {
+                node.conditions.push(
+                    yaml_condition
+                        .to_model(&mut ctx)
+                        .map_err(|msg| format!("node '{node_key}': {msg}"))?,
+                );
             }
 
             // Convert outcomes_on_enter
@@ -873,13 +945,13 @@ nodes:
 
         let graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
         check!(graph.version == "2.0");
-        check!(graph.entry_node == YamlKey::from("mara.intro"));
+        check!(graph.entry_nodes == vec![YamlKey::from("mara.intro")]);
         check!(graph.nodes.len() == 1);
 
         // Test conversion to model
         let loaded = graph.to_model().expect("Should convert");
         check!(loaded.graph.nodes.len() == 1);
-        let entry = loaded.graph.entry_node.expect("entry node");
+        let entry = loaded.graph.entry_node().expect("entry node");
         check!(loaded.symbols.node_key(entry) == Some("mara.intro"));
         check!(
             loaded
@@ -1080,6 +1152,68 @@ nodes:
             .unwrap_err();
         check!(err.contains("'intro.bye'"), "{err}");
         check!(err.contains("'nobody'"), "{err}");
+    }
+
+    const TWO_ENTRIES: &str = r#"
+version: "2.0"
+ENTRY
+characters:
+  mara:
+    name: "Mara Vey"
+nodes:
+  - id: mara.again
+    speaker: mara
+    text: "You again."
+    conditions:
+      - { type: fact_equals, fact: met_mara, value: true }
+  - id: mara.intro
+    speaker: mara
+    text: "Hello."
+"#;
+
+    #[test]
+    fn test_entry_node_list() {
+        for entry in [
+            "entry_node: [mara.again, mara.intro]",
+            "entry_nodes: [mara.again, mara.intro]",
+            "entry_node:\n  - mara.again\n  - mara.intro",
+        ] {
+            let yaml = TWO_ENTRIES.replace("ENTRY", entry);
+            let loaded = YamlDialogueGraph::from_yaml(&yaml)
+                .unwrap()
+                .to_model()
+                .unwrap();
+            let keys: Vec<_> = loaded
+                .graph
+                .entry_nodes
+                .iter()
+                .map(|&id| loaded.symbols.node_key(id).unwrap())
+                .collect();
+            check!(keys == vec!["mara.again", "mara.intro"], "{entry}");
+            check!(loaded.graph.nodes[0].conditions.len() == 1);
+            check!(loaded.graph.nodes[1].conditions.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_entry_node_list_rejects_numeric_ids() {
+        let yaml = TWO_ENTRIES.replace("ENTRY", "entry_node: [mara.intro, 2]");
+        check!(numeric_id_error(&yaml).message().contains("numeric id 2"));
+    }
+
+    #[test]
+    fn test_node_condition_error_names_the_node() {
+        let yaml = TWO_ENTRIES
+            .replace("ENTRY", "entry_node: mara.intro")
+            .replace(
+                "{ type: fact_equals, fact: met_mara, value: true }",
+                "{ type: has_memory, owner: nobody, id: saw_it }",
+            );
+        let err = YamlDialogueGraph::from_yaml(&yaml)
+            .unwrap()
+            .to_model()
+            .unwrap_err();
+        check!(err.contains("node 'mara.again'"), "{err}");
     }
 
     fn numeric_id_error(yaml: &str) -> YamlError {

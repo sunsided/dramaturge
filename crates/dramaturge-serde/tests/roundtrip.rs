@@ -351,9 +351,9 @@ fn node() -> impl Strategy<Value = DialogueNode> {
 }
 
 fn graph() -> impl Strategy<Value = DialogueGraph> {
-    (vec(node(), 0..4), proptest::option::of(0u64..8)).prop_map(|(nodes, entry)| DialogueGraph {
+    (vec(node(), 0..4), vec(0u64..8, 0..3)).prop_map(|(nodes, entries)| DialogueGraph {
         nodes,
-        entry_node: entry.map(DialogueNodeId::new),
+        entry_nodes: entries.into_iter().map(DialogueNodeId::new).collect(),
     })
 }
 
@@ -471,6 +471,26 @@ fn world_state_without_event_log_field_keeps_the_log_on() {
     check!(json.contains(r#""event_log":false"#), "{json}");
     let back: WorldStateDto = serde_json::from_str(&json).unwrap();
     check!(!back.into_model().event_log_enabled());
+}
+
+#[test]
+fn dialogue_graph_reads_the_old_entry_node_field() {
+    let dto: DialogueGraphDto = serde_json::from_str(r#"{"nodes":[],"entry_node":3}"#).unwrap();
+    check!(dto.entry_nodes == vec![3]);
+
+    let both: DialogueGraphDto =
+        serde_json::from_str(r#"{"nodes":[],"entry_node":3,"entry_nodes":[5,3]}"#).unwrap();
+    check!(both.entry_nodes == vec![5, 3]);
+
+    let none: DialogueGraphDto = serde_json::from_str(r#"{"nodes":[]}"#).unwrap();
+    check!(none.entry_nodes.is_empty());
+
+    let json = serde_json::to_string(&DialogueGraphDto {
+        nodes: vec![],
+        entry_nodes: vec![1, 2],
+    })
+    .unwrap();
+    check!(json == r#"{"nodes":[],"entry_nodes":[1,2]}"#);
 }
 
 #[test]

@@ -77,7 +77,7 @@ pub use dramaturge_runtime::{
     ConditionEvaluator, CustomHandler, DefaultConditionEvaluator, DefaultOutcomeApplier,
     DefaultRuntime, DialogWorldState, DialogueRuntime, EvaluationContext, EvaluationResult,
     FragmentProgress, HasDialogWorldState, NarrativeState, NoCustom, OutcomeApplier, ResolvedPiece,
-    ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text,
+    ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text, select_entry,
 };
 
 #[cfg(test)]

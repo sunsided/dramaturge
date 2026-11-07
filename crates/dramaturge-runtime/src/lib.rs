@@ -107,7 +107,7 @@ pub use evaluation::{
     ConditionEvaluator, CustomHandler, DefaultConditionEvaluator, DefaultOutcomeApplier,
     EvaluationResult, NoCustom, OutcomeApplier, partial_eq_values,
 };
-pub use runtime::{AvailableOptionsIter, DefaultRuntime, DialogueRuntime};
+pub use runtime::{AvailableOptionsIter, DefaultRuntime, DialogueRuntime, select_entry};
 pub use state::{HasDialogWorldState, NarrativeState};
 pub use text::{
     FragmentProgress, ResolvedPiece, ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text,
