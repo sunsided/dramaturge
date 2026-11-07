@@ -1824,11 +1824,13 @@ struct DialogueGraphDtoRepr<H> {
 
 impl<H> From<DialogueGraphDtoRepr<H>> for DialogueGraphDto<H> {
     fn from(repr: DialogueGraphDtoRepr<H>) -> Self {
+        // The old field counts only for an old DTO: when `entry_nodes` is
+        // given, it decides the order alone.
         let mut entry_nodes = repr.entry_nodes;
-        if let Some(old) = repr.entry_node
-            && !entry_nodes.contains(&old)
+        if entry_nodes.is_empty()
+            && let Some(old) = repr.entry_node
         {
-            entry_nodes.insert(0, old);
+            entry_nodes.push(old);
         }
         Self {
             nodes: repr.nodes,
