@@ -56,7 +56,7 @@ list can hold a `one_of` group (the stove).
 
 1. Its tuple keys match the query (a missing key is `*` and matches all).
 2. Its mode allows it now (`once`: not shown yet; `first_time`: first
-   resolution of the pool by this caller).
+   resolution, see "Counts" in section 4).
 3. It has at least one variant.
 4. Its condition holds. The condition can test the perceiver (`seen_by`).
 
@@ -132,6 +132,7 @@ pub enum Pick { All, First, Best }
 
 pub struct Pool<X: TextTypes> {
     pub id: Arc<str>,
+    pub named: bool,                    // set when the pool is put into `Pools`
     pub pick: Pick,
     pub candidates: Vec<Candidate<X>>,
 }
@@ -169,11 +170,18 @@ pub trait ProgressStore {
     /// `None`: the candidate has not shown yet.
     fn fragment_progress(&self, key: &str) -> Option<FragmentProgress>;
     fn set_fragment_progress(&mut self, key: &str, progress: FragmentProgress);
-    /// True on the first resolution of `pool` by `caller` (the room, thing,
-    /// node or rule that shows the pool). A host can answer from its own data
-    /// (loremaster: the first visit of the room).
-    fn first_time(&self, pool: &str, caller: &str) -> bool;
-    fn count_resolution(&mut self, pool: &str, caller: &str);
+    /// True on the first resolution under `count`. A host can answer from its
+    /// own data (loremaster: the first visit of the room).
+    fn first_time(&self, count: Count<'_>) -> bool;
+    fn count_resolution(&mut self, count: Count<'_>);
+}
+
+/// What a resolution counts against (section 4).
+pub enum Count<'a> {
+    /// An inline pool: its owner, as in `resolve_text` today.
+    Inline { owner: &'a str },
+    /// A named pool, per caller. The caller is a scope that the host chooses.
+    Named { pool: &'a str, caller: &'a str },
 }
 
 /// Chooses, without a change to the progress. Shuffle and sticky draw from
@@ -181,7 +189,7 @@ pub trait ProgressStore {
 pub fn select<'p, X, J, P, R>(
     pool: &'p Pool<X>,
     pools: &'p Pools<X>,
-    caller: &str,                       // kept in the Selection for `commit`
+    caller: Arc<str>,                   // moved into `Selection::caller`
     query: &Query<X>,
     judge: &J,
     progress: &P,
@@ -191,6 +199,10 @@ where
     X: TextTypes, J: Judge<X> + ?Sized, P: ProgressStore + ?Sized, R: TextRng + ?Sized;
 
 pub struct Selection<'p, X: TextTypes> {
+    pub caller: Arc<str>,
+    /// What `commit` counts: the root pool, and each named pool that was
+    /// resolved inside it (`Entry::Named`), once each.
+    pub counts: Vec<CountKey>,
     pub shown: Vec<Shown<'p, X>>,       // leaves in order, nested pools flattened
     pub trace: Trace,
 }
@@ -202,8 +214,13 @@ pub struct Shown<'p, X: TextTypes> {
     pub learn: &'p [X::Learn],
 }
 
-/// Records what showed (shown counts, last and sticky variants, resolution
-/// counts) and hands each `learn` item to `learner` with the perceiver.
+/// Owned form of `Count`: `Inline(owner)` or `Named(pool)`; the caller is
+/// `Selection::caller`.
+pub enum CountKey { Inline(Arc<str>), Named(Arc<str>) }
+
+/// Records what showed (shown counts, last and sticky variants) and one
+/// resolution for each entry of `selection.counts`, then hands each `learn`
+/// item to `learner` with the perceiver.
 pub fn commit<X, P, L>(selection: &Selection<'_, X>, query: &Query<X>, progress: &mut P, learner: &mut L)
 where
     X: TextTypes, P: ProgressStore + ?Sized, L: FnMut(&X::Learn, Option<&X::Actor>);
@@ -246,7 +263,7 @@ with this core.
 
 - The progress key is `{pool id}/{candidate key or index}`, and nested
   pools append segments. The shape is that of `resolve_text` today, but
-  there the first segment is the `owner` that the caller passes. An old key
+  there the first segment is the `owner` that the call site passes. An old key
   carries over only where the pool id is that same owner: an inline text of
   a node or a description keeps its keys; a named pool starts with new
   keys.
@@ -254,8 +271,28 @@ with this core.
   `keeper_remark` is the same in the rule and in the dialogue.
 - `first_time` is the exception: it counts per pool and caller. A named
   pool that two rooms show has a `first_time` candidate for each room.
-- `TextProgress` and its DTO (`dramaturge-serde`) store the progress. No new
-  save field is necessary for users of dramaturge alone.
+- The caller is the scope of "the first time", and the host chooses it.
+  dramaturge passes the `owner` of `resolve_text`: the node or option key.
+  loremaster passes the room for room text, and the current room for a
+  rule or a dialogue line. Thus a rule and a dialogue node in one room
+  share one first time, and `first_time` means "first visit" as today.
+- `TextProgress` and its DTO (`dramaturge-serde`) store the progress.
+- Counts. `first_time` asks for the first resolution. An inline pool
+  nested in another pool (`Entry::Pool`) has no count of its own: it uses
+  the count of its root, as nested fragments do in `resolve_text` today.
+  A named pool resolved inside a selection (`Entry::Named`) has its own
+  count, and `Selection::counts` lists it, so `commit` counts it.
+- The kind of pool decides where its resolutions count, not a string
+  compare. `Pool::named` is true for a pool in `Pools`.
+  `Count::Inline { owner }` counts in the `owners` map, keyed by the owner,
+  as today. `Count::Named { pool, caller }` counts in a new map of
+  `TextProgress`, keyed by the pair `(pool id, caller)`. The two maps are
+  separate and the key is a pair, so no id or owner can clash, whatever
+  characters it has.
+- The DTO gets one new field for the new map, with a serde default. Old
+  saves load: their `owners` counts keep their meaning for inline texts,
+  and named pools start with no counts. A named pool never reads an
+  `owners` count, even when its id is the same string as an owner.
 - `ProgressStore` uses its own method names (`fragment_progress`,
   `set_fragment_progress`). Thus the inherent `TextProgress::fragment` and
   `set_fragment` do not shadow the trait methods. The impl for
@@ -278,7 +315,7 @@ with this core.
 | `Vec<CFragment>` of a room or thing | `Pool { pick: All }`; each fragment is a candidate | Layer sort, `replaces` per layer, runs with `Source`, the joining of text |
 | `Vec<Segment>` (compiled markup) | `X::Leaf` | Rendering, inserts, inline choices |
 | `loremaster_lang` `Condition` + `Eval::holds` | `X::Cond` + `Judge`; loremaster implements `Specificity` | The condition language |
-| `FragmentMode::FirstVisit` | `first_time`; `ProgressStore::first_time` answers from the room visit | The alias in YAML |
+| `FragmentMode::FirstVisit` | `first_time`; the caller is the room, and `ProgressStore::first_time` answers from the room visit | The alias in YAML |
 | `State.progress` (`shown`, `sticky`) | `ProgressStore` on `State` | The save envelope (D5); `sticky` reads as `pick` |
 | `State.rng` + `rng::below` | `TextRng` on `State.rng` | The RNG algorithm, so transcripts keep their text |
 | New: `one_of`, `pick`, `seen_by`, `learn`, `texts/` | `Entry::Pool`, `Pick`, `Judge`, `commit` learner, `Entry::Named` | YAML and `world!` parsers; `learn` sets a world var |
