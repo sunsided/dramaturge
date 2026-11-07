@@ -482,6 +482,10 @@ fn dialogue_graph_reads_the_old_entry_node_field() {
     let both: DialogueGraphDto =
         serde_json::from_str(r#"{"nodes":[],"entry_node":3,"entry_nodes":[5,3]}"#).unwrap();
     check!(both.entry_nodes == vec![5, 3]);
+    // With `entry_nodes` given, the old field does not change the order.
+    let newer: DialogueGraphDto =
+        serde_json::from_str(r#"{"nodes":[],"entry_node":7,"entry_nodes":[5]}"#).unwrap();
+    check!(newer.entry_nodes == vec![5]);
 
     let none: DialogueGraphDto = serde_json::from_str(r#"{"nodes":[]}"#).unwrap();
     check!(none.entry_nodes.is_empty());
