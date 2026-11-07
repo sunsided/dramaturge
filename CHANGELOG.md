@@ -6,6 +6,42 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `Fact::new(id, value)`, and `From<&str>`, `From<String>` and
+  `From<Arc<str>>` for `FactId` (#66).
+- `MemoryQuery` builder methods: `with_tag`, `with_min_confidence`,
+  `with_min_emotional_weight`, `with_subject` and `with_fact` (#66).
+
+### Changed
+
+- **Breaking:** public types that will grow are now `#[non_exhaustive]`, so
+  new variants and fields in later 0.3.x releases are not breaking (#66):
+  - Enums (a `match` outside dramaturge needs a `_` arm): `Outcome`,
+    `Condition`, `DialogText`, `DialogTarget`, `NavigationHint`,
+    `FragmentMode`, `EventKind`, `MemoryTag`, `FactScope`, `Intention`
+    (`dramaturge-model`); `ValidationSeverity` (`dramaturge-authoring`);
+    `ResolvedText` (`dramaturge-runtime`); `SymbolKind`
+    (`dramaturge-serde`).
+  - Structs (no struct literals and no `..` update syntax outside
+    dramaturge; use the constructors): `Fact` (`Fact::new`, `Fact::int`,
+    ...), `MemoryQuery` (`MemoryQuery::new`, `by_*`, `with_*`),
+    `ValidationIssue` (`ValidationIssue::new`, `with_node`, `with_option`),
+    `RestoreReport`, `WorldStateDto` (`From<&DialogWorldState>`,
+    `Default`). The fields stay public for reading and writing.
+  - Not changed: `FactValue`, `Confidence`, the id types, and the graph
+    types `DialogueGraph`, `DialogueNode`, `DialogueOption` and
+    `TextFragment`.
+- **Breaking:** the YAML loader no longer accepts numeric ids (deprecated
+  in 0.2, ADR 0001). A YAML number as node, option, target, entry node or
+  relationship endpoint id, and a character `id:`, are load errors with a
+  message that says to use a key. A number in quotes (`id: "2"`) is a key.
+  `YamlKey` is now a string newtype (`YamlKey(String)`, `as_key()` returns
+  `&str`), and `YamlCharacter::id` is removed (#67).
+- The default evaluator treats an unknown `Condition` as `false`, the
+  default applier ignores an unknown `Outcome`, and `resolve_text` treats an
+  unknown `FragmentMode` as `Always` (#66).
+
 ## [0.3.0-alpha.1] - 2026-11-07
 
 ### Changed

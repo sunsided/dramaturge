@@ -768,28 +768,16 @@ mod tests {
         let q_wrong_tag = MemoryQuery::by_tag(MemoryTag::BetrayedMe);
         check!(!state.matches_memory_query(owner, &q_wrong_tag));
 
-        let q_confidence = MemoryQuery {
-            min_confidence: Some(Confidence::Known),
-            ..MemoryQuery::new()
-        };
+        let q_confidence = MemoryQuery::new().with_min_confidence(Confidence::Known);
         check!(state.matches_memory_query(owner, &q_confidence));
 
-        let q_high_confidence = MemoryQuery {
-            min_confidence: Some(Confidence::Witnessed),
-            ..MemoryQuery::new()
-        };
+        let q_high_confidence = MemoryQuery::new().with_min_confidence(Confidence::Witnessed);
         check!(!state.matches_memory_query(owner, &q_high_confidence));
 
-        let q_weight = MemoryQuery {
-            min_emotional_weight: Some(50),
-            ..MemoryQuery::new()
-        };
+        let q_weight = MemoryQuery::new().with_min_emotional_weight(50);
         check!(state.matches_memory_query(owner, &q_weight));
 
-        let q_high_weight = MemoryQuery {
-            min_emotional_weight: Some(100),
-            ..MemoryQuery::new()
-        };
+        let q_high_weight = MemoryQuery::new().with_min_emotional_weight(100);
         check!(!state.matches_memory_query(owner, &q_high_weight));
 
         let q_subject = MemoryQuery::by_subject(EntityId::new(42));
@@ -842,7 +830,7 @@ mod proptests {
     }
 
     fn arb_fact() -> impl Strategy<Value = Fact> {
-        (arb_fact_id(), arb_fact_value()).prop_map(|(id, value)| Fact { id, value })
+        (arb_fact_id(), arb_fact_value()).prop_map(|(id, value)| Fact::new(id, value))
     }
 
     fn arb_scoped_fact() -> impl Strategy<Value = dramaturge_model::ScopedFact> {
@@ -904,10 +892,7 @@ mod proptests {
             ctx.set_fact(scoped.scope.clone(), scoped.fact.clone());
             ctx.set_fact(
                 scoped.scope.clone(),
-                Fact {
-                    id: scoped.fact.id.clone(),
-                    value: new_value.clone(),
-                },
+                Fact::new(scoped.fact.id.clone(), new_value.clone()),
             );
             let got = ctx.get_fact(&scoped.scope, &scoped.fact.id);
             prop_assert_eq!(got, Some(&new_value));

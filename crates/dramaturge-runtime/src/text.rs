@@ -161,6 +161,7 @@ impl TextProgress {
 
 /// Resolved text: inline text or a localization key for the host.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ResolvedText {
     /// Text to show as is.
     Inline(String),
@@ -269,6 +270,9 @@ where
                     self.fragment(fragment, path, index, out);
                 }
             }
+            // `DialogText` is non-exhaustive; text kinds this resolver does
+            // not know produce no pieces.
+            _ => {}
         }
     }
 
@@ -311,6 +315,8 @@ where
                 Some(chosen) if chosen < len => chosen,
                 _ => self.rng.below(len),
             }),
+            // `FragmentMode` is non-exhaustive; unknown modes behave like `Always`.
+            _ => Some(0),
         };
         let Some(pick) = pick else {
             return;

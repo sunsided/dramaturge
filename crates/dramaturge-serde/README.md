@@ -48,11 +48,12 @@ let loaded = YamlDialogueGraph::from_yaml(&raw)
     .expect("invalid graph structure");
 
 // `loaded.graph` is the model, `loaded.symbols` maps keys such as
-// `mara.intro` to ids, and `loaded.warnings` lists deprecated syntax.
+// `mara.intro` to ids, and `loaded.warnings` lists non-fatal messages.
 ```
 
 All references in the YAML format are stable keys (`target: mara.confession.soft`,
-`source: player`); see `docs/adr/0001-id-representation.md`. Node and option
+`source: player`); see `docs/adr/0001-id-representation.md`. Numeric ids
+(`id: 2`) are an error since 0.3; write `id: "2"` to keep such a key. Node and option
 `text` can be a string or a list of fragments.
 
 See [`crates/dramaturge/examples/dialogue.yaml`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge/examples/dialogue.yaml) in the repository for the full YAML schema.

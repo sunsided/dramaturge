@@ -51,6 +51,10 @@ Option 2.
   still accepted in 0.2; each use adds a deprecation message to
   `LoadedDialogue::warnings`. Support is removed in 0.3. Numeric node and option ids become the key of
   their decimal string (`2` → `"2"`), so legacy targets keep resolving.
+- Removed in 0.3 (#67): a YAML number in any of these places is a load
+  error (`YamlError` with line and column) that says to use a key. A number
+  in quotes (`id: "2"`) is a key and still loads. `YamlKey` is a string
+  newtype, and `YamlCharacter` has no `id` field.
 - `YamlDialogueGraph::to_model` returns `LoadedDialogue` instead of
   `DialogueGraph` (breaking).
 - Ids are assigned in interning order. Characters are interned first, sorted

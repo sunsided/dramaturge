@@ -54,6 +54,7 @@ use crate::tag::DialogTagKind;
 /// whether certain outcomes should apply. They form a composable tree
 /// that supports logical operators, fact queries, and extension points.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Condition {
     /// Always evaluates to `true`.
     Always,

@@ -4,8 +4,12 @@
 //! `dramaturge-model` has no serde dependency (see ADR 0002). Each model
 //! type `T` has a mirror `TDto` here with `Serialize`/`Deserialize`, a
 //! `From<&T>` conversion into the DTO, and an [`IntoModel`] conversion back.
-//! Conversions destructure the model types exhaustively, so adding a field
-//! to a model type is a compile error here until the DTO follows.
+//! Conversions destructure the model types, so adding a field to an
+//! exhaustive model type is a compile error here until the DTO follows.
+//! Most model enums and some structs are `#[non_exhaustive]`; for those the
+//! compiler does not check this, and a new variant or field must be added
+//! here in the same release. A model variant that this crate does not know
+//! panics in the `From` conversion (only possible with mixed crate versions).
 //!
 //! # Format
 //!
@@ -107,6 +111,21 @@ fn dtos<'a, T: 'a, D: From<&'a T>>(items: impl IntoIterator<Item = &'a T>) -> Ve
 
 fn arc(s: String) -> Arc<str> {
     Arc::from(s)
+}
+
+/// Called for a variant of a `#[non_exhaustive]` model enum that this crate
+/// does not know.
+///
+/// All dramaturge crates are released together with one version, so this
+/// happens only when `dramaturge-serde` and `dramaturge-model` have
+/// different versions.
+#[cold]
+#[track_caller]
+fn unknown_variant<T>(ty: &str) -> T {
+    panic!(
+        "dramaturge-serde does not know this {ty} variant; \
+         use the same version for all dramaturge crates"
+    )
 }
 
 /// Implements `IntoModel` for DTOs without ids (plain field-by-field copies).
@@ -266,6 +285,7 @@ impl From<&model::FactScope> for FactScopeDto {
             S::Character(c) => Self::Character(c.0.0),
             S::Faction(f) => Self::Faction(f.to_string()),
             S::Party => Self::Party,
+            _ => unknown_variant("FactScope"),
         }
     }
 }
@@ -295,7 +315,8 @@ pub struct FactDto {
 
 impl From<&model::Fact> for FactDto {
     fn from(f: &model::Fact) -> Self {
-        let model::Fact { id, value } = f;
+        // `Fact` is `#[non_exhaustive]`; a new field must be added here too.
+        let model::Fact { id, value, .. } = f;
         Self {
             id: id.0.to_string(),
             value: value.into(),
@@ -306,10 +327,7 @@ impl From<&model::Fact> for FactDto {
 impl IntoModel for FactDto {
     type Model = model::Fact;
     fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::Fact {
-        model::Fact {
-            id: model::FactId::new(self.id),
-            value: self.value.into_model_with(ids),
-        }
+        model::Fact::new(self.id, self.value.into_model_with(ids))
     }
 }
 
@@ -340,10 +358,7 @@ impl IntoModel for ScopedFactDto {
     fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::ScopedFact {
         model::ScopedFact {
             scope: self.scope.into_model_with(ids),
-            fact: model::Fact {
-                id: model::FactId::new(self.id),
-                value: self.value.into_model_with(ids),
-            },
+            fact: model::Fact::new(self.id, self.value.into_model_with(ids)),
         }
     }
 }
@@ -576,6 +591,7 @@ impl From<&model::Intention> for IntentionDto {
             I::Romance => Self::Romance,
             I::Exit => Self::Exit,
             I::Custom(c) => Self::Custom(c.to_string()),
+            _ => unknown_variant("Intention"),
         }
     }
 }
@@ -696,6 +712,7 @@ impl From<&model::MemoryTag> for MemoryTagDto {
             T::KilledSomeone => Self::KilledSomeone,
             T::RevealedSecret => Self::RevealedSecret,
             T::Custom(c) => Self::Custom(c.to_string()),
+            _ => unknown_variant("MemoryTag"),
         }
     }
 }
@@ -737,12 +754,14 @@ pub struct MemoryQueryDto {
 
 impl From<&model::MemoryQuery> for MemoryQueryDto {
     fn from(q: &model::MemoryQuery) -> Self {
+        // `MemoryQuery` is `#[non_exhaustive]`; a new field must be added here too.
         let model::MemoryQuery {
             tag,
             min_confidence,
             min_emotional_weight,
             subject,
             facts,
+            ..
         } = q;
         Self {
             tag: tag.as_ref().map(Into::into),
@@ -757,13 +776,13 @@ impl From<&model::MemoryQuery> for MemoryQueryDto {
 impl IntoModel for MemoryQueryDto {
     type Model = model::MemoryQuery;
     fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::MemoryQuery {
-        model::MemoryQuery {
-            tag: self.tag.into_model_with(ids),
-            min_confidence: self.min_confidence.into_model_with(ids),
-            min_emotional_weight: self.min_emotional_weight,
-            subject: self.subject.map(|s| ids.entity(s)),
-            facts: self.facts.into_iter().map(model::FactId::new).collect(),
-        }
+        let mut query = model::MemoryQuery::new();
+        query.tag = self.tag.into_model_with(ids);
+        query.min_confidence = self.min_confidence.into_model_with(ids);
+        query.min_emotional_weight = self.min_emotional_weight;
+        query.subject = self.subject.map(|s| ids.entity(s));
+        query.facts = self.facts.into_iter().map(model::FactId::new).collect();
+        query
     }
 }
 
@@ -909,6 +928,7 @@ impl From<&model::EventKind> for EventKindDto {
             K::Custom { kind } => Self::Custom {
                 kind: kind.to_string(),
             },
+            _ => unknown_variant("EventKind"),
         }
     }
 }
@@ -1148,6 +1168,7 @@ impl From<&model::Condition> for ConditionDto {
                 key: key.clone(),
                 args: dtos(args),
             },
+            _ => unknown_variant("Condition"),
         }
     }
 }
@@ -1337,6 +1358,7 @@ impl From<&model::Outcome> for OutcomeDto {
                 key: key.clone(),
                 args: dtos(args),
             },
+            _ => unknown_variant("Outcome"),
         }
     }
 }
@@ -1414,6 +1436,7 @@ impl From<&model::DialogText> for DialogTextDto {
             T::Inline(s) => Self::Inline(s.clone()),
             T::LocalizedKey(k) => Self::LocalizedKey(k.to_string()),
             T::Fragments(fs) => Self::Fragments(dtos(fs)),
+            _ => unknown_variant("DialogText"),
         }
     }
 }
@@ -1454,6 +1477,7 @@ impl From<&model::FragmentMode> for FragmentModeDto {
             F::Cycle => Self::Cycle,
             F::Shuffle => Self::Shuffle,
             F::Sticky => Self::Sticky,
+            _ => unknown_variant("FragmentMode"),
         }
     }
 }
@@ -1543,6 +1567,7 @@ impl From<&model::DialogTarget> for DialogTargetDto {
             T::End => Self::End,
             T::Return => Self::Return,
             T::Custom(c) => Self::Custom(c.to_string()),
+            _ => unknown_variant("DialogTarget"),
         }
     }
 }
@@ -1583,6 +1608,7 @@ impl From<&model::NavigationHint> for NavigationHintDto {
             H::End => Self::End,
             H::Return => Self::Return,
             H::Custom(c) => Self::Custom(c.clone()),
+            _ => unknown_variant("NavigationHint"),
         }
     }
 }
@@ -1832,7 +1858,11 @@ pub struct OwnedMemoryDto {
 ///
 /// Lists are in the state's deterministic iteration order, so the same
 /// state always serializes to the same bytes.
+///
+/// The struct is `#[non_exhaustive]`: build it with `From<&DialogWorldState>`
+/// or `Default`, or deserialize it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct WorldStateDto {
     /// Facts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

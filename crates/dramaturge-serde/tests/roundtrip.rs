@@ -85,12 +85,14 @@ fn memory_query() -> impl Strategy<Value = MemoryQuery> {
         vec(key().prop_map(FactId::new), 0..3),
     )
         .prop_map(
-            |(tag, min_confidence, min_emotional_weight, subject, facts)| MemoryQuery {
-                tag,
-                min_confidence,
-                min_emotional_weight,
-                subject,
-                facts,
+            |(tag, min_confidence, min_emotional_weight, subject, facts)| {
+                let mut query = MemoryQuery::new();
+                query.tag = tag;
+                query.min_confidence = min_confidence;
+                query.min_emotional_weight = min_emotional_weight;
+                query.subject = subject;
+                query.facts = facts;
+                query
             },
         )
 }
@@ -204,10 +206,7 @@ fn outcome() -> impl Strategy<Value = Outcome> {
     prop_oneof![
         (fact_scope(), key(), fact_value()).prop_map(|(scope, id, value)| Outcome::SetFact {
             scope,
-            fact: Fact {
-                id: FactId::new(id),
-                value,
-            },
+            fact: Fact::new(id, value),
         }),
         (fact_scope(), key()).prop_map(|(scope, f)| Outcome::RemoveFact {
             scope,
@@ -364,13 +363,7 @@ fn world_state() -> impl Strategy<Value = DialogWorldState> {
         .prop_map(|(facts, aligns, rels, mems, tags, events, drain)| {
             let mut s = DialogWorldState::new();
             for (scope, id, value) in facts {
-                s.set_fact(
-                    scope,
-                    Fact {
-                        id: FactId::new(id),
-                        value,
-                    },
-                );
+                s.set_fact(scope, Fact::new(id, value));
             }
             for (a, p, v) in aligns {
                 s.add_alignment(AlignmentAxisId::new(a), AlignmentPoleId::new(p), v.into());

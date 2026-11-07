@@ -192,6 +192,9 @@ where
             Condition::HasMemory { owner, query } => state.matches_memory_query(*owner, query),
             Condition::HasTagAvailable { tag } => state.has_tag_available(tag),
             Condition::Custom { key, args } => self.custom.condition(key, args, state),
+            // `Condition` is non-exhaustive; a variant this evaluator does not
+            // know is not satisfied.
+            _ => false,
         }
     }
 }
@@ -313,6 +316,9 @@ where
                 });
             }
             Outcome::Custom { key, args } => self.custom.outcome(key, args, state),
+            // `Outcome` is non-exhaustive; a variant this applier does not
+            // know changes nothing.
+            _ => {}
         }
     }
 }

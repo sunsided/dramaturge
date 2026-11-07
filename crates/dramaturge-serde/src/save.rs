@@ -55,6 +55,7 @@ pub struct SavedWorldState {
 
 /// The id namespace a [`OrphanedKey`] belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
 pub enum SymbolKind {
     /// An entity key.
     Entity,
@@ -77,6 +78,7 @@ pub struct OrphanedKey {
 
 /// What [`SavedWorldState::restore`] could not match to current content.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RestoreReport {
     /// Keys the save references that the current symbol table did not know.
     /// They were interned with fresh ids, so the state stays loadable.

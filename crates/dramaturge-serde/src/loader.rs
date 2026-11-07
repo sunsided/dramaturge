@@ -30,8 +30,8 @@
 //! ```
 //!
 //! Numeric ids from the 1.0 format (`id: 2`, `source: 1`, character `id:`)
-//! are still accepted for one release. Each use adds a deprecation message
-//! to [`LoadedDialogue::warnings`].
+//! were deprecated in 0.2 and are an error since 0.3 (ADR 0001). A number
+//! in quotes (`target: "2"`) is a key and still loads.
 
 use dramaturge_model as model;
 use serde::{Deserialize, Serialize};
@@ -52,46 +52,117 @@ pub struct YamlDialogueGraph {
     pub entry_node: YamlKey,
 }
 
-/// A stable author key, or a deprecated numeric id from the 1.0 format.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum YamlKey {
-    /// A readable key such as `dlg.mara.intro`.
-    Key(String),
-    /// A numeric id (deprecated; accepted for one release).
-    Number(u64),
-}
+/// A stable author key such as `dlg.mara.intro`.
+///
+/// A YAML number (`id: 2`) is an error: numeric ids from the 1.0 format
+/// were removed in 0.3 (ADR 0001). Write the number in quotes (`id: "2"`)
+/// to use it as a key.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[serde(transparent)]
+pub struct YamlKey(pub String);
 
 impl YamlKey {
-    /// Returns the key text. Numbers become their decimal string.
-    pub fn as_key(&self) -> std::borrow::Cow<'_, str> {
-        match self {
-            YamlKey::Key(key) => std::borrow::Cow::Borrowed(key),
-            YamlKey::Number(n) => std::borrow::Cow::Owned(n.to_string()),
-        }
-    }
-
-    fn is_number(&self) -> bool {
-        matches!(self, YamlKey::Number(_))
+    /// Returns the key text.
+    pub fn as_key(&self) -> &str {
+        &self.0
     }
 }
 
 impl From<&str> for YamlKey {
     fn from(key: &str) -> Self {
-        YamlKey::Key(key.to_string())
+        YamlKey(key.to_string())
+    }
+}
+
+impl From<String> for YamlKey {
+    fn from(key: String) -> Self {
+        YamlKey(key)
+    }
+}
+
+/// The error message for a numeric id in YAML.
+const NUMERIC_ID_REMOVED: &str = "numeric ids were removed in 0.3 (ADR 0001); \
+     use a key, or write the number in quotes";
+
+impl<'de> Deserialize<'de> for YamlKey {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct KeyVisitor;
+
+        impl serde::de::Visitor<'_> for KeyVisitor {
+            type Value = YamlKey;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("a key string")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<YamlKey, E> {
+                Ok(YamlKey::from(v))
+            }
+
+            fn visit_string<E: serde::de::Error>(self, v: String) -> Result<YamlKey, E> {
+                Ok(YamlKey(v))
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<YamlKey, E> {
+                Err(E::custom(format!("numeric id {v}: {NUMERIC_ID_REMOVED}")))
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<YamlKey, E> {
+                Err(E::custom(format!("numeric id {v}: {NUMERIC_ID_REMOVED}")))
+            }
+
+            fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<YamlKey, E> {
+                Err(E::custom(format!("numeric id {v}: {NUMERIC_ID_REMOVED}")))
+            }
+        }
+
+        deserializer.deserialize_any(KeyVisitor)
     }
 }
 
 /// A character definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(from = "RawYamlCharacter")]
 pub struct YamlCharacter {
-    /// Legacy numeric character id (deprecated; the map key is the id).
-    ///
-    /// Only used to resolve numeric relationship endpoints from 1.0 files.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub id: Option<u64>,
     /// Character name for display.
     pub name: String,
+}
+
+/// The YAML shape of a character. The removed `id` field fails while the
+/// parser reads its value, so the error keeps the line and column.
+#[derive(Deserialize)]
+struct RawYamlCharacter {
+    #[serde(default)]
+    #[allow(dead_code)]
+    id: Option<RemovedCharacterId>,
+    name: String,
+}
+
+impl From<RawYamlCharacter> for YamlCharacter {
+    fn from(raw: RawYamlCharacter) -> Self {
+        YamlCharacter { name: raw.name }
+    }
+}
+
+/// A value that no YAML can give: the old numeric `id` of a character.
+struct RemovedCharacterId;
+
+impl<'de> Deserialize<'de> for RemovedCharacterId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Reject;
+        impl serde::de::Visitor<'_> for Reject {
+            type Value = RemovedCharacterId;
+            // Every `visit_*` keeps its default, which rejects the value with
+            // this text at the value's position.
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(
+                    f,
+                    "no character `id`: {NUMERIC_ID_REMOVED}; the map key is the id"
+                )
+            }
+        }
+        deserializer.deserialize_any(Reject)
+    }
 }
 
 /// The result of converting a [`YamlDialogueGraph`] into the model.
@@ -101,7 +172,7 @@ pub struct LoadedDialogue {
     pub graph: model::DialogueGraph,
     /// Keys for every entity, node and option id in the graph.
     pub symbols: model::SymbolTable,
-    /// Non-fatal messages, such as deprecated numeric ids.
+    /// Non-fatal messages about the input.
     pub warnings: Vec<String>,
 }
 
@@ -519,23 +590,17 @@ impl YamlDialogueGraph {
 
         // Characters are interned first, in key order, so their entity ids
         // do not depend on where they are first referenced.
-        for (key, character) in &self.characters {
+        for key in self.characters.keys() {
             let entity_id = ctx.symbols.intern_entity(key);
             ctx.characters
                 .insert(key.clone(), CharacterId::new(entity_id));
-            if let Some(legacy) = character.id {
-                ctx.warnings.push(format!(
-                    "character '{key}': numeric `id: {legacy}` is deprecated; the map key is the id"
-                ));
-                ctx.legacy_entities.insert(legacy, entity_id);
-            }
         }
 
         let mut graph = DialogueGraph::new();
-        graph.entry_node = Some(ctx.node(&self.entry_node, "entry_node"));
+        graph.entry_node = Some(ctx.node(&self.entry_node));
 
         for yaml_node in &self.nodes {
-            let node_id = ctx.node(&yaml_node.id, "node id");
+            let node_id = ctx.node(&yaml_node.id);
             let node_key = yaml_node.id.as_key();
             let speaker = ctx
                 .characters
@@ -556,9 +621,9 @@ impl YamlDialogueGraph {
                 let option_key = yaml_option.id.as_key();
                 let at = |msg: String| format!("option '{option_key}' in node '{node_key}': {msg}");
 
-                let target = match &yaml_option.target {
-                    YamlKey::Key(key) if key == "end" => DialogTarget::End,
-                    other => DialogTarget::Node(ctx.node(other, "target")),
+                let target = match yaml_option.target.as_key() {
+                    "end" => DialogTarget::End,
+                    _ => DialogTarget::Node(ctx.node(&yaml_option.target)),
                 };
 
                 // Determine the text for the option: use explicit text, or default from navigation hint
@@ -654,50 +719,24 @@ impl YamlDialogueGraph {
 struct ConvertContext {
     symbols: model::SymbolTable,
     characters: HashMap<String, model::CharacterId>,
-    legacy_entities: HashMap<u64, model::EntityId>,
     warnings: Vec<String>,
 }
 
 impl ConvertContext {
-    fn node(&mut self, key: &YamlKey, what: &str) -> model::DialogueNodeId {
-        if key.is_number() {
-            self.warnings.push(format!(
-                "{what} {}: numeric node ids are deprecated; use a key",
-                key.as_key()
-            ));
-        }
-        self.symbols.intern_node(&key.as_key())
+    fn node(&mut self, key: &YamlKey) -> model::DialogueNodeId {
+        self.symbols.intern_node(key.as_key())
     }
 
     fn option(&mut self, key: &YamlKey) -> model::DialogueOptionId {
-        if key.is_number() {
-            self.warnings.push(format!(
-                "option id {}: numeric option ids are deprecated; use a key",
-                key.as_key()
-            ));
-        }
-        self.symbols.intern_option(&key.as_key())
+        self.symbols.intern_option(key.as_key())
     }
 
     fn entity(&mut self, key: &YamlKey) -> Result<model::EntityId, String> {
-        match key {
-            YamlKey::Key(key) => self
-                .characters
-                .get(key)
-                .map(|c| c.0)
-                .ok_or_else(|| format!("unknown entity '{key}'")),
-            YamlKey::Number(n) => {
-                let id = self
-                    .legacy_entities
-                    .get(n)
-                    .copied()
-                    .ok_or_else(|| format!("unknown numeric entity id {n}"))?;
-                self.warnings.push(format!(
-                    "entity {n}: numeric entity references are deprecated; use the character key"
-                ));
-                Ok(id)
-            }
-        }
+        let key = key.as_key();
+        self.characters
+            .get(key)
+            .map(|c| c.0)
+            .ok_or_else(|| format!("unknown entity '{key}'"))
     }
 }
 
@@ -758,10 +797,7 @@ impl YamlOutcome {
 
                 Ok(Outcome::SetFact {
                     scope: fact_scope,
-                    fact: Fact {
-                        id: FactId::new(fact.as_str()),
-                        value: fact_value,
-                    },
+                    fact: Fact::new(fact.as_str(), fact_value),
                 })
             }
             YamlOutcome::AddRelationship {
@@ -1022,28 +1058,116 @@ nodes:
         check!(err.contains("'nobody'"), "{err}");
     }
 
+    fn numeric_id_error(yaml: &str) -> YamlError {
+        YamlDialogueGraph::from_yaml(yaml).expect_err("numeric ids must not load")
+    }
+
     #[test]
-    fn test_legacy_numeric_ids_load_with_warnings() {
+    fn test_numeric_node_id_is_an_error() {
         let yaml = r#"
-version: "1.0"
-entry_node: 1
+version: "2.0"
+entry_node: intro
 characters:
-  player:
-    id: 1
-    name: "Player"
   mara:
-    id: 2
     name: "Mara Vey"
 nodes:
   - id: 1
     speaker: mara
     text: "Hello."
+"#;
+        let err = numeric_id_error(yaml);
+        check!(err.message().contains("numeric id 1"), "{err}");
+        check!(err.message().contains("removed in 0.3"), "{err}");
+        check!(err.line() == Some(8), "{err}");
+    }
+
+    #[test]
+    fn test_numeric_entry_target_and_option_ids_are_errors() {
+        let entry = "version: \"2.0\"\nentry_node: 1\ncharacters: {}\nnodes: []\n";
+        check!(numeric_id_error(entry).message().contains("numeric id 1"));
+
+        let option = r#"
+version: "2.0"
+entry_node: intro
+characters:
+  mara: { name: "Mara Vey" }
+nodes:
+  - id: intro
+    speaker: mara
+    text: "Hello."
     options:
-      - id: 1
+      - id: 3
+        target: end
+"#;
+        check!(numeric_id_error(option).message().contains("numeric id 3"));
+
+        let target = option
+            .replace("id: 3", "id: intro.bye")
+            .replace("target: end", "target: 2");
+        check!(numeric_id_error(&target).message().contains("numeric id 2"));
+
+        // A float is a number too.
+        let float = option.replace("id: 3", "id: 3.5");
+        check!(
+            numeric_id_error(&float)
+                .message()
+                .contains("numeric id 3.5")
+        );
+    }
+
+    #[test]
+    fn test_numeric_relationship_endpoint_is_an_error() {
+        let yaml = r#"
+version: "2.0"
+entry_node: intro
+characters:
+  mara: { name: "Mara Vey" }
+nodes:
+  - id: intro
+    speaker: mara
+    text: "Hello."
+    options:
+      - id: intro.bye
         outcomes:
-          - { type: add_relationship, source: 1, target: 2, axis: trust, delta: 5 }
+          - { type: add_relationship, source: 1, target: mara, axis: trust, delta: 5 }
+        target: end
+"#;
+        check!(numeric_id_error(yaml).message().contains("numeric id 1"));
+    }
+
+    #[test]
+    fn test_numeric_character_id_is_an_error() {
+        let yaml = r#"
+version: "2.0"
+entry_node: intro
+characters:
+  mara:
+    id: 2
+    name: "Mara Vey"
+nodes: []
+"#;
+        let err = numeric_id_error(yaml);
+        check!(err.message().contains("character `id`"), "{err}");
+        check!(err.message().contains("the map key is the id"), "{err}");
+        // The error points at the value of `id`.
+        check!(err.line() == Some(6), "{err}");
+    }
+
+    #[test]
+    fn test_quoted_numbers_are_keys() {
+        let yaml = r#"
+version: "2.0"
+entry_node: "1"
+characters:
+  mara: { name: "Mara Vey" }
+nodes:
+  - id: "1"
+    speaker: mara
+    text: "Hello."
+    options:
+      - id: "1"
         target: "2"
-  - id: 2
+  - id: "2"
     speaker: mara
     text: "Bye."
 "#;
@@ -1055,14 +1179,8 @@ nodes:
             panic!("expected node target");
         };
         check!(target == loaded.graph.nodes[1].id);
-        let model::Outcome::AddRelationship { source, .. } =
-            &loaded.graph.nodes[0].options[0].outcomes[0]
-        else {
-            panic!("expected relationship outcome");
-        };
-        check!(loaded.symbols.entity_key(*source) == Some("player"));
-        check!(!loaded.warnings.is_empty());
-        check!(loaded.warnings.iter().all(|w| w.contains("deprecated")));
+        check!(loaded.symbols.node_key(target) == Some("2"));
+        check!(loaded.warnings.is_empty());
     }
 
     #[test]

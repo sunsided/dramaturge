@@ -719,6 +719,7 @@ fn main() {
                 ValidationSeverity::Error => "  [ERROR]",
                 ValidationSeverity::Warning => "  [WARN] ",
                 ValidationSeverity::Info => "  [INFO] ",
+                _ => "  [?]    ",
             };
             eprintln!("{} {}", prefix, issue.message);
         }
