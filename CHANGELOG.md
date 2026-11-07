@@ -6,6 +6,16 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `NarrativeState::fact` returns `Option<Cow<'_, FactValue>>`
+  instead of `Option<&FactValue>`. A host can now implement `NarrativeState`
+  on its own store and return converted values (`Cow::Owned`). Types that
+  implement `HasDialogWorldState` return `Cow::Borrowed` and do not copy.
+  Callers that need a reference use `as_ref()` or `&*value`.
+- The `NarrativeState` documentation shows two paths: embed a
+  `DialogWorldState`, or implement `NarrativeState` directly on a host store.
+
 ## [0.2.0] - 2026-10-30
 
 ### Added

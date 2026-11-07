@@ -143,7 +143,7 @@ where
                 fact_id,
                 value,
             } => match state.fact(scope, fact_id) {
-                Some(existing) => partial_eq_values(existing, value),
+                Some(existing) => partial_eq_values(&existing, value),
                 None => false,
             },
             Condition::FactExists { scope, fact_id } => state.fact(scope, fact_id).is_some(),
@@ -179,7 +179,7 @@ where
                 value,
             } => state
                 .fact(scope, fact_id)
-                .map(|v| matches!(v, FactValue::Int(v) if *v >= *value))
+                .map(|v| matches!(*v, FactValue::Int(v) if v >= *value))
                 .unwrap_or(false),
             Condition::FactAtMost {
                 scope,
@@ -187,7 +187,7 @@ where
                 value,
             } => state
                 .fact(scope, fact_id)
-                .map(|v| matches!(v, FactValue::Int(v) if *v <= *value))
+                .map(|v| matches!(*v, FactValue::Int(v) if v <= *value))
                 .unwrap_or(false),
             Condition::HasMemory { owner, query } => state.matches_memory_query(*owner, query),
             Condition::HasTagAvailable { tag } => state.has_tag_available(tag),
@@ -773,6 +773,80 @@ mod tests {
         };
         applier.apply(&outcome, &mut ctx);
         check!(ctx.get_relationship(source, target, &RelationshipAxisId::new("trust")) == Some(15));
+    }
+    /// A host store that keeps its own value type and returns owned facts.
+    struct IntStore(std::collections::BTreeMap<String, i64>);
+
+    impl crate::NarrativeState for IntStore {
+        fn fact(&self, _: &FactScope, id: &FactId) -> Option<std::borrow::Cow<'_, FactValue>> {
+            let n = self.0.get(id.0.as_ref())?;
+            Some(std::borrow::Cow::Owned(FactValue::Int(*n)))
+        }
+        fn set_fact(&mut self, _: FactScope, fact: Fact) {
+            if let FactValue::Int(n) = fact.value {
+                self.0.insert(fact.id.0.to_string(), n);
+            }
+        }
+        fn remove_fact(&mut self, _: &FactScope, id: &FactId) -> bool {
+            self.0.remove(id.0.as_ref()).is_some()
+        }
+        fn alignment(&self, _: &AlignmentAxisId, _: &AlignmentPoleId) -> Option<i32> {
+            None
+        }
+        fn add_alignment(&mut self, _: AlignmentAxisId, _: AlignmentPoleId, _: i32) {}
+        fn relationship(&self, _: EntityId, _: EntityId, _: &RelationshipAxisId) -> Option<i32> {
+            None
+        }
+        fn add_relationship(&mut self, _: EntityId, _: EntityId, _: RelationshipAxisId, _: i32) {}
+        fn add_memory(&mut self, _: EntityId, _: dramaturge_model::Memory) {}
+        fn remove_memory(&mut self, _: EntityId, _: dramaturge_model::MemoryId) -> bool {
+            false
+        }
+        fn matches_memory_query(&self, _: EntityId, _: &dramaturge_model::MemoryQuery) -> bool {
+            false
+        }
+        fn has_tag_available(&self, _: &dramaturge_model::DialogTagKind) -> bool {
+            false
+        }
+        fn emit_event(&mut self, _: dramaturge_model::EventKind) {}
+    }
+
+    #[test]
+    fn default_evaluator_reads_owned_facts_from_a_host_store() {
+        let evaluator = DefaultConditionEvaluator::new();
+        let store = IntStore([("coins".to_string(), 3)].into());
+        let coins = FactId::new("coins");
+        check!(evaluator.evaluate(
+            &Condition::FactAtLeast {
+                scope: FactScope::World,
+                fact_id: coins.clone(),
+                value: 3
+            },
+            &store
+        ));
+        check!(!evaluator.evaluate(
+            &Condition::FactAtMost {
+                scope: FactScope::World,
+                fact_id: coins.clone(),
+                value: 2
+            },
+            &store
+        ));
+        check!(evaluator.evaluate(
+            &Condition::FactEquals {
+                scope: FactScope::World,
+                fact_id: coins.clone(),
+                value: FactValue::Int(3),
+            },
+            &store
+        ));
+        check!(evaluator.evaluate(
+            &Condition::FactExists {
+                scope: FactScope::World,
+                fact_id: coins
+            },
+            &store
+        ));
     }
 }
 
