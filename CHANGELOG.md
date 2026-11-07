@@ -6,8 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0-alpha.3] - 2026-11-07
+
 ### Added
 
+- Design note for the text selection core, before R9:
+  `docs/specs/2026-11-07-text-selection-design.md` (#78).
 - `Outcome::Host(H)`: a typed host outcome. `Outcome::as_host` and
   `Outcome::map_host`; `map_host` also on `DialogueGraph`, `DialogueNode`
   and `DialogueOption`, to give a graph a host outcome type (#72).
@@ -337,7 +341,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Initial release.
 
-[Unreleased]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.2...HEAD
+[Unreleased]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.3...HEAD
+[0.3.0-alpha.3]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.2...v0.3.0-alpha.3
 [0.3.0-alpha.2]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.1...v0.3.0-alpha.2
 [0.3.0-alpha.1]: https://github.com/sunsided/dramaturge/compare/v0.2.0...v0.3.0-alpha.1
 [0.2.0]: https://github.com/sunsided/dramaturge/compare/v0.1.0...v0.2.0
