@@ -103,6 +103,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   shape; the feature `syn` adds the token form (`tokens::parse_dialogue`,
   `ParseHost`, `Spanned`) for `dialogue!` and for `dialogue` blocks in a
   host macro (#76).
+- `dialogue!` in `dramaturge-macros`: a dialogue in Rust tokens, checked at
+  compile time, that returns `dramaturge_syntax::Loaded` (graph, symbols).
+  An unknown target, a duplicate node key, a node with no options and no
+  `-> target;`, and a condition that does not parse are compile errors at
+  the span of the token (#76).
+- `dramaturge` facade: the feature `syntax` re-exports `dramaturge-syntax`
+  as `dramaturge::syntax`; the feature `macros` re-exports `dialogue!` and
+  the derive macros. Example `dialogue_macro` (#76).
 - `dramaturge_serde::loader`: `load_yaml`, `from_yaml` (generic over the
   payloads), `to_yaml` and `LoadError` (#76).
 
@@ -187,6 +195,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   `start` key that names no node is a load error now. The `dramaturge-serde`
   feature `yaml` pulls in `dramaturge-syntax` (without `syn`). See
   `docs/migration-0.3-yaml.md` (#76).
+
+- `dramaturge-model` has no dev-dependency on
+  `dramaturge-macros` now (`dramaturge-macros` depends on
+  `dramaturge-syntax`, which depends on the model). The derive tests moved
+  to `dramaturge-macros/tests/derive.rs`. Nothing changes for users; this
+  note is for the release order: publish the model before the macros (#76).
 
 ## [0.3.0-alpha.2] - 2026-11-07
 

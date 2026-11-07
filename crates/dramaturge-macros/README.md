@@ -1,8 +1,47 @@
 # dramaturge-macros
 
-Derive macros for the [dramaturge](https://crates.io/crates/dramaturge) dialogue toolkit.
+Macros for the [dramaturge](https://crates.io/crates/dramaturge) dialogue toolkit.
 
-This is an internal proc-macro crate. It is re-exported through the main `dramaturge` facade - you do not need to add it to your dependencies directly.
+This is a proc-macro crate. The `dramaturge` facade re-exports its macros with the `macros` feature, so you do not need to add it to your dependencies directly.
+
+## `dialogue!`
+
+Writes a dialogue in Rust tokens and builds its graph. The grammar is the token
+form of `dramaturge-syntax`, so the text is the same as in a `dialogue` block of
+a host macro (loremaster's `world!`). The macro returns
+`dramaturge_syntax::Loaded` (`graph`, `symbols`).
+
+```rust
+use dramaturge_macros::dialogue;
+
+let loaded = dialogue! {
+    with mara start [again, intro] {
+        intro: "Hello, traveller." {
+            set met_mara = true;
+            "Who are you?" => names { relation trust += 1; }
+            "Goodbye." => end;
+        }
+        again: "You again." {
+            when met_mara and relation(trust) >= 1;
+            "Goodbye." => end;
+        }
+        names {
+            mara: "They call me Mara.";
+            player: "Mara. I will remember.";
+            -> end;
+        }
+    }
+};
+```
+
+These are compile errors at the span of the token: a syntax error, a target
+that names no node, a duplicate node key, a node with no options and no
+`-> target;`, and a condition that does not parse. The calling crate needs
+`dramaturge-syntax`, or `dramaturge` with the `macros` feature.
+
+Why here and not behind a feature: a proc macro must be in a `proc-macro`
+crate, and this crate is that crate already. The grammar is in
+`dramaturge-syntax` (a normal library), so host macros can use it too.
 
 ## Available derives
 

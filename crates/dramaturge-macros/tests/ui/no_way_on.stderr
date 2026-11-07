@@ -1,0 +1,5 @@
+error: node `names` has no options and no `next`; the talk ends here (write `-> end;` to say so)
+ --> tests/ui/no_way_on.rs:7:13
+  |
+7 |             names: "They call me Mara." {
+  |             ^^^^^

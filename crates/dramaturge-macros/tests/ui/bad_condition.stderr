@@ -1,0 +1,5 @@
+error: in the condition `gold >= lots`: expected a number, a string, `true` or `false`
+ --> tests/ui/bad_condition.rs:7:29
+  |
+7 |                 "Pay." when gold >= lots => end;
+  |                             ^^^^

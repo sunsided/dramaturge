@@ -1,0 +1,5 @@
+error: no node `again`
+ --> tests/ui/unknown_start.rs:5:26
+  |
+5 |         with mara start [again, intro] {
+  |                          ^^^^^

@@ -62,8 +62,9 @@ cargo run -p dramaturge --example exchange
 | `dramaturge` | Public facade — re-exports the most important items |
 | `dramaturge-model` | Core domain types: characters, facts, conditions, outcomes, dialogue graphs |
 | `dramaturge-runtime` | Evaluation traits and default runtime engine |
-| `dramaturge-macros` | Derive macros: `DialogTag`, `FactValue`, `ConditionBuilder` |
-| `dramaturge-serde` | Optional serialization integration (`serde` and `yaml` features) |
+| `dramaturge-syntax` | One dialogue AST for YAML, JSON and Rust tokens, and its lowering to a dialogue graph |
+| `dramaturge-macros` | `dialogue!`, and the derive macros `DialogTag`, `FactValue`, `ConditionBuilder` |
+| `dramaturge-serde` | Optional serialization integration, and the YAML dialogue loader (`yaml` feature) |
 | `dramaturge-authoring` | Authoring-time validation: graph structure checks, dead-end detection, orphan facts |
 
 ## License

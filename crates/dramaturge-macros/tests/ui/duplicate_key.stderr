@@ -1,0 +1,5 @@
+error: duplicate node key `intro`
+ --> tests/ui/duplicate_key.rs:7:13
+  |
+7 |             intro: "Hello again." { -> end; }
+  |             ^^^^^
