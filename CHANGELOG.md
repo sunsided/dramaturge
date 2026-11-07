@@ -41,7 +41,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   pushes the current node on `Node`, pops on `Return` and returns `None`
   when the talk ends (`End`, `Return` with an empty stack) or for a
   `Custom` target. `DialogCursorDto` and the `with` module
-  `dramaturge_serde::dialog_cursor` serialize it (#73).
+  `dramaturge_serde::dialog_cursor` serialize it with raw ids;
+  `dramaturge_serde::save::SavedDialogCursor` stores the node keys and
+  `restore` re-resolves `current` and the return stack by key (#73).
 
 ### Changed
 

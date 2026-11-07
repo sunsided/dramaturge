@@ -13,7 +13,7 @@ use dramaturge_serde::dto::{
     ConditionDto, DialogCursorDto, DialogueGraphDto, IntoModel, OutcomeDto, TextProgressDto,
     WorldStateDto,
 };
-use dramaturge_serde::save::{OrphanedKey, SavedWorldState, SymbolKind};
+use dramaturge_serde::save::{OrphanedKey, SavedDialogCursor, SavedWorldState, SymbolKind};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -745,4 +745,38 @@ fn restore_reports_orphaned_keys() {
     let ghost2 = v2.entity("ghost").expect("orphan is interned");
     check!(ghost2 != player2);
     check!(restored.get_relationship(player2, ghost2, &RelationshipAxisId::new("fear")) == Some(3));
+}
+
+#[test]
+fn saved_cursor_remaps_current_and_back_by_key() {
+    let mut v1 = SymbolTable::new();
+    let hub = v1.intern_node("hub");
+    let a = v1.intern_node("a");
+    let b = v1.intern_node("b");
+    let mut cursor = DialogCursor::new(hub);
+    cursor.follow(&DialogTarget::Node(a));
+    cursor.follow(&DialogTarget::Node(b));
+    let json = serde_json::to_string(&SavedDialogCursor::new(&cursor, &v1)).unwrap();
+
+    // Content v2 reorders the nodes and removes `a`.
+    let mut v2 = SymbolTable::new();
+    let b2 = v2.intern_node("b");
+    v2.intern_node("intro");
+    let hub2 = v2.intern_node("hub");
+    let saved: SavedDialogCursor = serde_json::from_str(&json).unwrap();
+    let (restored, report) = saved.restore(&mut v2);
+
+    let a2 = v2.node("a").expect("orphan is interned");
+    check!(restored.current == b2);
+    check!(restored.back == vec![hub2, a2]);
+    check!(
+        report.orphaned
+            == vec![OrphanedKey {
+                kind: SymbolKind::Node,
+                key: "a".into(),
+            }]
+    );
+    // Raw ids changed, so the identity mapping would restore wrong nodes.
+    check!(b2 != b);
+    check!(hub2 != hub);
 }

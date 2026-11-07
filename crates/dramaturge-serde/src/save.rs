@@ -10,7 +10,7 @@
 //!
 //! ```rust
 //! use dramaturge_model::{Fact, FactScope, RelationshipAxisId, SymbolTable};
-//! use dramaturge_runtime::DialogWorldState;
+//! use dramaturge_runtime::{DialogCursor, DialogWorldState};
 //! use dramaturge_serde::save::SavedWorldState;
 //!
 //! // Content v1 knows two characters.
@@ -40,9 +40,9 @@ use serde::{Deserialize, Serialize};
 
 use dramaturge_model as model;
 use dramaturge_model::{DialogueNodeId, DialogueOptionId, EntityId, MemoryId, SymbolTable};
-use dramaturge_runtime::DialogWorldState;
+use dramaturge_runtime::{DialogCursor, DialogWorldState};
 
-use crate::dto::{IdMap, IntoModel, SymbolTableDto, WorldStateDto};
+use crate::dto::{DialogCursorDto, IdMap, IntoModel, SymbolTableDto, WorldStateDto};
 
 /// A [`DialogWorldState`] with the keys of the ids it references.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -107,6 +107,68 @@ impl SavedWorldState {
         let mut remap = KeyRemap::new(&saved, current);
         let state = self.state.clone().into_model_with(&mut remap);
         (state, remap.into_report())
+    }
+}
+
+/// A [`DialogCursor`] with the keys of the node ids it references.
+///
+/// The cursor's `current` node and return stack are raw node ids, which
+/// shift when content changes. [`SavedDialogCursor::restore`] re-resolves
+/// them by key, the same way as [`SavedWorldState::restore`].
+///
+/// ```rust
+/// use dramaturge_model::{DialogTarget, SymbolTable};
+/// use dramaturge_runtime::DialogCursor;
+/// use dramaturge_serde::save::SavedDialogCursor;
+///
+/// let mut v1 = SymbolTable::new();
+/// let hub = v1.intern_node("mara.hub");
+/// let topic = v1.intern_node("mara.topic");
+/// let mut cursor = DialogCursor::new(hub);
+/// cursor.follow(&DialogTarget::Node(topic));
+/// let json = serde_json::to_string(&SavedDialogCursor::new(&cursor, &v1)).unwrap();
+///
+/// // Content v2 added a node before them: the numbers moved.
+/// let mut v2 = SymbolTable::new();
+/// v2.intern_node("mara.intro");
+/// let hub2 = v2.intern_node("mara.hub");
+/// let topic2 = v2.intern_node("mara.topic");
+///
+/// let saved: SavedDialogCursor = serde_json::from_str(&json).unwrap();
+/// let (restored, report) = saved.restore(&mut v2);
+/// assert!(report.orphaned.is_empty());
+/// assert_eq!(restored.current, topic2);
+/// assert_eq!(restored.back, vec![hub2]);
+/// ```
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedDialogCursor {
+    /// Keys of the ids at save time.
+    pub symbols: SymbolTableDto,
+    /// The cursor, with ids as they were at save time.
+    pub cursor: DialogCursorDto,
+}
+
+impl SavedDialogCursor {
+    /// Captures `cursor` together with the keys in `symbols`.
+    pub fn new(cursor: &DialogCursor, symbols: &SymbolTable) -> Self {
+        Self {
+            symbols: symbols.into(),
+            cursor: cursor.into(),
+        }
+    }
+
+    /// Rebuilds the cursor, re-resolving `current` and every node of the
+    /// return stack by key against `current`.
+    ///
+    /// Node keys that `current` does not know are interned and listed in
+    /// the [`RestoreReport`], as in [`SavedWorldState::restore`]. Such a node
+    /// no longer exists, so a host usually ends the talk or restarts it at
+    /// an entry node when the report is not empty.
+    pub fn restore(&self, current: &mut SymbolTable) -> (DialogCursor, RestoreReport) {
+        let saved: SymbolTable = self.symbols.clone().into_model();
+        let mut remap = KeyRemap::new(&saved, current);
+        let cursor = self.cursor.clone().into_model_with(&mut remap);
+        (cursor, remap.into_report())
     }
 }
 

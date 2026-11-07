@@ -2164,7 +2164,8 @@ no_ids!(TextProgressDto => dramaturge_runtime::TextProgress, |d| {
 /// DTO for [`DialogCursor`](dramaturge_runtime::DialogCursor).
 ///
 /// Stores raw node ids. [`IntoModel::into_model_with`] maps them through
-/// the [`IdMap`].
+/// the [`IdMap`]. For a save that re-resolves the ids by key, use
+/// [`SavedDialogCursor`](crate::save::SavedDialogCursor).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DialogCursorDto {
     /// The current node (raw id).
