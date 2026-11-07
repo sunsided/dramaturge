@@ -236,9 +236,9 @@ pub type LowerResult<C, X, E, L> = Result<
 ///
 /// The graph's entry nodes are the start nodes. A choice without `say`
 /// gets the default text of its hint. `back` lowers to
-/// `DialogTarget::Return`.
-pub fn lower<C, X, E, L: Lower<C, X, E>>(
-    dialogue: &Dialogue<C, X, E>,
+/// `DialogTarget::Return`. Author notes (`M`) are not in the graph.
+pub fn lower<C, X, E, M, L: Lower<C, X, E>>(
+    dialogue: &Dialogue<C, X, E, M>,
     symbols: &mut SymbolTable,
     host: &mut L,
 ) -> LowerResult<C, X, E, L> {

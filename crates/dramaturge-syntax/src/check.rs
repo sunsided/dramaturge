@@ -64,7 +64,7 @@ pub enum OutcomePlace {
 impl Place {
     /// Writes the place as a path, with the node keys of `dialogue`, for
     /// example `nodes.meet.options[1].when`.
-    pub fn path<C, X, E>(&self, dialogue: &Dialogue<C, X, E>) -> String {
+    pub fn path<C, X, E, M>(&self, dialogue: &Dialogue<C, X, E, M>) -> String {
         let node = |n: &usize| {
             dialogue.nodes.get(*n).map_or_else(
                 || format!("nodes[{n}]"),
@@ -174,7 +174,7 @@ impl fmt::Display for Issue {
 ///
 /// - A node has no options and no `next`. The talk ends at this node.
 ///   Write `next: end` to say so.
-pub fn check<C, X, E>(dialogue: &Dialogue<C, X, E>) -> Vec<Issue> {
+pub fn check<C, X, E, M>(dialogue: &Dialogue<C, X, E, M>) -> Vec<Issue> {
     let mut issues = Vec::new();
     let mut push = |severity, kind, place: Place, message: String| {
         let path = place.path(dialogue);

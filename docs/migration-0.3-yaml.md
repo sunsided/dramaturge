@@ -139,7 +139,8 @@ nodes:
   entry node). A node with no options and no `next` is a warning.
 - `back` is a target now (`DialogTarget::Return`, the node before). `end`
   and `back` are reserved: rename a node with one of these keys.
-- Unknown fields are errors.
+- Unknown fields are errors. `notes:` (author notes, a list of strings) is
+  allowed on the dialogue, on nodes and on options.
 - The text of an option without `say` is `NavigationHint::default_text`:
   `Go to Captain Vale` (0.2: `Go to Captain Vale...`).
 

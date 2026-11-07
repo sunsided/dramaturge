@@ -96,7 +96,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   It holds the start nodes (entry nodes), `lines` and `next`, and the
   outcomes of nodes and options (`set`, `add`, `relation`, `remember`,
   `then`). It is generic over the host's condition, text and effect
-  payloads: `Dialogue<C = String, X = Text, E = Effect>`. `check` reports
+  payloads, and over the host's author notes (`notes` on the dialogue,
+  nodes and options; the lowering ignores them):
+  `Dialogue<C = String, X = Text, E = Effect, M = String>`. `check` reports
   keys and targets as `Issue`s with a `Place` (`nodes.meet.options[1].go`).
   `lower(dialogue, symbols, host)` makes a `DialogueGraph<H, T>` through the
   `Lower` hooks of the host (`condition`, `text`, `effects`, and `set`,

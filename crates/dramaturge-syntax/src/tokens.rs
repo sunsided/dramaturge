@@ -161,16 +161,16 @@ pub fn condition_source(tokens: TokenStream) -> String {
 
 /// A dialogue with the span of each part.
 #[derive(Debug, Clone)]
-pub struct Spanned<C = String, X = Text, E = Effect> {
+pub struct Spanned<C = String, X = Text, E = Effect, M = String> {
     /// The dialogue.
-    pub dialogue: Dialogue<C, X, E>,
+    pub dialogue: Dialogue<C, X, E, M>,
     /// The span of each place that the parser saw.
     pub spans: HashMap<Place, Span>,
     /// The span of the whole dialogue (its first token).
     pub span: Span,
 }
 
-impl<C, X, E> Spanned<C, X, E> {
+impl<C, X, E, M> Spanned<C, X, E, M> {
     /// Returns the span of a place, or of the nearest place that has one.
     pub fn span(&self, place: &Place) -> Span {
         let fallback = match place {
@@ -306,6 +306,17 @@ fn condition_tokens(input: ParseStream<'_>, until_arrow: bool) -> syn::Result<(T
     Ok((out, span))
 }
 
+type HostNode<P, M> =
+    Node<<P as ParseHost>::Condition, <P as ParseHost>::Text, <P as ParseHost>::Effect, M>;
+
+type HostChoice<P, M> =
+    Choice<<P as ParseHost>::Condition, <P as ParseHost>::Text, <P as ParseHost>::Effect, M>;
+
+/// What [`parse_dialogue`] reads with the parse host `P`, with notes of
+/// the type `M`.
+pub type Parsed<P, M = String> =
+    Spanned<<P as ParseHost>::Condition, <P as ParseHost>::Text, <P as ParseHost>::Effect, M>;
+
 struct Ctx<'a, P: ParseHost> {
     host: &'a mut P,
     spans: HashMap<Place, Span>,
@@ -380,11 +391,7 @@ impl<P: ParseHost> Ctx<'_, P> {
         Ok(true)
     }
 
-    fn node(
-        &mut self,
-        input: ParseStream<'_>,
-        n: usize,
-    ) -> syn::Result<Node<P::Condition, P::Text, P::Effect>> {
+    fn node<M>(&mut self, input: ParseStream<'_>, n: usize) -> syn::Result<HostNode<P, M>> {
         let (key, key_span) = parse_key(input)?;
         self.spans.insert(Place::Node(n), key_span);
         let mut say = None;
@@ -477,15 +484,16 @@ impl<P: ParseHost> Ctx<'_, P> {
             next,
             outcomes,
             options,
+            notes: Vec::new(),
         })
     }
 
-    fn option(
+    fn option<M>(
         &mut self,
         input: ParseStream<'_>,
         n: usize,
         o: usize,
-    ) -> syn::Result<Choice<P::Condition, P::Text, P::Effect>> {
+    ) -> syn::Result<HostChoice<P, M>> {
         self.spans.insert(Place::Option(n, o), input.span());
         let say = self.host.text(input)?;
         let mut when = None;
@@ -530,11 +538,12 @@ impl<P: ParseHost> Ctx<'_, P> {
 /// Reads a dialogue in the token form with the payload parsers of `host`.
 ///
 /// It reads the grammar only. Call [`Spanned::check`] for the checks on
-/// keys and targets.
-pub fn parse_dialogue<P: ParseHost>(
+/// keys and targets. The token form has no author notes: `M` is the note
+/// type of the host, and the notes stay empty.
+pub fn parse_dialogue<P: ParseHost, M>(
     input: ParseStream<'_>,
     host: &mut P,
-) -> syn::Result<Spanned<P::Condition, P::Text, P::Effect>> {
+) -> syn::Result<Parsed<P, M>> {
     let span = input.span();
     let mut id = None;
     if peek_word(input, "dialogue") {

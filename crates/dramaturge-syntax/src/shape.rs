@@ -17,7 +17,8 @@
 //! `nodes` is a map from node key to node; the order of the file is the
 //! order of [`Dialogue::nodes`]. Unknown fields are errors. A node and an
 //! option write their outcomes (`set`, `add`, `relation`, `remember`,
-//! `then`) next to their other fields.
+//! `then`) next to their other fields. The dialogue, a node and an option
+//! can have author `notes` (a list of `M`, left out when empty).
 
 use crate::ast::{
     Choice, Dialogue, Effect, Fragment, FragmentMode, Hint, Intentions, Line, Node, Outcomes, Tag,
@@ -158,18 +159,22 @@ impl<'de> Deserialize<'de> for Value {
 // ---------------------------------------------------------------- dialogue
 
 #[derive(Serialize)]
-#[serde(bound = "C: Serialize, X: Serialize, E: Serialize")]
-struct DialogueOut<'a, C, X, E> {
+#[serde(bound = "C: Serialize, X: Serialize, E: Serialize, M: Serialize")]
+struct DialogueOut<'a, C, X, E, M> {
     #[serde(skip_serializing_if = "Option::is_none")]
     id: &'a Option<String>,
     with: &'a str,
     start: &'a [String],
-    nodes: NodesOut<'a, C, X, E>,
+    nodes: NodesOut<'a, C, X, E, M>,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    notes: &'a [M],
 }
 
-struct NodesOut<'a, C, X, E>(&'a [Node<C, X, E>]);
+struct NodesOut<'a, C, X, E, M>(&'a [Node<C, X, E, M>]);
 
-impl<C: Serialize, X: Serialize, E: Serialize> Serialize for NodesOut<'_, C, X, E> {
+impl<C: Serialize, X: Serialize, E: Serialize, M: Serialize> Serialize
+    for NodesOut<'_, C, X, E, M>
+{
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let mut map = s.serialize_map(Some(self.0.len()))?;
         for n in self.0 {
@@ -187,6 +192,7 @@ impl<C: Serialize, X: Serialize, E: Serialize> Serialize for NodesOut<'_, C, X, 
                     remember: &n.outcomes.remember,
                     then: &n.outcomes.then,
                     options: &n.options,
+                    notes: &n.notes,
                 },
             )?;
         }
@@ -194,13 +200,14 @@ impl<C: Serialize, X: Serialize, E: Serialize> Serialize for NodesOut<'_, C, X, 
     }
 }
 
-impl<C: Serialize, X: Serialize, E: Serialize> Serialize for Dialogue<C, X, E> {
+impl<C: Serialize, X: Serialize, E: Serialize, M: Serialize> Serialize for Dialogue<C, X, E, M> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         DialogueOut {
             id: &self.id,
             with: &self.with,
             start: &self.start,
             nodes: NodesOut(&self.nodes),
+            notes: &self.notes,
         }
         .serialize(s)
     }
@@ -208,34 +215,43 @@ impl<C: Serialize, X: Serialize, E: Serialize> Serialize for Dialogue<C, X, E> {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-#[serde(bound = "C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>")]
-struct DialogueIn<C, X, E> {
+#[serde(
+    bound = "C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>, M: Deserialize<'de>"
+)]
+struct DialogueIn<C, X, E, M> {
     #[serde(default, deserialize_with = "opt_key")]
     id: Option<String>,
     #[serde(deserialize_with = "key")]
     with: String,
     #[serde(deserialize_with = "keys")]
     start: Vec<String>,
-    nodes: NodesIn<C, X, E>,
+    nodes: NodesIn<C, X, E, M>,
+    #[serde(default)]
+    notes: Vec<M>,
 }
 
-struct NodesIn<C, X, E>(Vec<Node<C, X, E>>);
+struct NodesIn<C, X, E, M>(Vec<Node<C, X, E, M>>);
 
-impl<'de, C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>> Deserialize<'de>
-    for NodesIn<C, X, E>
+impl<'de, C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>, M: Deserialize<'de>>
+    Deserialize<'de> for NodesIn<C, X, E, M>
 {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        struct V<C, X, E>(PhantomData<(C, X, E)>);
-        impl<'de, C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>> Visitor<'de>
-            for V<C, X, E>
+        struct V<C, X, E, M>(PhantomData<(C, X, E, M)>);
+        impl<
+            'de,
+            C: Deserialize<'de>,
+            X: Deserialize<'de>,
+            E: Deserialize<'de>,
+            M: Deserialize<'de>,
+        > Visitor<'de> for V<C, X, E, M>
         {
-            type Value = NodesIn<C, X, E>;
+            type Value = NodesIn<C, X, E, M>;
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.write_str("a map of node keys to nodes")
             }
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
                 let mut out = Vec::new();
-                while let Some((key, n)) = map.next_entry::<Key, NodeIn<C, X, E>>()? {
+                while let Some((key, n)) = map.next_entry::<Key, NodeIn<C, X, E, M>>()? {
                     out.push(Node {
                         key: key.0,
                         speaker: n.speaker,
@@ -251,6 +267,7 @@ impl<'de, C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>> Deseria
                             then: n.then,
                         },
                         options: n.options,
+                        notes: n.notes,
                     });
                 }
                 Ok(NodesIn(out))
@@ -260,16 +277,17 @@ impl<'de, C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>> Deseria
     }
 }
 
-impl<'de, C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>> Deserialize<'de>
-    for Dialogue<C, X, E>
+impl<'de, C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>, M: Deserialize<'de>>
+    Deserialize<'de> for Dialogue<C, X, E, M>
 {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let raw = DialogueIn::<C, X, E>::deserialize(d)?;
+        let raw = DialogueIn::<C, X, E, M>::deserialize(d)?;
         Ok(Dialogue {
             id: raw.id,
             with: raw.with,
             start: raw.start,
             nodes: raw.nodes.0,
+            notes: raw.notes,
         })
     }
 }
@@ -277,8 +295,8 @@ impl<'de, C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>> Deseria
 // -------------------------------------------------------------------- node
 
 #[derive(Serialize)]
-#[serde(bound = "C: Serialize, X: Serialize, E: Serialize")]
-struct NodeOut<'a, C, X, E> {
+#[serde(bound = "C: Serialize, X: Serialize, E: Serialize, M: Serialize")]
+struct NodeOut<'a, C, X, E, M> {
     #[serde(skip_serializing_if = "Option::is_none")]
     speaker: &'a Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -299,7 +317,9 @@ struct NodeOut<'a, C, X, E> {
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     then: &'a [E],
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
-    options: &'a [Choice<C, X, E>],
+    options: &'a [Choice<C, X, E, M>],
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    notes: &'a [M],
 }
 
 /// A node as written, without its key. The fields of [`Outcomes`] are
@@ -307,8 +327,10 @@ struct NodeOut<'a, C, X, E> {
 /// error.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-#[serde(bound = "C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>")]
-struct NodeIn<C, X, E> {
+#[serde(
+    bound = "C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>, M: Deserialize<'de>"
+)]
+struct NodeIn<C, X, E, M> {
     #[serde(default, deserialize_with = "opt_key")]
     speaker: Option<String>,
     #[serde(default)]
@@ -329,7 +351,9 @@ struct NodeIn<C, X, E> {
     #[serde(default)]
     then: Vec<E>,
     #[serde(default)]
-    options: Vec<Choice<C, X, E>>,
+    options: Vec<Choice<C, X, E, M>>,
+    #[serde(default)]
+    notes: Vec<M>,
 }
 
 #[derive(Serialize)]
@@ -375,8 +399,8 @@ fn is_end(t: &Target) -> bool {
 }
 
 #[derive(Serialize)]
-#[serde(bound = "C: Serialize, X: Serialize, E: Serialize")]
-struct ChoiceOut<'a, C, X, E> {
+#[serde(bound = "C: Serialize, X: Serialize, E: Serialize, M: Serialize")]
+struct ChoiceOut<'a, C, X, E, M> {
     #[serde(skip_serializing_if = "Option::is_none")]
     id: &'a Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -401,9 +425,11 @@ struct ChoiceOut<'a, C, X, E> {
     intentions: &'a Intentions,
     #[serde(skip_serializing_if = "Option::is_none")]
     hint: &'a Option<Hint>,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    notes: &'a [M],
 }
 
-impl<C: Serialize, X: Serialize, E: Serialize> Serialize for Choice<C, X, E> {
+impl<C: Serialize, X: Serialize, E: Serialize, M: Serialize> Serialize for Choice<C, X, E, M> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         ChoiceOut {
             id: &self.id,
@@ -418,6 +444,7 @@ impl<C: Serialize, X: Serialize, E: Serialize> Serialize for Choice<C, X, E> {
             tags: &self.tags,
             intentions: &self.intentions,
             hint: &self.hint,
+            notes: &self.notes,
         }
         .serialize(s)
     }
@@ -425,8 +452,10 @@ impl<C: Serialize, X: Serialize, E: Serialize> Serialize for Choice<C, X, E> {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-#[serde(bound = "C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>")]
-struct ChoiceIn<C, X, E> {
+#[serde(
+    bound = "C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>, M: Deserialize<'de>"
+)]
+struct ChoiceIn<C, X, E, M> {
     #[serde(default, deserialize_with = "opt_key")]
     id: Option<String>,
     #[serde(default)]
@@ -451,13 +480,15 @@ struct ChoiceIn<C, X, E> {
     intentions: Intentions,
     #[serde(default)]
     hint: Option<Hint>,
+    #[serde(default)]
+    notes: Vec<M>,
 }
 
-impl<'de, C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>> Deserialize<'de>
-    for Choice<C, X, E>
+impl<'de, C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>, M: Deserialize<'de>>
+    Deserialize<'de> for Choice<C, X, E, M>
 {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let o = ChoiceIn::<C, X, E>::deserialize(d)?;
+        let o = ChoiceIn::<C, X, E, M>::deserialize(d)?;
         Ok(Choice {
             id: o.id,
             say: o.say,
@@ -473,6 +504,7 @@ impl<'de, C: Deserialize<'de>, X: Deserialize<'de>, E: Deserialize<'de>> Deseria
             tags: o.tags,
             intentions: o.intentions,
             hint: o.hint,
+            notes: o.notes,
         })
     }
 }

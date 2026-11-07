@@ -353,3 +353,84 @@ fn a_loremaster_dialogue_lowers_with_host_hooks() {
                 .replace("meet.options[0]", "names")
     );
 }
+
+// ------------------------------------------------------------- author notes
+
+/// A note type like loremaster's `Note`: a plain string, or a map with an
+/// id and a todo flag.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(untagged)]
+enum Note {
+    Text(String),
+    Full {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        text: String,
+        #[serde(default)]
+        todo: bool,
+    },
+}
+
+#[test]
+fn notes_load_with_a_host_note_type_and_do_not_reach_the_graph() {
+    let base = include_str!("data/blackbeard.yaml");
+    let yaml = format!(
+        "{base}\nnotes:\n  - \"Blackbeard knows more than he says.\"\n  - {{ id: marigold_hint, text: \"Pay off the Marigold in act 2.\", todo: true }}\n"
+    )
+    .replace(
+        "  meet:\n",
+        "  meet:\n    notes: [\"First meeting.\"]\n",
+    )
+    .replace(
+        "      - say: '\"Not tonight.\"'\n",
+        "      - say: '\"Not tonight.\"'\n        notes: [{ text: \"A way out.\" }]\n",
+    );
+    let d: Dialogue<String, String, WorldEffect, Note> =
+        serde_saphyr::from_str(&yaml).expect("the YAML with notes loads");
+    check!(d.notes.len() == 2);
+    check!(
+        d.notes[1]
+            == Note::Full {
+                id: Some("marigold_hint".into()),
+                text: "Pay off the Marigold in act 2.".into(),
+                todo: true,
+            }
+    );
+    let meet = d.node("meet").unwrap();
+    check!(meet.notes == vec![Note::Text("First meeting.".into())]);
+    check!(meet.options[2].notes.len() == 1);
+    check!(d.node("names").unwrap().notes.is_empty());
+
+    // Notes survive a round trip and are left out where there are none.
+    let out = serde_saphyr::to_string(&d).unwrap();
+    let again: Dialogue<String, String, WorldEffect, Note> = serde_saphyr::from_str(&out).unwrap();
+    check!(again == d);
+    check!(out.matches("notes:").count() == 3, "{out}");
+
+    // The lowering ignores the notes.
+    let mut host = Lore {
+        relations: vec!["trust"],
+    };
+    let with_notes = lower(&d, &mut SymbolTable::new(), &mut host).unwrap();
+    let mut plain = d.clone();
+    plain.notes.clear();
+    for node in &mut plain.nodes {
+        node.notes.clear();
+        for option in &mut node.options {
+            option.notes.clear();
+        }
+    }
+    let without = lower(&plain, &mut SymbolTable::new(), &mut host).unwrap();
+    check!(with_notes.graph == without.graph);
+}
+
+#[test]
+fn plain_notes_are_strings() {
+    let yaml = MARA.replace(
+        "with: mara\n",
+        "with: mara\nnotes: [\"Mara is the clerk.\"]\n",
+    );
+    let d: Dialogue = serde_saphyr::from_str(&yaml).unwrap();
+    check!(d.notes == ["Mara is the clerk."]);
+    check!(lower_plain(&d).is_ok());
+}

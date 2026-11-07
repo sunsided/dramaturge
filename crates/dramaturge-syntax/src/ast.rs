@@ -12,6 +12,10 @@
 //! - `X`: a text (`say`). Default: [`Text`], a string or a list of
 //!   fragments.
 //! - `E`: a world effect (`then`). Default: [`Effect`].
+//! - `M`: an author note (`notes`) on the dialogue, a node or an option.
+//!   Default: [`String`]. A host with its own note type (for example
+//!   loremaster's `Note` with ids, todos and threads) sets it. The player
+//!   never sees notes, and the lowering ignores them.
 //!
 //! The parsers ([serde](crate#serde) and [`tokens`](crate#tokens)) read
 //! the payloads as they are. [`lower`](crate::lower()) turns them into model
@@ -21,11 +25,12 @@ use std::collections::BTreeMap;
 
 /// A dialogue: a talk with one character.
 ///
-/// `C`, `X` and `E` are the host's condition, text and effect payloads.
+/// `C`, `X`, `E` and `M` are the host's condition, text, effect and note
+/// payloads.
 /// See the [module documentation](self).
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub struct Dialogue<C = String, X = Text, E = Effect> {
+pub struct Dialogue<C = String, X = Text, E = Effect, M = String> {
     /// An optional id. When it is set, every node and option key is
     /// interned as `<id>/<key>`, so the keys of many dialogues can share one
     /// `SymbolTable`.
@@ -37,10 +42,12 @@ pub struct Dialogue<C = String, X = Text, E = Effect> {
     /// `when` holds. These become the entry nodes of the graph.
     pub start: Vec<String>,
     /// The nodes, in source order.
-    pub nodes: Vec<Node<C, X, E>>,
+    pub nodes: Vec<Node<C, X, E, M>>,
+    /// Author notes. The lowering ignores them (see the [module](self)).
+    pub notes: Vec<M>,
 }
 
-impl<C, X, E> Dialogue<C, X, E> {
+impl<C, X, E, M> Dialogue<C, X, E, M> {
     /// Creates a dialogue with `with`, no start nodes and no nodes.
     pub fn new(with: impl Into<String>) -> Self {
         Self {
@@ -48,6 +55,7 @@ impl<C, X, E> Dialogue<C, X, E> {
             with: with.into(),
             start: Vec::new(),
             nodes: Vec::new(),
+            notes: Vec::new(),
         }
     }
 
@@ -64,13 +72,19 @@ impl<C, X, E> Dialogue<C, X, E> {
     }
 
     /// Adds a node and returns the dialogue.
-    pub fn with_node(mut self, node: Node<C, X, E>) -> Self {
+    pub fn with_node(mut self, node: Node<C, X, E, M>) -> Self {
         self.nodes.push(node);
         self
     }
 
+    /// Adds an author note and returns the dialogue.
+    pub fn with_note(mut self, note: M) -> Self {
+        self.notes.push(note);
+        self
+    }
+
     /// Returns the node with the given key.
-    pub fn node(&self, key: &str) -> Option<&Node<C, X, E>> {
+    pub fn node(&self, key: &str) -> Option<&Node<C, X, E, M>> {
         self.nodes.iter().find(|n| n.key == key)
     }
 }
@@ -78,7 +92,7 @@ impl<C, X, E> Dialogue<C, X, E> {
 /// One line of a character, the lines after it, and the player's choices.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub struct Node<C = String, X = Text, E = Effect> {
+pub struct Node<C = String, X = Text, E = Effect, M = String> {
     /// The key of the node. It is unique in the dialogue. `end` and `back`
     /// are reserved.
     pub key: String,
@@ -97,10 +111,12 @@ pub struct Node<C = String, X = Text, E = Effect> {
     /// What changes when the talk enters the node.
     pub outcomes: Outcomes<E>,
     /// The player's choices.
-    pub options: Vec<Choice<C, X, E>>,
+    pub options: Vec<Choice<C, X, E, M>>,
+    /// Author notes. The lowering ignores them.
+    pub notes: Vec<M>,
 }
 
-impl<C, X, E> Node<C, X, E> {
+impl<C, X, E, M> Node<C, X, E, M> {
     /// Creates a node with the given key and line, and nothing else.
     pub fn new(key: impl Into<String>, say: X) -> Self {
         Self {
@@ -112,6 +128,7 @@ impl<C, X, E> Node<C, X, E> {
             next: None,
             outcomes: Outcomes::default(),
             options: Vec::new(),
+            notes: Vec::new(),
         }
     }
 
@@ -145,8 +162,14 @@ impl<C, X, E> Node<C, X, E> {
         self
     }
 
+    /// Adds an author note and returns the node.
+    pub fn with_note(mut self, note: M) -> Self {
+        self.notes.push(note);
+        self
+    }
+
     /// Adds a choice and returns the node.
-    pub fn with_option(mut self, option: Choice<C, X, E>) -> Self {
+    pub fn with_option(mut self, option: Choice<C, X, E, M>) -> Self {
         self.options.push(option);
         self
     }
@@ -175,7 +198,7 @@ impl<X> Line<X> {
 /// A choice of the player: a dialogue option.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub struct Choice<C = String, X = Text, E = Effect> {
+pub struct Choice<C = String, X = Text, E = Effect, M = String> {
     /// An optional key. Without it, the key is `<node>#<index>`.
     pub id: Option<String>,
     /// The player's line, also the label of the choice. Can be empty only
@@ -194,9 +217,11 @@ pub struct Choice<C = String, X = Text, E = Effect> {
     pub intentions: Intentions,
     /// A navigation hint (`DialogueOption::navigation_hint`).
     pub hint: Option<Hint>,
+    /// Author notes. The lowering ignores them.
+    pub notes: Vec<M>,
 }
 
-impl<C, X, E> Choice<C, X, E> {
+impl<C, X, E, M> Choice<C, X, E, M> {
     /// Creates a choice with the given line and target.
     pub fn new(say: X, go: Target) -> Self {
         Self {
@@ -208,6 +233,7 @@ impl<C, X, E> Choice<C, X, E> {
             tags: Vec::new(),
             intentions: Intentions::default(),
             hint: None,
+            notes: Vec::new(),
         }
     }
 
@@ -222,6 +248,7 @@ impl<C, X, E> Choice<C, X, E> {
             tags: Vec::new(),
             intentions: Intentions::default(),
             hint: Some(hint),
+            notes: Vec::new(),
         }
     }
 
@@ -246,6 +273,12 @@ impl<C, X, E> Choice<C, X, E> {
     /// Adds a tag and returns the choice.
     pub fn with_tag(mut self, tag: Tag) -> Self {
         self.tags.push(tag);
+        self
+    }
+
+    /// Adds an author note and returns the choice.
+    pub fn with_note(mut self, note: M) -> Self {
+        self.notes.push(note);
         self
     }
 

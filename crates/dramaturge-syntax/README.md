@@ -58,14 +58,17 @@ nodes:
 | `remember` | node, option | Memories that the node's speaker keeps |
 | `then` | node, option | Host effects. Plain dramaturge: `relation` and `custom` |
 | `id`, `tags`, `intentions`, `hint` | option | Option key, tags, intentions, navigation hint |
+| `notes` | dialogue, node, option | Author notes (a list of `M`, default strings). Not in the graph |
 
 The key `player` is the player (`SymbolTable::player`).
 
 ## Payloads and hooks
 
-`Dialogue<C, X, E>` is generic over the condition (`C`), text (`X`) and effect
-(`E`) payloads of the host. The parsers read them as they are. The host's
-`Lower` implementation turns them into model values:
+`Dialogue<C, X, E, M>` is generic over the condition (`C`), text (`X`),
+effect (`E`) and note (`M`) payloads of the host. The parsers read them as
+they are. The host's `Lower` implementation turns the first three into model
+values; the lowering ignores notes, so a host keeps its own note type (for
+example loremaster's `Note`) without a hook:
 
 | Hook | Default |
 |---|---|

@@ -41,12 +41,13 @@
 //! Node and option outcomes: `set` (facts), `add` (integer facts),
 //! `relation` (player to the node's speaker), `remember` (memories of the
 //! node's speaker) and `then` (host effects). Options also have `id`,
-//! `tags`, `intentions` and `hint`.
+//! `tags`, `intentions` and `hint`. The dialogue, nodes and options can
+//! have author `notes`; the lowering ignores them.
 //!
 //! # Payloads and hooks
 //!
-//! The AST is generic over the host's condition (`C`), text (`X`) and
-//! effect (`E`) payloads. The parsers read them as they are; the
+//! The AST is generic over the host's condition (`C`), text (`X`),
+//! effect (`E`) and note (`M`, default `String`) payloads. The parsers read them as they are; the
 //! [`Lower`] hooks of the host turn them into model values. The defaults
 //! are for plain dramaturge: `C = String` in the
 //! [default condition language](condition), `X = `[`Text`] and
@@ -97,4 +98,4 @@ pub use check::{Issue, IssueKind, OutcomePlace, Place, Severity, check};
 pub use condition::ParseError;
 pub use lower::{Cx, Loaded, Lower, LowerError, LowerResult, Lowered, Plain, lower, lower_plain};
 #[cfg(feature = "syn")]
-pub use tokens::{ParseHost, Spanned, parse_dialogue};
+pub use tokens::{ParseHost, Parsed, Spanned, parse_dialogue};
