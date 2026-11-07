@@ -264,6 +264,12 @@ with this core.
   share one first time, and `first_time` means "first visit" as today.
 - `TextProgress` and its DTO (`dramaturge-serde`) store the progress. No new
   save field is necessary for users of dramaturge alone.
+- The resolution counts stay in the `owners` map of `TextProgress`. The
+  key is the caller alone when the pool id is the caller (an inline text:
+  `resolve_text` passes the owner as both). Otherwise the key is
+  `{pool id}@{caller}`. The validator rejects `@` in pool ids, so the keys
+  cannot clash. Old counts are keyed by the bare owner, so they load for
+  inline texts. Named pools are new and have no old counts.
 - `ProgressStore` uses its own method names (`fragment_progress`,
   `set_fragment_progress`). Thus the inherent `TextProgress::fragment` and
   `set_fragment` do not shadow the trait methods. The impl for
