@@ -42,7 +42,7 @@
 //! nested `Custom` conditions reach the handler.
 
 use crate::alignment::{AlignmentAxisId, AlignmentPoleId};
-use crate::character::EntityId;
+use crate::character::{CharacterId, EntityId};
 use crate::fact::{FactId, FactScope, FactValue};
 use crate::memory::MemoryQuery;
 use crate::relationship::RelationshipAxisId;
@@ -154,6 +154,13 @@ pub enum Condition {
         /// The tag to check availability for.
         tag: DialogTagKind,
     },
+    /// True when the perceiver of a text is this character.
+    ///
+    /// Only a text selection has a perceiver (the actor who sees or hears
+    /// the text): `dramaturge_runtime::text::DefaultJudge` answers it from
+    /// the query. A `ConditionEvaluator` alone has no perceiver, so the
+    /// default evaluator returns `false`.
+    SeenBy(CharacterId),
     /// User-defined custom condition with arbitrary key and arguments.
     /// The default evaluator hands it to its `CustomHandler` (`false` by default).
     Custom {

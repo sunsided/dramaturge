@@ -41,6 +41,22 @@
 //! 10. **Unkeyed progress fragments** — `Once`/`Cycle`/`Sticky` fragments without a key, whose progress resets when a fragment is inserted before them
 //!     ([`UnkeyedProgress`](ValidationIssueKind::UnkeyedProgress))
 //!
+//! # Text pools
+//!
+//! [`GraphValidator::validate_pools`] checks text pools
+//! ([`Pool`](dramaturge_model::Pool)):
+//!
+//! 1. **Ties** — two candidates of a `best` pool with the same score that
+//!    can match the same query ([`PickTie`](ValidationIssueKind::PickTie))
+//! 2. **Unkeyed progress** — `once`, `cycle`, `shuffle` and `sticky`
+//!    candidates without a key
+//!    ([`UnkeyedProgress`](ValidationIssueKind::UnkeyedProgress))
+//! 3. **Unknown pools** — a variant names a pool that is not in the pools
+//!    ([`UnknownPool`](ValidationIssueKind::UnknownPool))
+//!
+//! The static check does not report a candidate that can never show: that
+//! needs the explored states.
+//!
 //! # Filtering
 //!
 //! Filter issues by [`ValidationIssue::kind`], not by message text: the
@@ -94,6 +110,8 @@ use dramaturge_model::{
 };
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
+mod pools;
+
 /// What a [`ValidationIssue`] is about. One kind per check, or more for a
 /// check that finds different problems.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -136,6 +154,13 @@ pub enum ValidationIssueKind {
     /// not follow `Return` targets (they depend on the return stack).
     /// `DialogueRuntime::advance` stops such loops at its limit.
     NextLoop,
+    /// Two candidates of a `Pick::Best` text pool have the same score and
+    /// can match the same query: the first in file order always wins the
+    /// tie. Add a test to one of them, or change the order. (Warning)
+    PickTie,
+    /// A text pool names a pool (`Entry::Named`) that is not in the
+    /// pools. (Error)
+    UnknownPool,
 }
 
 /// Switches for [`GraphValidator`]: which kinds of issues to report.
@@ -214,6 +239,9 @@ pub struct ValidationIssue {
     pub node_id: Option<DialogueNodeId>,
     /// Optional option ID where the issue was detected.
     pub option_id: Option<DialogueOptionId>,
+    /// Optional path in a text pool where the issue was detected, for
+    /// example `keeper_remark/2` (pool id, then candidate key or index).
+    pub path: Option<String>,
 }
 
 impl ValidationIssue {
@@ -229,7 +257,14 @@ impl ValidationIssue {
             message: message.into(),
             node_id: None,
             option_id: None,
+            path: None,
         }
+    }
+
+    /// Builder method — attaches a text pool path to the issue.
+    pub fn with_path(mut self, path: impl Into<String>) -> Self {
+        self.path = Some(path.into());
+        self
     }
 
     /// Builder method — attaches a node ID to the issue.

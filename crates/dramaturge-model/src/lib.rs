@@ -48,6 +48,15 @@
 //! that only the host knows. The type parameter `T` on [`DialogText`] and
 //! the graph types sets the host text type; the default is `()`.
 //!
+//! ## Text pools
+//!
+//! A [`Pool`] is an ordered list of [`Candidate`]s and a [`Pick`] rule
+//! (`all`, `first` or `best`). It is the data of the text selection core:
+//! `one_of` groups, named pools that rules and dialogue call by id, and
+//! replies by speaker and topic. The pool types are generic over the host
+//! types in [`TextTypes`]; [`DialogTypes`] are those of plain dramaturge.
+//! The selection is in `dramaturge_runtime::text`.
+//!
 //! ## Conditions
 //!
 //! [`Condition`] is a composable boolean expression tree evaluated against world
@@ -106,6 +115,7 @@ pub mod fact;
 pub mod intent;
 pub mod memory;
 pub mod outcome;
+pub mod pool;
 pub mod relationship;
 pub mod symbol;
 pub mod tag;
@@ -133,6 +143,8 @@ pub use intent::{DialogIntentions, Intention};
 pub use memory::{Confidence, Memory, MemoryId, MemoryQuery, MemoryTag};
 // Re-exports: outcomes
 pub use outcome::Outcome;
+// Re-exports: text pools
+pub use pool::{Candidate, DialogTypes, Entry, Pick, Pool, Pools, Specificity, TextTypes};
 // Re-exports: relationships
 pub use relationship::{RelationshipAxis, RelationshipAxisId, RelationshipScore};
 // Re-exports: symbol tables

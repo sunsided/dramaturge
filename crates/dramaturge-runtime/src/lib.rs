@@ -11,7 +11,8 @@
 //! - [`evaluation`] — [`ConditionEvaluator`] and [`OutcomeApplier`] traits with defaults
 //! - [`runtime`] — [`DialogueRuntime`] trait and [`DefaultRuntime`] implementation
 //! - [`state`] — [`NarrativeState`], the state abstraction evaluators work against
-//! - [`text`] — [`resolve_text`] for state-dependent fragment text
+//! - [`text`] — the text selection core ([`select`](fn@select), [`commit`], the
+//!   [`Trace`]) and [`resolve_text`] for state-dependent fragment text
 //!
 //! # Evaluation Model
 //!
@@ -123,5 +124,7 @@ pub use runtime::{
 };
 pub use state::{HasDialogWorldState, NarrativeState};
 pub use text::{
-    FragmentProgress, ResolvedPiece, ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text,
+    Count, CountKey, DefaultJudge, FragmentProgress, Judge, ProgressStore, Query, ResolvedPiece,
+    ResolvedText, Selection, Shown, SplitMix64, Step, TextProgress, TextRng, Trace, TraceRow,
+    Verdict, commit, resolve_text, select, select_named, world_learner,
 };

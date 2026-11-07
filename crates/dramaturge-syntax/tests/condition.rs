@@ -123,3 +123,19 @@ fn strict_comparisons_at_the_bounds_never_hold() {
     check!(lower(&format!("relation(trust) > {}", i32::MAX)).0 == Condition::Never);
     check!(lower(&format!("relation(trust) < {}", i32::MIN)).0 == Condition::Never);
 }
+
+#[test]
+fn seen_by_names_the_perceiver() {
+    let (c, mut symbols) = lower("seen_by(player) and stove.hot");
+    let player = dramaturge_model::CharacterId::new(symbols.player());
+    check!(
+        c == Condition::All(vec![
+            Condition::SeenBy(player),
+            eq("stove.hot", FactValue::Bool(true)),
+        ])
+    );
+    let (c, symbols) = lower("seen_by(keeper)");
+    let keeper = symbols.entity("keeper").unwrap();
+    check!(c == Condition::SeenBy(dramaturge_model::CharacterId::new(keeper)));
+    check!(parse("seen_by(mara)").unwrap() == Expr::SeenBy("mara".into()));
+}

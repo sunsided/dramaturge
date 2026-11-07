@@ -44,6 +44,15 @@
 //! `tags`, `intentions` and `hint`. The dialogue, nodes and options can
 //! have author `notes`; the lowering ignores them.
 //!
+//! A line can say a named text pool: `say: { text: keeper_remark }`.
+//!
+//! # Text pools
+//!
+//! A [`TextPool`] (`id`, `pick`, `one_of`) is the AST of a text pool for
+//! the text selection core. [`lower_pool`] makes a
+//! `dramaturge_model::Pool` through the same [`Lower`] hooks. See
+//! [`shape`](crate#serde) for the YAML form.
+//!
 //! # Payloads and hooks
 //!
 //! The AST is generic over the host's condition (`C`), text (`X`),
@@ -91,11 +100,14 @@ pub mod shape;
 pub mod tokens;
 
 pub use ast::{
-    Choice, Dialogue, Effect, Fragment, FragmentMode, Hint, Intentions, Line, Node, Outcomes, Tag,
-    Target, Text, Value,
+    Candidate, Choice, Dialogue, Effect, Fragment, FragmentMode, Hint, Intentions, Line, Node,
+    Outcomes, Pick, Tag, Target, Text, TextPool, Value, Variant,
 };
 pub use check::{Issue, IssueKind, OutcomePlace, Place, Severity, check};
 pub use condition::ParseError;
-pub use lower::{Cx, Loaded, Lower, LowerError, LowerResult, Lowered, Plain, lower, lower_plain};
+pub use lower::{
+    Cx, Loaded, Lower, LowerError, LowerResult, Lowered, Plain, PoolResult, lower, lower_plain,
+    lower_pool, lower_pool_plain,
+};
 #[cfg(feature = "syn")]
 pub use tokens::{ParseHost, Parsed, Spanned, parse_dialogue};
