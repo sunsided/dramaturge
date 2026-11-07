@@ -56,7 +56,7 @@ list can hold a `one_of` group (the stove).
 
 1. Its tuple keys match the query (a missing key is `*` and matches all).
 2. Its mode allows it now (`once`: not shown yet; `first_time`: first
-   resolution of the pool by this caller).
+   resolution, see "Counts" in section 4).
 3. It has at least one variant.
 4. Its condition holds. The condition can test the perceiver (`seen_by`).
 
@@ -199,8 +199,10 @@ where
     X: TextTypes, J: Judge<X> + ?Sized, P: ProgressStore + ?Sized, R: TextRng + ?Sized;
 
 pub struct Selection<'p, X: TextTypes> {
-    pub pool: Arc<str>,
-    pub caller: Arc<str>,               // `commit` counts the resolution for it
+    pub caller: Arc<str>,
+    /// What `commit` counts: the root pool, and each named pool that was
+    /// resolved inside it (`Entry::Named`), once each.
+    pub counts: Vec<CountKey>,
     pub shown: Vec<Shown<'p, X>>,       // leaves in order, nested pools flattened
     pub trace: Trace,
 }
@@ -212,9 +214,13 @@ pub struct Shown<'p, X: TextTypes> {
     pub learn: &'p [X::Learn],
 }
 
-/// Records what showed (shown counts, last and sticky variants) and the
-/// resolution of `selection.pool` by `selection.caller`, then hands each
-/// `learn` item to `learner` with the perceiver.
+/// Owned form of `Count`: `Inline(owner)` or `Named(pool)`; the caller is
+/// `Selection::caller`.
+pub enum CountKey { Inline(Arc<str>), Named(Arc<str>) }
+
+/// Records what showed (shown counts, last and sticky variants) and one
+/// resolution for each entry of `selection.counts`, then hands each `learn`
+/// item to `learner` with the perceiver.
 pub fn commit<X, P, L>(selection: &Selection<'_, X>, query: &Query<X>, progress: &mut P, learner: &mut L)
 where
     X: TextTypes, P: ProgressStore + ?Sized, L: FnMut(&X::Learn, Option<&X::Actor>);
@@ -271,6 +277,11 @@ with this core.
   rule or a dialogue line. Thus a rule and a dialogue node in one room
   share one first time, and `first_time` means "first visit" as today.
 - `TextProgress` and its DTO (`dramaturge-serde`) store the progress.
+- Counts. `first_time` asks for the first resolution. An inline pool
+  nested in another pool (`Entry::Pool`) has no count of its own: it uses
+  the count of its root, as nested fragments do in `resolve_text` today.
+  A named pool resolved inside a selection (`Entry::Named`) has its own
+  count, and `Selection::counts` lists it, so `commit` counts it.
 - The kind of pool decides where its resolutions count, not a string
   compare. `Pool::named` is true for a pool in `Pools`.
   `Count::Inline { owner }` counts in the `owners` map, keyed by the owner,
