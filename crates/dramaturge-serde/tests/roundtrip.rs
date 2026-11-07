@@ -486,6 +486,10 @@ fn dialogue_graph_reads_the_old_entry_node_field() {
     let newer: DialogueGraphDto =
         serde_json::from_str(r#"{"nodes":[],"entry_node":7,"entry_nodes":[5]}"#).unwrap();
     check!(newer.entry_nodes == vec![5]);
+    // An explicit empty list also wins over the old field.
+    let empty: DialogueGraphDto =
+        serde_json::from_str(r#"{"nodes":[],"entry_node":7,"entry_nodes":[]}"#).unwrap();
+    check!(empty.entry_nodes.is_empty());
 
     let none: DialogueGraphDto = serde_json::from_str(r#"{"nodes":[]}"#).unwrap();
     check!(none.entry_nodes.is_empty());
