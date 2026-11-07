@@ -472,7 +472,7 @@ impl GraphValidator {
 
     /// Detects fact IDs referenced in conditions but never set by any outcome.
     /// Collects fact IDs from conditions only (not outcomes), then flags those
-    /// never set by any `SetFact`, `StartQuest`, or `AdvanceQuest` outcome.
+    /// never set by any `SetFact`, `AddFact`, `StartQuest`, or `AdvanceQuest` outcome.
     fn check_orphaned_fact_references(
         &self,
         graph: &DialogueGraph,
@@ -553,6 +553,9 @@ impl GraphValidator {
                     dramaturge_model::Outcome::SetFact { fact, .. } => {
                         used_fact_ids.insert(fact.id.0.to_string());
                     }
+                    dramaturge_model::Outcome::AddFact { fact_id, .. } => {
+                        used_fact_ids.insert(fact_id.0.to_string());
+                    }
                     dramaturge_model::Outcome::StartQuest { quest_id } => {
                         used_fact_ids.insert(format!("quest_started_{quest_id}"));
                     }
@@ -567,6 +570,9 @@ impl GraphValidator {
                     match outcome {
                         dramaturge_model::Outcome::SetFact { fact, .. } => {
                             used_fact_ids.insert(fact.id.0.to_string());
+                        }
+                        dramaturge_model::Outcome::AddFact { fact_id, .. } => {
+                            used_fact_ids.insert(fact_id.0.to_string());
                         }
                         dramaturge_model::Outcome::StartQuest { quest_id } => {
                             used_fact_ids.insert(format!("quest_started_{quest_id}"));
@@ -1117,6 +1123,32 @@ mod tests {
             orphaned
                 .iter()
                 .any(|i| i.message.contains("never_mentioned"))
+        );
+    }
+
+    #[test]
+    fn add_fact_counts_as_writer() {
+        let mut option = make_option(1, DialogTarget::End, DialogueNodeId::new(1));
+        option.conditions = vec![Condition::FactAtLeast {
+            scope: FactScope::World,
+            fact_id: FactId::new("visits"),
+            value: 2,
+        }];
+        let mut node = make_node(1, vec![option]);
+        node.outcomes_on_enter = vec![Outcome::AddFact {
+            scope: FactScope::World,
+            fact_id: FactId::new("visits"),
+            delta: 1,
+        }];
+        let graph = DialogueGraph {
+            nodes: vec![node],
+            entry_node: Some(DialogueNodeId::new(1)),
+        };
+        let issues = GraphValidator::new().validate(&graph);
+        check!(
+            !issues
+                .iter()
+                .any(|i| i.message.contains("never set by any outcome"))
         );
     }
 

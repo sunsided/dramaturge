@@ -506,6 +506,17 @@ pub enum YamlOutcome {
         /// Fact value.
         value: YamlValue,
     },
+    /// Add to an integer fact. A missing fact starts at 0.
+    #[serde(rename = "add_fact")]
+    AddFact {
+        /// Fact scope.
+        #[serde(default = "default_fact_scope")]
+        scope: String,
+        /// Fact ID.
+        fact: String,
+        /// Amount to add (positive or negative).
+        delta: i64,
+    },
     /// Add to a relationship.
     #[serde(rename = "add_relationship")]
     AddRelationship {
@@ -800,6 +811,11 @@ impl YamlOutcome {
                     fact: Fact::new(fact.as_str(), fact_value),
                 })
             }
+            YamlOutcome::AddFact { scope, fact, delta } => Ok(Outcome::AddFact {
+                scope: parse_fact_scope(scope)?,
+                fact_id: FactId::new(fact.as_str()),
+                delta: *delta,
+            }),
             YamlOutcome::AddRelationship {
                 source,
                 target,
@@ -1181,6 +1197,48 @@ nodes:
         check!(target == loaded.graph.nodes[1].id);
         check!(loaded.symbols.node_key(target) == Some("2"));
         check!(loaded.warnings.is_empty());
+    }
+
+    #[test]
+    fn test_add_fact_outcome() {
+        let yaml = r#"
+version: "2.0"
+entry_node: intro
+characters:
+  mara: { name: "Mara Vey" }
+nodes:
+  - id: intro
+    speaker: mara
+    text: "Hello."
+    outcomes:
+      - { type: add_fact, fact: visits, delta: 1 }
+    options:
+      - id: intro.pay
+        outcomes:
+          - { type: add_fact, scope: player, fact: gold, delta: -5 }
+        target: end
+"#;
+        let loaded = YamlDialogueGraph::from_yaml(yaml)
+            .unwrap()
+            .to_model()
+            .unwrap();
+        let node = &loaded.graph.nodes[0];
+        check!(
+            node.outcomes_on_enter[0]
+                == model::Outcome::AddFact {
+                    scope: model::FactScope::World,
+                    fact_id: model::FactId::new("visits"),
+                    delta: 1,
+                }
+        );
+        check!(
+            node.options[0].outcomes[0]
+                == model::Outcome::AddFact {
+                    scope: model::FactScope::Player,
+                    fact_id: model::FactId::new("gold"),
+                    delta: -5,
+                }
+        );
     }
 
     #[test]

@@ -212,6 +212,11 @@ fn outcome() -> impl Strategy<Value = Outcome> {
             scope,
             fact_id: FactId::new(f),
         }),
+        (fact_scope(), key(), any::<i64>()).prop_map(|(scope, f, delta)| Outcome::AddFact {
+            scope,
+            fact_id: FactId::new(f),
+            delta,
+        }),
         (key(), key(), any::<i32>()).prop_map(|(a, p, delta)| Outcome::AddAlignment {
             axis: AlignmentAxisId::new(a),
             pole: AlignmentPoleId::new(p),

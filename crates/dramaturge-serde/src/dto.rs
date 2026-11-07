@@ -1274,6 +1274,11 @@ pub enum OutcomeDto {
         scope: FactScopeDto,
         fact_id: String,
     },
+    AddFact {
+        scope: FactScopeDto,
+        fact_id: String,
+        delta: i64,
+    },
     AddAlignment {
         axis: String,
         pole: String,
@@ -1321,6 +1326,15 @@ impl From<&model::Outcome> for OutcomeDto {
             O::RemoveFact { scope, fact_id } => Self::RemoveFact {
                 scope: scope.into(),
                 fact_id: fact_id.0.to_string(),
+            },
+            O::AddFact {
+                scope,
+                fact_id,
+                delta,
+            } => Self::AddFact {
+                scope: scope.into(),
+                fact_id: fact_id.0.to_string(),
+                delta: *delta,
             },
             O::AddAlignment { axis, pole, delta } => Self::AddAlignment {
                 axis: axis.0.to_string(),
@@ -1375,6 +1389,15 @@ impl IntoModel for OutcomeDto {
             Self::RemoveFact { scope, fact_id } => O::RemoveFact {
                 scope: scope.into_model_with(ids),
                 fact_id: model::FactId::new(fact_id),
+            },
+            Self::AddFact {
+                scope,
+                fact_id,
+                delta,
+            } => O::AddFact {
+                scope: scope.into_model_with(ids),
+                fact_id: model::FactId::new(fact_id),
+                delta,
             },
             Self::AddAlignment { axis, pole, delta } => O::AddAlignment {
                 axis: model::AlignmentAxisId::new(axis),

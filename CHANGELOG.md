@@ -12,6 +12,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   `From<Arc<str>>` for `FactId` (#66).
 - `MemoryQuery` builder methods: `with_tag`, `with_min_confidence`,
   `with_min_emotional_weight`, `with_subject` and `with_fact` (#66).
+- `Outcome::AddFact { scope, fact_id, delta }` adds to an integer fact. The
+  default applier starts a missing fact at 0, leaves a non-integer fact
+  unchanged, saturates at the `i64` limits and emits `FactLearned`. YAML:
+  `{ type: add_fact, fact: gold, delta: -5 }` (optional `scope`). The
+  validator counts `AddFact` as a writer of the fact, and
+  `OutcomeDto::AddFact` serializes it (#70).
 
 ### Changed
 
