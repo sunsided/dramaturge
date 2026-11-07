@@ -29,6 +29,14 @@
 //!         target: end
 //! ```
 //!
+//! # Host outcomes
+//!
+//! The YAML format has no host outcomes
+//! ([`Outcome::Host`](model::Outcome::Host)): the loader returns a
+//! `DialogueGraph<()>`. A host that builds its graphs itself sets its own
+//! outcome type; a host that loads YAML and adds host outcomes later
+//! converts the graph with [`DialogueGraph::map_host`](model::DialogueGraph::map_host).
+//!
 //! Numeric ids from the 1.0 format (`id: 2`, `source: 1`, character `id:`)
 //! were deprecated in 0.2 and are an error since 0.3 (ADR 0001). A number
 //! in quotes (`target: "2"`) is a key and still loads.

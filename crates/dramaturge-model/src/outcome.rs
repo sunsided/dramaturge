@@ -4,6 +4,38 @@
 //! a dialogue option is chosen or a node is entered. They cover fact
 //! manipulation, alignment and relationship adjustments, memory creation,
 //! event emission, quest management, and custom extension points.
+//!
+//! # Host outcomes
+//!
+//! [`Outcome`] has a type parameter `H` for typed host outcomes, with the
+//! default `()`. A host puts its own effects in [`Outcome::Host`] instead
+//! of encoding them as [`Outcome::Custom`] keys:
+//!
+//! ```rust
+//! use dramaturge_model::{Outcome, FactScope, Fact};
+//!
+//! #[derive(Debug, Clone, PartialEq)]
+//! enum Effect {
+//!     Goto(&'static str),
+//! }
+//!
+//! let outcomes: Vec<Outcome<Effect>> = vec![
+//!     Outcome::SetFact { scope: FactScope::World, fact: Fact::bool("left", true) },
+//!     Outcome::Host(Effect::Goto("street")),
+//! ];
+//! assert!(matches!(outcomes[1], Outcome::Host(Effect::Goto("street"))));
+//! ```
+//!
+//! The graph types ([`DialogueGraph`](crate::DialogueGraph),
+//! [`DialogueNode`](crate::DialogueNode),
+//! [`DialogueOption`](crate::DialogueOption)) carry the same parameter. The
+//! runtime hands `Host` outcomes to a `HostHandler` (in
+//! `dramaturge-runtime`).
+//!
+//! Code that does not use host outcomes does not name `H`: `Outcome` is
+//! `Outcome<()>`. Where the compiler can not infer `H` from the context,
+//! for example `let o = Outcome::EmitEvent { .. };` alone, write the type:
+//! `let o: Outcome = ...`.
 
 use crate::alignment::{AlignmentAxisId, AlignmentPoleId};
 use crate::character::EntityId;
@@ -18,9 +50,12 @@ use crate::relationship::RelationshipAxisId;
 /// Outcomes are attached to [`DialogueOption`](crate::DialogueOption)
 /// (applied when the option is chosen) or to [`DialogueNode`](crate::DialogueNode)
 /// (applied when the node is entered).
+///
+/// `H` is the type of [host outcomes](Outcome::Host). The default `()`
+/// means "no host outcomes". See the [module documentation](self).
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub enum Outcome {
+pub enum Outcome<H = ()> {
     /// Sets or updates a scoped fact in the world state.
     SetFact {
         /// The scope in which to apply the fact.
@@ -102,13 +137,71 @@ pub enum Outcome {
         stage: String,
     },
     /// User-defined custom outcome with arbitrary key and arguments.
-    /// Currently a no-op in the default outcome applier.
+    ///
+    /// The default outcome applier hands it to its `CustomHandler`. For
+    /// typed host data, use [`Outcome::Host`].
     Custom {
         /// Custom outcome identifier.
         key: String,
         /// Arbitrary fact value arguments for the outcome.
         args: Vec<FactValue>,
     },
+    /// A typed host outcome.
+    ///
+    /// dramaturge does not look into the value. The default outcome
+    /// applier hands it to its `HostHandler`. The validator does not know
+    /// what it changes (for example, it does not count it as a writer of
+    /// a fact).
+    Host(H),
+}
+
+impl<H> Outcome<H> {
+    /// Returns the host outcome, if this is [`Outcome::Host`].
+    pub fn as_host(&self) -> Option<&H> {
+        match self {
+            Self::Host(host) => Some(host),
+            _ => None,
+        }
+    }
+
+    /// Converts the host outcome with `f` and keeps every other variant.
+    ///
+    /// Use it to move outcomes between host types, for example from
+    /// `Outcome<()>` (a graph loaded from YAML) to `Outcome<Effect>`.
+    pub fn map_host<G>(self, f: impl FnOnce(H) -> G) -> Outcome<G> {
+        match self {
+            Self::SetFact { scope, fact } => Outcome::SetFact { scope, fact },
+            Self::RemoveFact { scope, fact_id } => Outcome::RemoveFact { scope, fact_id },
+            Self::AddFact {
+                scope,
+                fact_id,
+                delta,
+            } => Outcome::AddFact {
+                scope,
+                fact_id,
+                delta,
+            },
+            Self::AddAlignment { axis, pole, delta } => Outcome::AddAlignment { axis, pole, delta },
+            Self::AddRelationship {
+                source,
+                target,
+                axis,
+                delta,
+            } => Outcome::AddRelationship {
+                source,
+                target,
+                axis,
+                delta,
+            },
+            Self::AddMemory { owner, memory } => Outcome::AddMemory { owner, memory },
+            Self::RemoveMemory { owner, memory_id } => Outcome::RemoveMemory { owner, memory_id },
+            Self::EmitEvent { kind } => Outcome::EmitEvent { kind },
+            Self::StartQuest { quest_id } => Outcome::StartQuest { quest_id },
+            Self::AdvanceQuest { quest_id, stage } => Outcome::AdvanceQuest { quest_id, stage },
+            Self::Custom { key, args } => Outcome::Custom { key, args },
+            Self::Host(host) => Outcome::Host(f(host)),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -120,7 +213,7 @@ mod tests {
     #[test]
     fn outcome_set_fact() {
         let fact = Fact::bool("met_hero", true);
-        let o = Outcome::SetFact {
+        let o: Outcome = Outcome::SetFact {
             scope: FactScope::World,
             fact,
         };
@@ -129,7 +222,7 @@ mod tests {
 
     #[test]
     fn outcome_remove_fact() {
-        let o = Outcome::RemoveFact {
+        let o: Outcome = Outcome::RemoveFact {
             scope: FactScope::World,
             fact_id: FactId::new("met_hero"),
         };
@@ -138,7 +231,7 @@ mod tests {
 
     #[test]
     fn outcome_add_fact() {
-        let o = Outcome::AddFact {
+        let o: Outcome = Outcome::AddFact {
             scope: FactScope::World,
             fact_id: FactId::new("gold"),
             delta: -3,
@@ -148,7 +241,7 @@ mod tests {
 
     #[test]
     fn outcome_add_alignment() {
-        let o = Outcome::AddAlignment {
+        let o: Outcome = Outcome::AddAlignment {
             axis: AlignmentAxisId::new("moral"),
             pole: AlignmentPoleId::new("paragon"),
             delta: 10,
@@ -159,7 +252,7 @@ mod tests {
     #[test]
     fn outcome_add_memory() {
         let memory = Memory::new(MemoryId::new(1)).with_tag(MemoryTag::HelpedMe);
-        let o = Outcome::AddMemory {
+        let o: Outcome = Outcome::AddMemory {
             owner: EntityId::new(1),
             memory,
         };
@@ -168,7 +261,7 @@ mod tests {
 
     #[test]
     fn outcome_remove_memory() {
-        let o = Outcome::RemoveMemory {
+        let o: Outcome = Outcome::RemoveMemory {
             owner: EntityId::new(1),
             memory_id: MemoryId::new(42),
         };
@@ -177,7 +270,7 @@ mod tests {
 
     #[test]
     fn outcome_add_relationship() {
-        let o = Outcome::AddRelationship {
+        let o: Outcome = Outcome::AddRelationship {
             source: EntityId::new(1),
             target: EntityId::new(2),
             axis: RelationshipAxisId::new("trust"),
@@ -192,13 +285,13 @@ mod tests {
         let kind = EventKind::Custom {
             kind: Arc::from("test"),
         };
-        let o = Outcome::EmitEvent { kind };
+        let o: Outcome = Outcome::EmitEvent { kind };
         check!(let Outcome::EmitEvent { .. } = o);
     }
 
     #[test]
     fn outcome_start_quest() {
-        let o = Outcome::StartQuest {
+        let o: Outcome = Outcome::StartQuest {
             quest_id: "main_quest".to_string(),
         };
         check!(let Outcome::StartQuest { .. } = o);
@@ -206,7 +299,7 @@ mod tests {
 
     #[test]
     fn outcome_advance_quest() {
-        let o = Outcome::AdvanceQuest {
+        let o: Outcome = Outcome::AdvanceQuest {
             quest_id: "main_quest".to_string(),
             stage: "complete".to_string(),
         };
@@ -215,10 +308,43 @@ mod tests {
 
     #[test]
     fn outcome_custom() {
-        let o = Outcome::Custom {
+        let o: Outcome = Outcome::Custom {
             key: "custom_outcome".to_string(),
             args: vec![],
         };
         check!(let Outcome::Custom { .. } = o);
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    enum Effect {
+        Goto(&'static str),
+    }
+
+    #[test]
+    fn outcome_host() {
+        let o = Outcome::Host(Effect::Goto("street"));
+        check!(o.as_host() == Some(&Effect::Goto("street")));
+        let unit: Outcome = Outcome::Host(());
+        check!(unit.as_host() == Some(&()));
+        let custom: Outcome<Effect> = Outcome::Custom {
+            key: "k".into(),
+            args: vec![],
+        };
+        check!(custom.as_host().is_none());
+    }
+
+    #[test]
+    fn outcome_map_host() {
+        let o = Outcome::Host(Effect::Goto("street"));
+        let mapped = o.map_host(|Effect::Goto(room)| room.len());
+        check!(mapped == Outcome::Host(6));
+
+        let plain: Outcome = Outcome::AddFact {
+            scope: FactScope::World,
+            fact_id: FactId::new("gold"),
+            delta: 2,
+        };
+        let typed: Outcome<Effect> = plain.clone().map_host(|()| Effect::Goto("never"));
+        check!(let Outcome::AddFact { delta: 2, .. } = typed);
     }
 }
