@@ -17,8 +17,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   `HostHandler<(), S>` as a no-op (#72).
 - `DialogueGraph::typed`, `DialogueNode::typed` and `DialogueOption::typed`
   create graph types for a host outcome type `H` (#72).
-- `OutcomeDto::Host(H)` (JSON `{"host": ...}`); the graph DTOs carry `H`
-  and serialize when `H` does. The YAML format has no host outcomes (#72).
+- `OutcomeDto::Host(H)` (JSON `{"host": ...}`); the graph DTOs carry `H`.
+  The conversion from the model needs `H: Clone`, and the DTOs serialize
+  when `H` does. The `with` modules `dramaturge_serde::outcome` and
+  `dramaturge_serde::dialogue_graph` accept any such `H`. The YAML format
+  has no host outcomes (#72).
 - `dramaturge_runtime::select_entry(graph, evaluator, state)` and
   `DefaultRuntime::select_entry(graph, state)` return the first entry node
   whose `conditions` hold, or `None` (#71).
@@ -50,11 +53,13 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   and `DialogueOptionDto<H = ()>` follow. `GraphValidator::validate` and
   `validate_with_symbols` accept a graph with any `H`. What can break:
   an outcome literal whose type the compiler can not infer from the
-  context (`let o = Outcome::EmitEvent { .. };` with no later use that fixes
-  the type) needs `let o: Outcome = ...`; `DialogueGraph::new`, `Default`,
+  context (`let o = Outcome::EmitEvent { kind };` with no later use that
+  fixes the type) needs `let o: Outcome = ...`; `DialogueGraph::new`,
+  `impl Default for DialogueGraph` (only `DialogueGraph<()>`),
   `DialogueNode::new` and `DialogueOption::new` stay for `H = ()` only
   (use `typed` for another `H`); a `DefaultOutcomeApplier` handler must
-  implement `HostHandler<H, S>` for the `H` it applies (#72).
+  implement `HostHandler<H, S>` for the `H` it applies. Converting a typed
+  outcome or graph to its DTO needs `H: Clone` (#72).
 
 - **Breaking:** `DialogueGraph::entry_node: Option<DialogueNodeId>` is now
   `entry_nodes: Vec<DialogueNodeId>`, in priority order. Replace
