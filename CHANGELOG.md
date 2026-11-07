@@ -87,6 +87,22 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   (`- { speaker: player, text: "..." }`, text as a string or fragments) and
   `next` (a node key or `end`) (#74).
 - Example `exchange`: a scripted exchange that runs to a choice (#74).
+- New crate `dramaturge-syntax`: one dialogue AST (`Dialogue`, `Node`,
+  `Line`, `Choice`, `Target`, `Outcomes`) for YAML, JSON and Rust tokens.
+  It holds the start nodes (entry nodes), `lines` and `next`, and the
+  outcomes of nodes and options (`set`, `add`, `relation`, `remember`,
+  `then`). It is generic over the host's condition, text and effect
+  payloads: `Dialogue<C = String, X = Text, E = Effect>`. `check` reports
+  keys and targets as `Issue`s with a `Place` (`nodes.meet.options[1].go`).
+  `lower(dialogue, symbols, host)` makes a `DialogueGraph<H, T>` through the
+  `Lower` hooks of the host (`condition`, `text`, `effects`, and `set`,
+  `add`, `relation`, `remember`, `entity` with defaults). `Plain` and
+  `lower_plain` are the hooks of plain dramaturge, with a default condition
+  language (`gold >= 10`, `not met`, `remembers(mara, saw_it)`,
+  `relation(trust) >= 3`). The feature `serde` adds the YAML and JSON
+  shape; the feature `syn` adds the token form (`tokens::parse_dialogue`,
+  `ParseHost`, `Spanned`) for `dialogue!` and for `dialogue` blocks in a
+  host macro (#76).
 
 ### Changed
 
