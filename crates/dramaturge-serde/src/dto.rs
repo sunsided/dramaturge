@@ -1457,37 +1457,51 @@ impl<H> IntoModel for OutcomeDto<H> {
 // ---------------------------------------------------------------------------
 
 /// DTO for [`model::DialogText`].
+///
+/// `T` is the host text type of [`model::DialogText::Host`] (default `()`).
+/// The DTO stores the host text as it is: it serializes when `T` does
+/// (the variant `host`, JSON `{"host": ...}`), and [`IntoModel`] does not
+/// map ids inside it.
+///
+/// The conversion from `&model::DialogText<T>` clones the host text, so it
+/// needs `T: Clone`. The same holds for the fragment, option, node and
+/// graph DTOs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum DialogTextDto {
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub enum DialogTextDto<T = ()> {
     /// Inline text.
     Inline(String),
     /// Localization key.
     LocalizedKey(String),
     /// Fragment list.
-    Fragments(Vec<TextFragmentDto>),
+    Fragments(Vec<TextFragmentDto<T>>),
+    /// Host text, as it is.
+    Host(T),
 }
 
-impl From<&model::DialogText> for DialogTextDto {
-    fn from(t: &model::DialogText) -> Self {
-        use model::DialogText as T;
+impl<T: Clone> From<&model::DialogText<T>> for DialogTextDto<T> {
+    fn from(t: &model::DialogText<T>) -> Self {
+        use model::DialogText as D;
         match t {
-            T::Inline(s) => Self::Inline(s.clone()),
-            T::LocalizedKey(k) => Self::LocalizedKey(k.to_string()),
-            T::Fragments(fs) => Self::Fragments(dtos(fs)),
+            D::Inline(s) => Self::Inline(s.clone()),
+            D::LocalizedKey(k) => Self::LocalizedKey(k.to_string()),
+            D::Fragments(fs) => Self::Fragments(dtos(fs)),
+            D::Host(h) => Self::Host(h.clone()),
             _ => unknown_variant("DialogText"),
         }
     }
 }
 
-impl IntoModel for DialogTextDto {
-    type Model = model::DialogText;
-    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogText {
-        use model::DialogText as T;
+impl<T> IntoModel for DialogTextDto<T> {
+    type Model = model::DialogText<T>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogText<T> {
+        use model::DialogText as D;
         match self {
-            Self::Inline(s) => T::Inline(s),
-            Self::LocalizedKey(k) => T::LocalizedKey(arc(k)),
-            Self::Fragments(fs) => T::Fragments(fs.into_model_with(ids)),
+            Self::Inline(s) => D::Inline(s),
+            Self::LocalizedKey(k) => D::LocalizedKey(arc(k)),
+            Self::Fragments(fs) => D::Fragments(fs.into_model_with(ids)),
+            Self::Host(h) => D::Host(h),
         }
     }
 }
@@ -1533,14 +1547,16 @@ no_ids!(FragmentModeDto => model::FragmentMode, |d| {
     }
 });
 
-/// DTO for [`model::TextFragment`].
+/// DTO for [`model::TextFragment`]. `T` is the host text type (see
+/// [`DialogTextDto`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TextFragmentDto {
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub struct TextFragmentDto<T = ()> {
     /// Stable progress key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     /// Variants.
-    pub variants: Vec<DialogTextDto>,
+    pub variants: Vec<DialogTextDto<T>>,
     /// Condition.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<ConditionDto>,
@@ -1552,8 +1568,8 @@ pub struct TextFragmentDto {
     pub replaces: bool,
 }
 
-impl From<&model::TextFragment> for TextFragmentDto {
-    fn from(f: &model::TextFragment) -> Self {
+impl<T: Clone> From<&model::TextFragment<T>> for TextFragmentDto<T> {
+    fn from(f: &model::TextFragment<T>) -> Self {
         let model::TextFragment {
             key,
             variants,
@@ -1571,9 +1587,9 @@ impl From<&model::TextFragment> for TextFragmentDto {
     }
 }
 
-impl IntoModel for TextFragmentDto {
-    type Model = model::TextFragment;
-    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::TextFragment {
+impl<T> IntoModel for TextFragmentDto<T> {
+    type Model = model::TextFragment<T>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::TextFragment<T> {
         model::TextFragment {
             key: self.key.map(arc),
             variants: self.variants.into_model_with(ids),
@@ -1665,14 +1681,14 @@ no_ids!(NavigationHintDto => model::NavigationHint, |d| {
 });
 
 /// DTO for [`model::DialogueOption`]. `H` is the host outcome type (see
-/// [`OutcomeDto`]).
+/// [`OutcomeDto`]) and `T` the host text type (see [`DialogTextDto`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(bound(deserialize = "H: Deserialize<'de>"))]
-pub struct DialogueOptionDto<H = ()> {
+#[serde(bound(deserialize = "H: Deserialize<'de>, T: Deserialize<'de>"))]
+pub struct DialogueOptionDto<H = (), T = ()> {
     /// Option id (raw).
     pub id: u64,
     /// Option text.
-    pub text: DialogTextDto,
+    pub text: DialogTextDto<T>,
     /// Tags.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<DialogTagDto>,
@@ -1694,8 +1710,8 @@ pub struct DialogueOptionDto<H = ()> {
     pub navigation_hint: Option<NavigationHintDto>,
 }
 
-impl<H: Clone> From<&model::DialogueOption<H>> for DialogueOptionDto<H> {
-    fn from(o: &model::DialogueOption<H>) -> Self {
+impl<H: Clone, T: Clone> From<&model::DialogueOption<H, T>> for DialogueOptionDto<H, T> {
+    fn from(o: &model::DialogueOption<H, T>) -> Self {
         let model::DialogueOption {
             id,
             text,
@@ -1721,9 +1737,9 @@ impl<H: Clone> From<&model::DialogueOption<H>> for DialogueOptionDto<H> {
     }
 }
 
-impl<H> IntoModel for DialogueOptionDto<H> {
-    type Model = model::DialogueOption<H>;
-    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueOption<H> {
+impl<H, T> IntoModel for DialogueOptionDto<H, T> {
+    type Model = model::DialogueOption<H, T>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueOption<H, T> {
         model::DialogueOption {
             id: ids.option(self.id),
             text: self.text.into_model_with(ids),
@@ -1739,16 +1755,16 @@ impl<H> IntoModel for DialogueOptionDto<H> {
 }
 
 /// DTO for [`model::DialogueNode`]. `H` is the host outcome type (see
-/// [`OutcomeDto`]).
+/// [`OutcomeDto`]) and `T` the host text type (see [`DialogTextDto`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(bound(deserialize = "H: Deserialize<'de>"))]
-pub struct DialogueNodeDto<H = ()> {
+#[serde(bound(deserialize = "H: Deserialize<'de>, T: Deserialize<'de>"))]
+pub struct DialogueNodeDto<H = (), T = ()> {
     /// Node id (raw).
     pub id: u64,
     /// Speaker (raw entity id).
     pub speaker: u64,
     /// Spoken text.
-    pub text: DialogTextDto,
+    pub text: DialogTextDto<T>,
     /// Entry conditions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conditions: Vec<ConditionDto>,
@@ -1757,11 +1773,11 @@ pub struct DialogueNodeDto<H = ()> {
     pub outcomes_on_enter: Vec<OutcomeDto<H>>,
     /// Options.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub options: Vec<DialogueOptionDto<H>>,
+    pub options: Vec<DialogueOptionDto<H, T>>,
 }
 
-impl<H: Clone> From<&model::DialogueNode<H>> for DialogueNodeDto<H> {
-    fn from(n: &model::DialogueNode<H>) -> Self {
+impl<H: Clone, T: Clone> From<&model::DialogueNode<H, T>> for DialogueNodeDto<H, T> {
+    fn from(n: &model::DialogueNode<H, T>) -> Self {
         let model::DialogueNode {
             id,
             speaker,
@@ -1781,9 +1797,9 @@ impl<H: Clone> From<&model::DialogueNode<H>> for DialogueNodeDto<H> {
     }
 }
 
-impl<H> IntoModel for DialogueNodeDto<H> {
-    type Model = model::DialogueNode<H>;
-    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueNode<H> {
+impl<H, T> IntoModel for DialogueNodeDto<H, T> {
+    type Model = model::DialogueNode<H, T>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueNode<H, T> {
         model::DialogueNode {
             id: ids.node(self.id),
             speaker: model::CharacterId::new(ids.entity(self.speaker)),
@@ -1796,18 +1812,18 @@ impl<H> IntoModel for DialogueNodeDto<H> {
 }
 
 /// DTO for [`model::DialogueGraph`]. `H` is the host outcome type (see
-/// [`OutcomeDto`]).
+/// [`OutcomeDto`]) and `T` the host text type (see [`DialogTextDto`]).
 ///
 /// Reads the field `entry_node` (one raw id) of DTOs written before 0.3 as
 /// the first entry node.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
-    from = "DialogueGraphDtoRepr<H>",
-    bound(deserialize = "H: Deserialize<'de>")
+    from = "DialogueGraphDtoRepr<H, T>",
+    bound(deserialize = "H: Deserialize<'de>, T: Deserialize<'de>")
 )]
-pub struct DialogueGraphDto<H = ()> {
+pub struct DialogueGraphDto<H = (), T = ()> {
     /// Nodes.
-    pub nodes: Vec<DialogueNodeDto<H>>,
+    pub nodes: Vec<DialogueNodeDto<H, T>>,
     /// Entry nodes (raw ids), in priority order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub entry_nodes: Vec<u64>,
@@ -1816,9 +1832,9 @@ pub struct DialogueGraphDto<H = ()> {
 /// The serialized form of [`DialogueGraphDto`], with the old single
 /// `entry_node` field.
 #[derive(Deserialize)]
-#[serde(bound(deserialize = "H: Deserialize<'de>"))]
-struct DialogueGraphDtoRepr<H> {
-    nodes: Vec<DialogueNodeDto<H>>,
+#[serde(bound(deserialize = "H: Deserialize<'de>, T: Deserialize<'de>"))]
+struct DialogueGraphDtoRepr<H, T> {
+    nodes: Vec<DialogueNodeDto<H, T>>,
     /// `None` when the field is absent, so that an explicit empty list
     /// still wins over the old field.
     #[serde(default)]
@@ -1827,8 +1843,8 @@ struct DialogueGraphDtoRepr<H> {
     entry_node: Option<u64>,
 }
 
-impl<H> From<DialogueGraphDtoRepr<H>> for DialogueGraphDto<H> {
-    fn from(repr: DialogueGraphDtoRepr<H>) -> Self {
+impl<H, T> From<DialogueGraphDtoRepr<H, T>> for DialogueGraphDto<H, T> {
+    fn from(repr: DialogueGraphDtoRepr<H, T>) -> Self {
         // The old field counts only for an old DTO: when `entry_nodes` is
         // present (also as an empty list), it decides alone.
         let entry_nodes = match repr.entry_nodes {
@@ -1842,8 +1858,8 @@ impl<H> From<DialogueGraphDtoRepr<H>> for DialogueGraphDto<H> {
     }
 }
 
-impl<H: Clone> From<&model::DialogueGraph<H>> for DialogueGraphDto<H> {
-    fn from(g: &model::DialogueGraph<H>) -> Self {
+impl<H: Clone, T: Clone> From<&model::DialogueGraph<H, T>> for DialogueGraphDto<H, T> {
+    fn from(g: &model::DialogueGraph<H, T>) -> Self {
         let model::DialogueGraph { nodes, entry_nodes } = g;
         Self {
             nodes: dtos(nodes),
@@ -1852,9 +1868,9 @@ impl<H: Clone> From<&model::DialogueGraph<H>> for DialogueGraphDto<H> {
     }
 }
 
-impl<H> IntoModel for DialogueGraphDto<H> {
-    type Model = model::DialogueGraph<H>;
-    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueGraph<H> {
+impl<H, T> IntoModel for DialogueGraphDto<H, T> {
+    type Model = model::DialogueGraph<H, T>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueGraph<H, T> {
         model::DialogueGraph {
             nodes: self.nodes.into_model_with(ids),
             entry_nodes: self.entry_nodes.into_iter().map(|n| ids.node(n)).collect(),

@@ -5,6 +5,18 @@
 //! presents [`DialogueOption`]s that lead to other nodes or terminate
 //! the conversation. Nodes and options can have conditions and outcomes
 //! attached.
+//!
+//! # Type parameters
+//!
+//! The graph types have two type parameters. Both default to `()`, so
+//! `DialogueGraph` is the graph without host data.
+//!
+//! - `H` is the type of [host outcomes](Outcome::Host).
+//! - `T` is the type of [host text](DialogText::Host): text in a format
+//!   that only the host knows, for example its own markup.
+//!
+//! A host with its own outcomes and its own text uses
+//! `DialogueGraph<Effect, Markup>`.
 
 use crate::character::CharacterId;
 use crate::condition::Condition;
@@ -35,26 +47,58 @@ impl DialogueOptionId {
     }
 }
 
-/// Text content that can be inline, localized, or assembled from
-/// state-dependent fragments.
+/// Text content that can be inline, localized, assembled from
+/// state-dependent fragments, or host text.
+///
+/// `T` is the type of [host text](DialogText::Host) (default `()`). A
+/// host with its own text format (for example compiled markup) stores
+/// it as `DialogText::Host(markup)` and reads it back typed. Host text can
+/// also be a variant of a [`TextFragment`], so fragment selection works
+/// for host text too.
+///
+/// The constructors [`inline`](DialogText::inline),
+/// [`localized`](DialogText::localized) and
+/// [`fragments`](DialogText::fragments) make `DialogText<()>`. For another
+/// `T`, use the variants (`DialogText::Inline(..)`) or
+/// [`DialogText::host`].
+///
+/// ```rust
+/// use dramaturge_model::DialogText;
+///
+/// #[derive(Debug, Clone, PartialEq)]
+/// struct Markup(Vec<&'static str>);
+///
+/// let text = DialogText::host(Markup(vec!["Hello, ", "*traveller*"]));
+/// assert_eq!(text.as_host(), Some(&Markup(vec!["Hello, ", "*traveller*"])));
+///
+/// let plain: DialogText<Markup> = DialogText::Inline("Hi.".into());
+/// assert!(plain.as_host().is_none());
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
-pub enum DialogText {
+pub enum DialogText<T = ()> {
     /// Direct string text.
     Inline(String),
     /// Key into a localization table.
     LocalizedKey(Arc<str>),
     /// An ordered list of fragments, each with an optional condition and a
     /// display mode. Resolved at runtime by `dramaturge_runtime::resolve_text`.
-    Fragments(Vec<TextFragment>),
+    Fragments(Vec<TextFragment<T>>),
+    /// Text in a format that only the host knows.
+    ///
+    /// dramaturge does not look into host text. The validator does not
+    /// check it, and `dramaturge_runtime::resolve_text` returns it as it is.
+    Host(T),
 }
 
 /// One piece of a [`DialogText::Fragments`] list.
 ///
 /// A fragment contributes text only when its `condition` holds (or has no
 /// condition). Which of its `variants` it shows depends on its [`mode`](FragmentMode).
+///
+/// `T` is the type of [host text](DialogText::Host) (default `()`).
 #[derive(Debug, Clone, PartialEq)]
-pub struct TextFragment {
+pub struct TextFragment<T = ()> {
     /// Optional stable key, for progress tracking and editor links.
     ///
     /// Without a key, progress is tracked by the fragment's position, which
@@ -62,7 +106,7 @@ pub struct TextFragment {
     pub key: Option<Arc<str>>,
     /// The text to show: one entry for `Always`/`FirstTime`/`Once`, the
     /// alternatives for `Cycle`/`Shuffle`/`Sticky`.
-    pub variants: Vec<DialogText>,
+    pub variants: Vec<DialogText<T>>,
     /// Shown only if this holds.
     pub condition: Option<Condition>,
     /// How often and which variant to show.
@@ -71,14 +115,14 @@ pub struct TextFragment {
     pub replaces: bool,
 }
 
-impl TextFragment {
+impl<T> TextFragment<T> {
     /// A fragment that always shows `text`.
-    pub fn always(text: DialogText) -> Self {
+    pub fn always(text: DialogText<T>) -> Self {
         Self::with_mode(FragmentMode::Always, vec![text])
     }
 
     /// A fragment with the given mode and variants.
-    pub fn with_mode(mode: FragmentMode, variants: Vec<DialogText>) -> Self {
+    pub fn with_mode(mode: FragmentMode, variants: Vec<DialogText<T>>) -> Self {
         Self {
             key: None,
             variants,
@@ -104,6 +148,27 @@ impl TextFragment {
     pub fn replacing(mut self) -> Self {
         self.replaces = true;
         self
+    }
+
+    /// Converts the host text in the variants with `f`.
+    ///
+    /// See [`DialogText::map_text`].
+    pub fn map_text<U>(self, mut f: impl FnMut(T) -> U) -> TextFragment<U> {
+        self.map_text_with(&mut f)
+    }
+
+    fn map_text_with<U>(self, f: &mut impl FnMut(T) -> U) -> TextFragment<U> {
+        TextFragment {
+            key: self.key,
+            variants: self
+                .variants
+                .into_iter()
+                .map(|v| v.map_text_with(f))
+                .collect(),
+            condition: self.condition,
+            mode: self.mode,
+            replaces: self.replaces,
+        }
     }
 }
 
@@ -140,6 +205,47 @@ impl DialogText {
     /// Creates fragment text from the given fragments.
     pub fn fragments(fragments: Vec<TextFragment>) -> Self {
         Self::Fragments(fragments)
+    }
+}
+
+impl<T> DialogText<T> {
+    /// Creates host text.
+    pub fn host(text: T) -> Self {
+        Self::Host(text)
+    }
+
+    /// Returns the host text, or `None` for every other variant.
+    ///
+    /// Host text inside a fragment list is not returned. Use
+    /// `dramaturge_runtime::resolve_text` to select it.
+    pub fn as_host(&self) -> Option<&T> {
+        match self {
+            Self::Host(text) => Some(text),
+            _ => None,
+        }
+    }
+
+    /// Converts the host text with `f`, also inside fragment lists, and
+    /// keeps every other variant.
+    ///
+    /// Use it to move text between host text types, for example from
+    /// `DialogText<()>` (loaded from YAML) to `DialogText<Markup>`.
+    pub fn map_text<U>(self, mut f: impl FnMut(T) -> U) -> DialogText<U> {
+        self.map_text_with(&mut f)
+    }
+
+    fn map_text_with<U>(self, f: &mut impl FnMut(T) -> U) -> DialogText<U> {
+        match self {
+            Self::Inline(s) => DialogText::Inline(s),
+            Self::LocalizedKey(k) => DialogText::LocalizedKey(k),
+            Self::Fragments(fragments) => DialogText::Fragments(
+                fragments
+                    .into_iter()
+                    .map(|f2| f2.map_text_with(f))
+                    .collect(),
+            ),
+            Self::Host(text) => DialogText::Host(f(text)),
+        }
     }
 }
 
@@ -234,15 +340,16 @@ impl DialogTarget {
 /// Nodes can have conditions that gate their entry and outcomes that
 /// apply when the node is entered.
 ///
-/// `H` is the type of [host outcomes](Outcome::Host) (default `()`).
+/// `H` is the type of [host outcomes](Outcome::Host) and `T` the type of
+/// [host text](DialogText::Host). Both default to `()`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DialogueNode<H = ()> {
+pub struct DialogueNode<H = (), T = ()> {
     /// Unique identifier for this node.
     pub id: DialogueNodeId,
     /// The character who speaks in this node.
     pub speaker: CharacterId,
-    /// The spoken text (inline or localized).
-    pub text: DialogText,
+    /// The spoken text.
+    pub text: DialogText<T>,
     /// Conditions that must be satisfied for this node to be entered.
     ///
     /// `dramaturge_runtime::select_entry` checks them for the entry nodes,
@@ -253,25 +360,25 @@ pub struct DialogueNode<H = ()> {
     /// Outcomes that apply when this node is entered.
     pub outcomes_on_enter: Vec<Outcome<H>>,
     /// Branching options presented to the player after this node.
-    pub options: Vec<DialogueOption<H>>,
+    pub options: Vec<DialogueOption<H, T>>,
 }
 
 impl DialogueNode {
     /// Creates a node with the given ID, speaker, and text.
     ///
     /// Conditions, outcomes, and options all start empty. For a node with
-    /// host outcomes, use [`DialogueNode::typed`].
+    /// host outcomes or host text, use [`DialogueNode::typed`].
     pub fn new(id: u64, speaker: CharacterId, text: DialogText) -> Self {
         Self::typed(id, speaker, text)
     }
 }
 
-impl<H> DialogueNode<H> {
-    /// Creates a node for the host outcome type `H`, with the given ID,
-    /// speaker, and text.
+impl<H, T> DialogueNode<H, T> {
+    /// Creates a node for the host outcome type `H` and the host text type
+    /// `T`, with the given ID, speaker, and text.
     ///
     /// Conditions, outcomes, and options all start empty.
-    pub fn typed(id: u64, speaker: CharacterId, text: DialogText) -> Self {
+    pub fn typed(id: u64, speaker: CharacterId, text: DialogText<T>) -> Self {
         Self {
             id: DialogueNodeId::new(id),
             speaker,
@@ -285,7 +392,7 @@ impl<H> DialogueNode<H> {
     /// Converts the host outcomes of this node and its options with `f`.
     ///
     /// See [`Outcome::map_host`].
-    pub fn map_host<G>(self, mut f: impl FnMut(H) -> G) -> DialogueNode<G> {
+    pub fn map_host<G>(self, mut f: impl FnMut(H) -> G) -> DialogueNode<G, T> {
         DialogueNode {
             id: self.id,
             speaker: self.speaker,
@@ -303,6 +410,24 @@ impl<H> DialogueNode<H> {
                 .collect(),
         }
     }
+
+    /// Converts the host text of this node and its options with `f`.
+    ///
+    /// See [`DialogText::map_text`].
+    pub fn map_text<U>(self, mut f: impl FnMut(T) -> U) -> DialogueNode<H, U> {
+        DialogueNode {
+            id: self.id,
+            speaker: self.speaker,
+            text: self.text.map_text_with(&mut f),
+            conditions: self.conditions,
+            outcomes_on_enter: self.outcomes_on_enter,
+            options: self
+                .options
+                .into_iter()
+                .map(|o| o.map_text(&mut f))
+                .collect(),
+        }
+    }
 }
 
 /// A branching choice presented to the player.
@@ -311,13 +436,14 @@ impl<H> DialogueNode<H> {
 /// responses or actions available to the player. Each option can have
 /// tags, intentions, conditions, and outcomes.
 ///
-/// `H` is the type of [host outcomes](Outcome::Host) (default `()`).
+/// `H` is the type of [host outcomes](Outcome::Host) and `T` the type of
+/// [host text](DialogText::Host). Both default to `()`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DialogueOption<H = ()> {
+pub struct DialogueOption<H = (), T = ()> {
     /// Unique identifier for this option.
     pub id: DialogueOptionId,
     /// The text displayed for this option.
-    pub text: DialogText,
+    pub text: DialogText<T>,
     /// Tags categorizing this option.
     pub tags: Vec<DialogTagKind>,
     /// Intentions behind this option.
@@ -338,7 +464,8 @@ impl DialogueOption {
     /// Creates an option with the given ID, text, target, and source node.
     ///
     /// Tags, intentions, conditions, outcomes, and navigation hint all start
-    /// empty. For an option with host outcomes, use [`DialogueOption::typed`].
+    /// empty. For an option with host outcomes or host text, use
+    /// [`DialogueOption::typed`].
     pub fn new(
         id: u64,
         text: DialogText,
@@ -349,14 +476,14 @@ impl DialogueOption {
     }
 }
 
-impl<H> DialogueOption<H> {
-    /// Creates an option for the host outcome type `H`, with the given ID,
-    /// text, target, and source node.
+impl<H, T> DialogueOption<H, T> {
+    /// Creates an option for the host outcome type `H` and the host text
+    /// type `T`, with the given ID, text, target, and source node.
     ///
     /// Tags, intentions, conditions, outcomes, and navigation hint all start empty.
     pub fn typed(
         id: u64,
-        text: DialogText,
+        text: DialogText<T>,
         target: DialogTarget,
         source_node_id: DialogueNodeId,
     ) -> Self {
@@ -382,7 +509,7 @@ impl<H> DialogueOption<H> {
     /// Converts the host outcomes of this option with `f`.
     ///
     /// See [`Outcome::map_host`].
-    pub fn map_host<G>(self, mut f: impl FnMut(H) -> G) -> DialogueOption<G> {
+    pub fn map_host<G>(self, mut f: impl FnMut(H) -> G) -> DialogueOption<G, T> {
         DialogueOption {
             id: self.id,
             text: self.text,
@@ -394,6 +521,23 @@ impl<H> DialogueOption<H> {
                 .into_iter()
                 .map(|o| o.map_host(&mut f))
                 .collect(),
+            target: self.target,
+            source_node_id: self.source_node_id,
+            navigation_hint: self.navigation_hint,
+        }
+    }
+
+    /// Converts the host text of this option with `f`.
+    ///
+    /// See [`DialogText::map_text`].
+    pub fn map_text<U>(self, mut f: impl FnMut(T) -> U) -> DialogueOption<H, U> {
+        DialogueOption {
+            id: self.id,
+            text: self.text.map_text_with(&mut f),
+            tags: self.tags,
+            intentions: self.intentions,
+            conditions: self.conditions,
+            outcomes: self.outcomes,
             target: self.target,
             source_node_id: self.source_node_id,
             navigation_hint: self.navigation_hint,
@@ -413,12 +557,13 @@ impl<H> DialogueOption<H> {
 /// unconditional entry node always starts there. The validator walks from
 /// every entry node.
 ///
-/// `H` is the type of [host outcomes](Outcome::Host) (default `()`). A
-/// graph without host outcomes is `DialogueGraph`.
+/// `H` is the type of [host outcomes](Outcome::Host) and `T` the type of
+/// [host text](DialogText::Host). Both default to `()`: a graph without
+/// host data is `DialogueGraph`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DialogueGraph<H = ()> {
+pub struct DialogueGraph<H = (), T = ()> {
     /// All nodes in the graph.
-    pub nodes: Vec<DialogueNode<H>>,
+    pub nodes: Vec<DialogueNode<H, T>>,
     /// The nodes where a conversation can start, in priority order.
     ///
     /// Empty when the graph has no entry node.
@@ -428,15 +573,16 @@ pub struct DialogueGraph<H = ()> {
 impl DialogueGraph {
     /// Creates an empty graph with no nodes and no entry nodes.
     ///
-    /// For a graph with host outcomes, use [`DialogueGraph::typed`].
+    /// For a graph with host outcomes or host text, use
+    /// [`DialogueGraph::typed`].
     pub fn new() -> Self {
         Self::typed()
     }
 }
 
-impl<H> DialogueGraph<H> {
-    /// Creates an empty graph for the host outcome type `H`, with no nodes
-    /// and no entry point.
+impl<H, T> DialogueGraph<H, T> {
+    /// Creates an empty graph for the host outcome type `H` and the host
+    /// text type `T`, with no nodes and no entry point.
     pub fn typed() -> Self {
         Self {
             nodes: Vec::new(),
@@ -464,14 +610,14 @@ impl<H> DialogueGraph<H> {
     /// Returns the node with the given id, if the graph has one.
     ///
     /// This is a linear search over [`nodes`](Self::nodes).
-    pub fn node(&self, id: DialogueNodeId) -> Option<&DialogueNode<H>> {
+    pub fn node(&self, id: DialogueNodeId) -> Option<&DialogueNode<H, T>> {
         self.nodes.iter().find(|n| n.id == id)
     }
 
     /// Returns the entry nodes that exist in the graph, in priority order.
     ///
     /// Entry node ids without a node in the graph are skipped.
-    pub fn entries(&self) -> impl Iterator<Item = &DialogueNode<H>> {
+    pub fn entries(&self) -> impl Iterator<Item = &DialogueNode<H, T>> {
         self.entry_nodes.iter().filter_map(|&id| self.node(id))
     }
 
@@ -489,9 +635,31 @@ impl<H> DialogueGraph<H> {
     /// let typed: DialogueGraph<Effect> = loaded.map_host(|()| unreachable!());
     /// assert!(typed.nodes.is_empty());
     /// ```
-    pub fn map_host<G>(self, mut f: impl FnMut(H) -> G) -> DialogueGraph<G> {
+    pub fn map_host<G>(self, mut f: impl FnMut(H) -> G) -> DialogueGraph<G, T> {
         DialogueGraph {
             nodes: self.nodes.into_iter().map(|n| n.map_host(&mut f)).collect(),
+            entry_nodes: self.entry_nodes,
+        }
+    }
+
+    /// Converts the host text of every node and option with `f`, also
+    /// inside fragment lists.
+    ///
+    /// Use it to give a graph without host text (for example one loaded
+    /// from YAML) a host text type:
+    ///
+    /// ```rust
+    /// use dramaturge_model::DialogueGraph;
+    ///
+    /// struct Markup(String);
+    ///
+    /// let loaded = DialogueGraph::new();
+    /// let typed: DialogueGraph<(), Markup> = loaded.map_text(|()| unreachable!());
+    /// assert!(typed.nodes.is_empty());
+    /// ```
+    pub fn map_text<U>(self, mut f: impl FnMut(T) -> U) -> DialogueGraph<H, U> {
+        DialogueGraph {
+            nodes: self.nodes.into_iter().map(|n| n.map_text(&mut f)).collect(),
             entry_nodes: self.entry_nodes,
         }
     }
@@ -596,6 +764,43 @@ mod tests {
         check!(lengths.nodes[0].outcomes_on_enter[0] == Outcome::Host(4));
         check!(lengths.nodes[0].options[0].outcomes[0] == Outcome::Host(6));
         check!(lengths.entry_nodes == vec![DialogueNodeId::new(1)]);
+    }
+
+    #[test]
+    fn graph_with_host_text() {
+        #[derive(Debug, Clone, PartialEq)]
+        struct Markup(&'static str);
+
+        let speaker = CharacterId::new(crate::character::EntityId::new(1));
+        let mut node =
+            DialogueNode::<(), Markup>::typed(1, speaker, DialogText::host(Markup("*Hi.*")));
+        node.options.push(DialogueOption::typed(
+            1,
+            DialogText::Fragments(vec![
+                TextFragment::always(DialogText::Inline("Go ".into())),
+                TextFragment::always(DialogText::host(Markup("_now_"))),
+            ]),
+            DialogTarget::End,
+            node.id,
+        ));
+        let mut graph = DialogueGraph::typed().with_entry_node(node.id);
+        graph.nodes.push(node);
+
+        // The host reads its text back, typed.
+        check!(graph.nodes[0].text.as_host() == Some(&Markup("*Hi.*")));
+        check!(graph.nodes[0].options[0].text.as_host().is_none());
+
+        let lengths = graph.clone().map_text(|Markup(m)| m.len());
+        check!(lengths.nodes[0].text == DialogText::Host(5));
+        let DialogText::Fragments(fragments) = &lengths.nodes[0].options[0].text else {
+            panic!("fragments expected");
+        };
+        check!(fragments[0].variants[0] == DialogText::Inline("Go ".into()));
+        check!(fragments[1].variants[0] == DialogText::Host(5));
+
+        // Host outcomes and host text map apart.
+        let unit: DialogueGraph<(), ()> = graph.map_text(|_| ());
+        check!(unit.nodes[0].text == DialogText::Host(()));
     }
 
     #[test]

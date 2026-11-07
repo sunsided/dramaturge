@@ -9,8 +9,10 @@
 //!
 //! Both the trait and the default runtime are generic over the state type
 //! `S`, which defaults to [`DialogWorldState`], and over the host outcome
-//! type `H` of [`Outcome::Host`](dramaturge_model::Outcome::Host), which
-//! defaults to `()`.
+//! type `H` of [`Outcome::Host`], which defaults to `()`. The methods that
+//! take a node or an option accept any host text type `T` of
+//! [`DialogText::Host`](dramaturge_model::DialogText::Host): the runtime
+//! does not look at the text.
 
 use crate::context::DialogWorldState;
 use crate::evaluation::{
@@ -65,28 +67,34 @@ pub trait DialogueRuntime<S: NarrativeState + ?Sized = DialogWorldState, H = ()>
     /// type while maintaining the trait interface. Implementors can return
     /// `std::slice::Iter`, `std::iter::Filter`, custom iterators, or
     /// `Box<dyn Iterator>` as needed.
-    type OptionsIter<'a>: Iterator<Item = &'a DialogueOption<H>>
+    ///
+    /// `T` is the host text type of the node (see
+    /// [`DialogText::Host`](dramaturge_model::DialogText::Host)). The
+    /// runtime does not look at the text, so every method takes nodes with
+    /// any `T`.
+    type OptionsIter<'a, T>: Iterator<Item = &'a DialogueOption<H, T>>
     where
         Self: 'a,
         S: 'a,
-        H: 'a;
+        H: 'a,
+        T: 'a;
 
     /// Returns references to options whose conditions are satisfied.
     ///
     /// Options with no conditions are always included. Options with
     /// conditions are included only if all their conditions evaluate
     /// to `true`.
-    fn available_options<'a>(
+    fn available_options<'a, T>(
         &'a self,
-        node: &'a DialogueNode<H>,
+        node: &'a DialogueNode<H, T>,
         state: &'a S,
-    ) -> Self::OptionsIter<'a>;
+    ) -> Self::OptionsIter<'a, T>;
 
     /// Applies the option's outcomes and returns the target to transition to.
     ///
     /// This mutates the state by applying each outcome in order,
     /// then returns the option's target for the next navigation step.
-    fn choose_option(&mut self, option: &DialogueOption<H>, state: &mut S) -> DialogTarget;
+    fn choose_option<T>(&mut self, option: &DialogueOption<H, T>, state: &mut S) -> DialogTarget;
 
     /// Returns `true` if all `conditions` hold for `state`.
     ///
@@ -129,7 +137,7 @@ pub trait DialogueRuntime<S: NarrativeState + ?Sized = DialogWorldState, H = ()>
     /// assert_eq!(result, EnterResult::Entered { has_options: false });
     /// assert!(state.fact_exists(&FactScope::World, &FactId::new("met_mara")));
     /// ```
-    fn enter_node(&mut self, node: &DialogueNode<H>, state: &mut S) -> EnterResult {
+    fn enter_node<T>(&mut self, node: &DialogueNode<H, T>, state: &mut S) -> EnterResult {
         if !self.conditions_hold(&node.conditions, state) {
             return EnterResult::Blocked;
         }
@@ -169,7 +177,11 @@ impl<E, A> DefaultRuntime<E, A> {
     /// Returns the first entry node of `graph` whose conditions hold.
     ///
     /// Uses the runtime's evaluator. See [`select_entry`].
-    pub fn select_entry<S, H>(&self, graph: &DialogueGraph<H>, state: &S) -> Option<DialogueNodeId>
+    pub fn select_entry<S, H, T>(
+        &self,
+        graph: &DialogueGraph<H, T>,
+        state: &S,
+    ) -> Option<DialogueNodeId>
     where
         S: NarrativeState + ?Sized,
         E: ConditionEvaluator<S>,
@@ -207,8 +219,8 @@ impl<E, A> DefaultRuntime<E, A> {
 /// let entry = select_entry(&graph, &DefaultConditionEvaluator::new(), &state);
 /// assert_eq!(entry, Some(DialogueNodeId::new(2)));
 /// ```
-pub fn select_entry<S, E, H>(
-    graph: &DialogueGraph<H>,
+pub fn select_entry<S, E, H, T>(
+    graph: &DialogueGraph<H, T>,
     evaluator: &E,
     state: &S,
 ) -> Option<DialogueNodeId>
@@ -226,15 +238,15 @@ where
 ///
 /// This struct is returned by [`DefaultRuntime::available_options`] and
 /// yields references to options whose conditions are satisfied.
-pub struct AvailableOptionsIter<'a, E, S: ?Sized = DialogWorldState, H = ()> {
-    inner: std::slice::Iter<'a, DialogueOption<H>>,
+pub struct AvailableOptionsIter<'a, E, S: ?Sized = DialogWorldState, H = (), T = ()> {
+    inner: std::slice::Iter<'a, DialogueOption<H, T>>,
     evaluator: &'a E,
     state: &'a S,
 }
 
-impl<'a, E, S: ?Sized, H> AvailableOptionsIter<'a, E, S, H> {
+impl<'a, E, S: ?Sized, H, T> AvailableOptionsIter<'a, E, S, H, T> {
     /// Creates an iterator over the options of `node` that pass `evaluator`.
-    pub fn new(node: &'a DialogueNode<H>, evaluator: &'a E, state: &'a S) -> Self {
+    pub fn new(node: &'a DialogueNode<H, T>, evaluator: &'a E, state: &'a S) -> Self {
         Self {
             inner: node.options.iter(),
             evaluator,
@@ -243,12 +255,12 @@ impl<'a, E, S: ?Sized, H> AvailableOptionsIter<'a, E, S, H> {
     }
 }
 
-impl<'a, E, S, H> Iterator for AvailableOptionsIter<'a, E, S, H>
+impl<'a, E, S, H, T> Iterator for AvailableOptionsIter<'a, E, S, H, T>
 where
     E: ConditionEvaluator<S>,
     S: NarrativeState + ?Sized,
 {
-    type Item = &'a DialogueOption<H>;
+    type Item = &'a DialogueOption<H, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -276,22 +288,23 @@ where
     E: ConditionEvaluator<S>,
     A: OutcomeApplier<S, H>,
 {
-    type OptionsIter<'a>
-        = AvailableOptionsIter<'a, E, S, H>
+    type OptionsIter<'a, T>
+        = AvailableOptionsIter<'a, E, S, H, T>
     where
         Self: 'a,
         S: 'a,
-        H: 'a;
+        H: 'a,
+        T: 'a;
 
-    fn available_options<'a>(
+    fn available_options<'a, T>(
         &'a self,
-        node: &'a DialogueNode<H>,
+        node: &'a DialogueNode<H, T>,
         state: &'a S,
-    ) -> Self::OptionsIter<'a> {
+    ) -> Self::OptionsIter<'a, T> {
         AvailableOptionsIter::new(node, &self.evaluator, state)
     }
 
-    fn choose_option(&mut self, option: &DialogueOption<H>, state: &mut S) -> DialogTarget {
+    fn choose_option<T>(&mut self, option: &DialogueOption<H, T>, state: &mut S) -> DialogTarget {
         state.emit_event(EventKind::DialogOptionChosen {
             node_id: option.source_node_id,
             option_id: option.id,

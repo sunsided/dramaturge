@@ -11,7 +11,9 @@
 //! text, so tests and explorers can replay a run.
 //!
 //! Localization is left to the host: [`ResolvedText::Localized`] carries the
-//! key.
+//! key. Host text ([`DialogText::Host`]) is returned as it is, as
+//! [`ResolvedText::Host`]: fragment selection works for host text, but its
+//! content belongs to the host.
 //!
 //! ```rust
 //! use dramaturge_model::{Condition, DialogText, FactId, FactScope, Fact, FragmentMode, TextFragment};
@@ -159,31 +161,49 @@ impl TextProgress {
     }
 }
 
-/// Resolved text: inline text or a localization key for the host.
+/// Resolved text: inline text, a localization key or host text.
+///
+/// `T` is the host text type (see [`DialogText::Host`]), default `()`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
-pub enum ResolvedText {
+pub enum ResolvedText<T = ()> {
     /// Text to show as is.
     Inline(String),
     /// A key the host looks up in its localization table.
     Localized(Arc<str>),
+    /// Host text, as it is in the graph. The host renders it.
+    Host(T),
 }
 
-impl ResolvedText {
+impl<T> ResolvedText<T> {
     /// Returns the inline text, or the localization key.
+    ///
+    /// Host text has no string form here: it returns an empty string. Use
+    /// [`as_host`](Self::as_host) for host text.
     pub fn as_str(&self) -> &str {
         match self {
             ResolvedText::Inline(s) => s,
             ResolvedText::Localized(k) => k,
+            ResolvedText::Host(_) => "",
+        }
+    }
+
+    /// Returns the host text, or `None` for inline and localized text.
+    pub fn as_host(&self) -> Option<&T> {
+        match self {
+            ResolvedText::Host(text) => Some(text),
+            _ => None,
         }
     }
 }
 
 /// One piece of resolved text and the fragment that produced it.
+///
+/// `T` is the host text type (see [`DialogText::Host`]), default `()`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ResolvedPiece {
+pub struct ResolvedPiece<T = ()> {
     /// The text.
-    pub text: ResolvedText,
+    pub text: ResolvedText<T>,
     /// Progress key of the fragment that produced it, or `None` for plain
     /// `Inline`/`LocalizedKey` text outside any fragment list.
     pub source: Option<Arc<str>>,
@@ -192,8 +212,9 @@ pub struct ResolvedPiece {
 /// Resolves `text` against `state` and records progress.
 ///
 /// `owner` identifies the text (typically the node or option key) and
-/// prefixes all progress keys. Plain `Inline` and `LocalizedKey` text
-/// resolves to one piece and records nothing.
+/// prefixes all progress keys. Plain `Inline`, `LocalizedKey` and `Host`
+/// text resolves to one piece and records nothing. Host text is cloned
+/// into a [`ResolvedText::Host`] piece; dramaturge does not look into it.
 ///
 /// Rules for a fragment list, in order:
 ///
@@ -207,15 +228,16 @@ pub struct ResolvedPiece {
 /// - Variants may themselves be fragment lists; they are resolved recursively.
 ///
 /// The result is deterministic for a given `progress`, `state` and `rng` state.
-pub fn resolve_text<S, E, R>(
-    text: &DialogText,
+pub fn resolve_text<T, S, E, R>(
+    text: &DialogText<T>,
     owner: &str,
     state: &S,
     evaluator: &E,
     progress: &mut TextProgress,
     rng: &mut R,
-) -> Vec<ResolvedPiece>
+) -> Vec<ResolvedPiece<T>>
 where
+    T: Clone,
     S: NarrativeState + ?Sized,
     E: ConditionEvaluator<S> + ?Sized,
     R: TextRng + ?Sized,
@@ -249,12 +271,12 @@ where
     E: ConditionEvaluator<S> + ?Sized,
     R: TextRng + ?Sized,
 {
-    fn resolve(
+    fn resolve<T: Clone>(
         &mut self,
-        text: &DialogText,
+        text: &DialogText<T>,
         path: &str,
         source: Option<&Arc<str>>,
-        out: &mut Vec<ResolvedPiece>,
+        out: &mut Vec<ResolvedPiece<T>>,
     ) {
         match text {
             DialogText::Inline(s) => out.push(ResolvedPiece {
@@ -270,18 +292,22 @@ where
                     self.fragment(fragment, path, index, out);
                 }
             }
+            DialogText::Host(t) => out.push(ResolvedPiece {
+                text: ResolvedText::Host(t.clone()),
+                source: source.cloned(),
+            }),
             // `DialogText` is non-exhaustive; text kinds this resolver does
             // not know produce no pieces.
             _ => {}
         }
     }
 
-    fn fragment(
+    fn fragment<T: Clone>(
         &mut self,
-        fragment: &TextFragment,
+        fragment: &TextFragment<T>,
         path: &str,
         index: usize,
-        out: &mut Vec<ResolvedPiece>,
+        out: &mut Vec<ResolvedPiece<T>>,
     ) {
         let key: Arc<str> = match &fragment.key {
             Some(k) => format!("{path}/{k}").into(),
@@ -448,6 +474,41 @@ mod tests {
             TextFragment::always(inline("c")),
         ]);
         check!(run(&text, 1, 0)[0] == ["b", "c"]);
+    }
+
+    #[test]
+    fn host_text_resolves_as_it_is() {
+        #[derive(Debug, Clone, PartialEq)]
+        struct Markup(&'static str);
+
+        let state = DialogWorldState::new();
+        let evaluator = DefaultConditionEvaluator::new();
+        let mut progress = TextProgress::new();
+        let mut rng = SplitMix64::new(0);
+
+        let plain = DialogText::host(Markup("*Hi.*"));
+        let out = resolve_text(&plain, "n", &state, &evaluator, &mut progress, &mut rng);
+        check!(out.len() == 1);
+        check!(out[0].text == ResolvedText::Host(Markup("*Hi.*")));
+        check!(out[0].text.as_host() == Some(&Markup("*Hi.*")));
+        check!(out[0].text.as_str().is_empty());
+        check!(out[0].source.is_none());
+
+        // Fragment selection works for host text, too.
+        let text = DialogText::Fragments(vec![
+            TextFragment::always(DialogText::Inline("Mara: ".into())),
+            TextFragment::with_mode(
+                FragmentMode::Cycle,
+                vec![DialogText::host(Markup("a")), DialogText::host(Markup("b"))],
+            )
+            .keyed("line"),
+        ]);
+        let first = resolve_text(&text, "n", &state, &evaluator, &mut progress, &mut rng);
+        let second = resolve_text(&text, "n", &state, &evaluator, &mut progress, &mut rng);
+        check!(first[0].text == ResolvedText::Inline("Mara: ".into()));
+        check!(first[1].text.as_host() == Some(&Markup("a")));
+        check!(second[1].text.as_host() == Some(&Markup("b")));
+        check!(first[1].source.as_deref() == Some("n/line"));
     }
 
     #[test]

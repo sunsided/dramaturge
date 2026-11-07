@@ -46,6 +46,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   `dramaturge_serde::dialog_cursor` serialize it with raw ids;
   `dramaturge_serde::save::SavedDialogCursor` stores the node keys and
   `restore` re-resolves `current` and the return stack by key (#73).
+- `DialogText::Host(T)`: host text, a text leaf in a format that only the
+  host knows (for example compiled markup). `DialogText::host`,
+  `DialogText::as_host` and `DialogText::map_text`; `map_text` also on
+  `TextFragment`, `DialogueNode`, `DialogueOption` and `DialogueGraph`, to
+  give a graph a host text type. Host text can be a fragment variant, so
+  fragment selection works for it (#75).
+- `resolve_text` returns host text as it is, as `ResolvedText::Host(T)`
+  (`ResolvedText::as_host`). The validator does not check host text: the
+  `EmptyText` check counts it as text, and `UnkeyedProgress` checks only the
+  fragments around it (#75).
+- `DialogTextDto::Host(T)` (JSON `{"host": ...}`); the text, fragment and
+  graph DTOs carry `T` and store the host text as it is. The new `with`
+  module `dramaturge_serde::dialog_text` serializes a `DialogText<T>`, and
+  `dramaturge_serde::dialogue_graph` accepts any `H` and `T` that are
+  `Clone` and serializable. The YAML format has no host text (#75).
 
 ### Changed
 
@@ -81,6 +96,32 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   `conditions_hold(conditions, state)` and `apply_outcomes(outcomes,
   state)`. Only hosts that implement `DialogueRuntime` themselves must add
   them; `DefaultRuntime` implements them (#73).
+
+- **Breaking:** `DialogText`, `TextFragment`, `DialogueNode`,
+  `DialogueOption` and `DialogueGraph` have a type parameter `T` for host
+  text, with the default `()`: `DialogueGraph<H = (), T = ()>`. `DialogText`
+  and `DialogueGraph` without parameters still mean the types without host
+  data. `ResolvedText<T = ()>`, `ResolvedPiece<T = ()>`,
+  `AvailableOptionsIter<'a, E, S, H = (), T = ()>`, `DialogTextDto<T = ()>`,
+  `TextFragmentDto<T = ()>`, `DialogueOptionDto<H = (), T = ()>`,
+  `DialogueNodeDto<H = (), T = ()>` and `DialogueGraphDto<H = (), T = ()>`
+  follow. `resolve_text`, `select_entry` and the validator accept any `T`.
+  `DialogueRuntime` stays `DialogueRuntime<S, H>`: its methods
+  `available_options`, `choose_option` and `enter_node` are generic over
+  `T`, and `OptionsIter<'a, T>` takes `T`. What can break: hosts that
+  implement `DialogueRuntime` themselves change these signatures;
+  `ResolvedText::as_str` returns `""` for host text (use `as_host`);
+  `DialogText::inline`, `localized` and `fragments` make `DialogText<()>`
+  only (for another `T` use the variants or `DialogText::host`); a
+  `DialogText` literal whose type nothing fixes needs an annotation.
+  Converting a graph with host text to its DTO needs `T: Clone` (#75).
+
+  Why a type parameter, and not `DialogText::Host(Arc<str>)` or one
+  bundle type for `H` and `T`: a string leaf would make hosts parse their
+  text again or keep side tables; a typed leaf keeps the host text in the
+  graph and gives it back typed. A second parameter next to `H` keeps the
+  two choices apart (a host can have host text without host outcomes) and
+  keeps the R3 API as it is, and both default to `()`.
 
 ## [0.3.0-alpha.2] - 2026-11-07
 

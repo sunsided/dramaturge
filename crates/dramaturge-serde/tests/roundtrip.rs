@@ -10,8 +10,8 @@ use dramaturge_model::{
 };
 use dramaturge_runtime::{DialogCursor, DialogWorldState, FragmentProgress, TextProgress};
 use dramaturge_serde::dto::{
-    ConditionDto, DialogCursorDto, DialogueGraphDto, IntoModel, OutcomeDto, TextProgressDto,
-    WorldStateDto,
+    ConditionDto, DialogCursorDto, DialogTextDto, DialogueGraphDto, IntoModel, OutcomeDto,
+    TextProgressDto, WorldStateDto,
 };
 use dramaturge_serde::save::{OrphanedKey, SavedDialogCursor, SavedWorldState, SymbolKind};
 use proptest::collection::vec;
@@ -600,6 +600,72 @@ fn with_modules_take_a_host_outcome_type() {
     check!(back.graph == content.graph);
     check!(back.on_leave == content.on_leave);
     check!(back.plain == content.plain);
+}
+
+#[test]
+fn host_text_roundtrips_through_the_dtos() {
+    /// Host markup: a list of spans.
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum Span {
+        Plain(String),
+        Em(String),
+    }
+
+    let unit: DialogText = DialogText::Host(());
+    check!(serde_json::to_string(&DialogTextDto::from(&unit)).unwrap() == r#"{"host":null}"#);
+
+    let markup = vec![Span::Plain("Hello, ".into()), Span::Em("traveller".into())];
+    let mut node = DialogueNode::<(), Vec<Span>>::typed(
+        1,
+        CharacterId::new(EntityId::new(1)),
+        DialogText::host(markup.clone()),
+    );
+    node.options.push(DialogueOption::typed(
+        1,
+        DialogText::Fragments(vec![
+            TextFragment::with_mode(
+                FragmentMode::Cycle,
+                vec![
+                    DialogText::host(vec![Span::Plain("Bye.".into())]),
+                    DialogText::Inline("Later.".into()),
+                ],
+            )
+            .keyed("bye"),
+        ]),
+        DialogTarget::End,
+        node.id,
+    ));
+    let mut graph = DialogueGraph::typed().with_entry_node(node.id);
+    graph.nodes.push(node);
+
+    // The DTO carries the host text as it is.
+    let json = serde_json::to_string(&DialogueGraphDto::from(&graph)).unwrap();
+    check!(
+        json.contains(r#""text":{"host":[{"plain":"Hello, "},{"em":"traveller"}]}"#),
+        "{json}"
+    );
+    let back: DialogueGraphDto<(), Vec<Span>> = serde_json::from_str(&json).unwrap();
+    let back = back.into_model();
+    check!(back == graph);
+    check!(back.nodes[0].text.as_host() == Some(&markup));
+
+    // The `with` modules take a host text type.
+    #[derive(Serialize, Deserialize)]
+    struct Content {
+        #[serde(with = "dramaturge_serde::dialogue_graph")]
+        graph: DialogueGraph<(), Vec<Span>>,
+        #[serde(with = "dramaturge_serde::dialog_text")]
+        title: DialogText<Vec<Span>>,
+    }
+    let content = Content {
+        graph,
+        title: DialogText::host(markup),
+    };
+    let json = serde_json::to_string(&content).unwrap();
+    let back: Content = serde_json::from_str(&json).unwrap();
+    check!(back.graph == content.graph);
+    check!(back.title == content.title);
 }
 
 #[test]

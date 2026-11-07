@@ -114,10 +114,61 @@ with_module_host!(
     dramaturge_model::Outcome,
     crate::dto::OutcomeDto
 );
-with_module_host!(
-    /// `with` module for [`DialogueGraph<H>`](dramaturge_model::DialogueGraph),
-    /// for any host outcome type `H` that is `Clone` and serializable.
-    dialogue_graph,
-    dramaturge_model::DialogueGraph,
-    crate::dto::DialogueGraphDto
-);
+
+/// `with` module for [`DialogText<T>`](dramaturge_model::DialogText), for
+/// any host text type `T` that is `Clone` and serializable.
+pub mod dialog_text {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use crate::dto::{DialogTextDto, IntoModel};
+    use dramaturge_model::DialogText;
+
+    /// Serializes the text through its DTO. Clones host text.
+    pub fn serialize<S, T>(value: &DialogText<T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        T: Clone + Serialize,
+    {
+        DialogTextDto::<T>::from(value).serialize(serializer)
+    }
+
+    /// Deserializes the text through its DTO.
+    pub fn deserialize<'de, D, T>(deserializer: D) -> Result<DialogText<T>, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: Deserialize<'de>,
+    {
+        DialogTextDto::<T>::deserialize(deserializer).map(IntoModel::into_model)
+    }
+}
+
+/// `with` module for [`DialogueGraph<H, T>`](dramaturge_model::DialogueGraph),
+/// for any host outcome type `H` and host text type `T` that are `Clone`
+/// and serializable.
+pub mod dialogue_graph {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use crate::dto::{DialogueGraphDto, IntoModel};
+    use dramaturge_model::DialogueGraph;
+
+    /// Serializes the graph through its DTO. Clones host outcomes and host
+    /// text.
+    pub fn serialize<S, H, T>(value: &DialogueGraph<H, T>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        H: Clone + Serialize,
+        T: Clone + Serialize,
+    {
+        DialogueGraphDto::<H, T>::from(value).serialize(serializer)
+    }
+
+    /// Deserializes the graph through its DTO.
+    pub fn deserialize<'de, D, H, T>(deserializer: D) -> Result<DialogueGraph<H, T>, D::Error>
+    where
+        D: Deserializer<'de>,
+        H: Deserialize<'de>,
+        T: Deserialize<'de>,
+    {
+        DialogueGraphDto::<H, T>::deserialize(deserializer).map(IntoModel::into_model)
+    }
+}
