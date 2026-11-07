@@ -154,10 +154,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
   two choices apart (a host can have host text without host outcomes) and
   keeps the R3 API as it is, and both default to `()`.
 
-- **Breaking:** `DialogueNode` has the new public fields `lines` and
-  `next`, and `YamlNode` has `lines` and `next`. Code that builds these
-  structs with a struct literal adds `lines: vec![]` and `next: None`, or
-  uses `DialogueNode::new`/`typed` (#74).
+- **Breaking:** `DialogueNode`, `DialogueNodeDto` and `YamlNode` have the
+  new public fields `lines` and `next`. Code that builds these structs with
+  a struct literal adds `lines: vec![]` and `next: None` (or uses
+  `DialogueNode::new`/`typed`), and code that destructures them without
+  `..` names the new fields (#74).
 
 ## [0.3.0-alpha.2] - 2026-11-07
 
