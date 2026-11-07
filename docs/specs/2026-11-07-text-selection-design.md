@@ -165,8 +165,9 @@ pub trait Judge<X: TextTypes> {
 
 /// Where the progress lives. `TextProgress` implements it; so can a host store.
 pub trait ProgressStore {
-    fn fragment(&self, key: &str) -> FragmentProgress;
-    fn set_fragment(&mut self, key: &str, progress: FragmentProgress);
+    /// `None`: the candidate has not shown yet.
+    fn fragment_progress(&self, key: &str) -> Option<FragmentProgress>;
+    fn set_fragment_progress(&mut self, key: &str, progress: FragmentProgress);
     /// True on the first resolution of `pool`. A host can answer from its own
     /// data (loremaster: the first visit of the room).
     fn first_time(&self, pool: &str) -> bool;
@@ -243,6 +244,10 @@ with this core.
   `keeper_remark` is the same in the rule and in the dialogue.
 - `TextProgress` and its DTO (`dramaturge-serde`) store the progress. No new
   save field is necessary for users of dramaturge alone.
+- `ProgressStore` uses its own method names (`fragment_progress`,
+  `set_fragment_progress`). Thus the inherent `TextProgress::fragment` and
+  `set_fragment` do not shadow the trait methods. The impl for
+  `TextProgress` forwards to them and keeps `None` for "not shown yet".
 - A candidate without a key gets its index as key. A reorder then moves its
   progress to another candidate. The validator reports such candidates in
   pools with `once`, `cycle`, `shuffle` or `sticky` (issue kind
