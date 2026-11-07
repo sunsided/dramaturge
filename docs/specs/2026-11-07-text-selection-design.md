@@ -310,7 +310,7 @@ warns about a tie in a `best` pool.
 | Q5 | `shuffle` in loremaster can repeat the last variant; in dramaturge it cannot. Which one? | The dramaturge rule (no immediate repeat). Re-record the transcripts that change, once, in the loremaster PR. The save field `sticky` becomes `pick` with a serde alias. |
 | Q6 | Tuple fields: keys on the candidate, or conditions (`when: topic == stove`)? | Keys. They count 1 each, the validator can check them, and a host can index them later. |
 | Q7 | An explicit `priority` to break ties in `best`? | Not in 0.3. The author adds a test or changes the order. The validator and `world!` warn about ties. |
-| Q8 | Should the core report candidates that can never show (feel log: "too hot to touch")? | Not the core. The phase 4 checks (explorer, CK) report a candidate that no reached state shows. The static check reports only ties and unkeyed progress. |
+| Q8 | Should the core report candidates that can never show? (The golden slice's log of authoring notes has an example: "too hot to touch".) | Not the core. The phase 4 checks (explorer, CK) report a candidate that no explored state shows. The static check reports only ties and unkeyed progress. |
 
 ## 8. Test cases
 
