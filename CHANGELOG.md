@@ -6,6 +6,37 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `Outcome::Host(H)`: a typed host outcome. `Outcome::as_host` and
+  `Outcome::map_host`; `map_host` also on `DialogueGraph`, `DialogueNode`
+  and `DialogueOption`, to give a graph a host outcome type (#72).
+- `HostHandler<H, S>` (`host_outcome(&mut self, &H, &mut S)`):
+  `DefaultOutcomeApplier` hands `Outcome::Host` to the `HostHandler`
+  implementation of its handler. Every type implements
+  `HostHandler<(), S>` as a no-op (#72).
+- `DialogueGraph::typed`, `DialogueNode::typed` and `DialogueOption::typed`
+  create graph types for a host outcome type `H` (#72).
+- `OutcomeDto::Host(H)` (JSON `{"host": ...}`); the graph DTOs carry `H`
+  and serialize when `H` does. The YAML format has no host outcomes (#72).
+
+### Changed
+
+- **Breaking:** `Outcome`, `DialogueGraph`, `DialogueNode` and
+  `DialogueOption` have a type parameter `H` for host outcomes, with the
+  default `()`, so `Outcome` and `DialogueGraph` still mean the types
+  without host outcomes. `OutcomeApplier<S, H = ()>`,
+  `DialogueRuntime<S, H = ()>`, `AvailableOptionsIter<'a, E, S, H = ()>`,
+  `OutcomeDto<H = ()>`, `DialogueGraphDto<H = ()>`, `DialogueNodeDto<H = ()>`
+  and `DialogueOptionDto<H = ()>` follow. `GraphValidator::validate` and
+  `validate_with_symbols` accept a graph with any `H`. What can break:
+  an outcome literal whose type the compiler can not infer from the
+  context (`let o = Outcome::EmitEvent { .. };` with no later use that fixes
+  the type) needs `let o: Outcome = ...`; `DialogueGraph::new`, `Default`,
+  `DialogueNode::new` and `DialogueOption::new` stay for `H = ()` only
+  (use `typed` for another `H`); a `DefaultOutcomeApplier` handler must
+  implement `HostHandler<H, S>` for the `H` it applies (#72).
+
 ## [0.3.0-alpha.2] - 2026-11-07
 
 ### Added

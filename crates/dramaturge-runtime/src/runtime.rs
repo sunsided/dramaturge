@@ -7,7 +7,9 @@
 //! [`DefaultConditionEvaluator`] and [`DefaultOutcomeApplier`]).
 //!
 //! Both the trait and the default runtime are generic over the state type
-//! `S`, which defaults to [`DialogWorldState`].
+//! `S`, which defaults to [`DialogWorldState`], and over the host outcome
+//! type `H` of [`Outcome::Host`](dramaturge_model::Outcome::Host), which
+//! defaults to `()`.
 
 use crate::context::DialogWorldState;
 use crate::evaluation::{
@@ -20,17 +22,18 @@ use dramaturge_model::{DialogTarget, DialogueNode, DialogueOption, EventKind};
 ///
 /// Implementations determine which options are available at a given
 /// node and handle the consequences of choosing an option.
-pub trait DialogueRuntime<S: NarrativeState + ?Sized = DialogWorldState> {
+pub trait DialogueRuntime<S: NarrativeState + ?Sized = DialogWorldState, H = ()> {
     /// The iterator type returned by [`available_options`](Self::available_options).
     ///
     /// This associated type allows implementors to choose their own iterator
     /// type while maintaining the trait interface. Implementors can return
     /// `std::slice::Iter`, `std::iter::Filter`, custom iterators, or
     /// `Box<dyn Iterator>` as needed.
-    type OptionsIter<'a>: Iterator<Item = &'a DialogueOption>
+    type OptionsIter<'a>: Iterator<Item = &'a DialogueOption<H>>
     where
         Self: 'a,
-        S: 'a;
+        S: 'a,
+        H: 'a;
 
     /// Returns references to options whose conditions are satisfied.
     ///
@@ -39,7 +42,7 @@ pub trait DialogueRuntime<S: NarrativeState + ?Sized = DialogWorldState> {
     /// to `true`.
     fn available_options<'a>(
         &'a self,
-        node: &'a DialogueNode,
+        node: &'a DialogueNode<H>,
         state: &'a S,
     ) -> Self::OptionsIter<'a>;
 
@@ -47,7 +50,7 @@ pub trait DialogueRuntime<S: NarrativeState + ?Sized = DialogWorldState> {
     ///
     /// This mutates the state by applying each outcome in order,
     /// then returns the option's target for the next navigation step.
-    fn choose_option(&mut self, option: &DialogueOption, state: &mut S) -> DialogTarget;
+    fn choose_option(&mut self, option: &DialogueOption<H>, state: &mut S) -> DialogTarget;
 }
 
 /// Combines a [`ConditionEvaluator`] and an [`OutcomeApplier`] into a
@@ -82,15 +85,15 @@ impl<E, A> DefaultRuntime<E, A> {
 ///
 /// This struct is returned by [`DefaultRuntime::available_options`] and
 /// yields references to options whose conditions are satisfied.
-pub struct AvailableOptionsIter<'a, E, S: ?Sized = DialogWorldState> {
-    inner: std::slice::Iter<'a, DialogueOption>,
+pub struct AvailableOptionsIter<'a, E, S: ?Sized = DialogWorldState, H = ()> {
+    inner: std::slice::Iter<'a, DialogueOption<H>>,
     evaluator: &'a E,
     state: &'a S,
 }
 
-impl<'a, E, S: ?Sized> AvailableOptionsIter<'a, E, S> {
+impl<'a, E, S: ?Sized, H> AvailableOptionsIter<'a, E, S, H> {
     /// Creates an iterator over the options of `node` that pass `evaluator`.
-    pub fn new(node: &'a DialogueNode, evaluator: &'a E, state: &'a S) -> Self {
+    pub fn new(node: &'a DialogueNode<H>, evaluator: &'a E, state: &'a S) -> Self {
         Self {
             inner: node.options.iter(),
             evaluator,
@@ -99,12 +102,12 @@ impl<'a, E, S: ?Sized> AvailableOptionsIter<'a, E, S> {
     }
 }
 
-impl<'a, E, S> Iterator for AvailableOptionsIter<'a, E, S>
+impl<'a, E, S, H> Iterator for AvailableOptionsIter<'a, E, S, H>
 where
     E: ConditionEvaluator<S>,
     S: NarrativeState + ?Sized,
 {
-    type Item = &'a DialogueOption;
+    type Item = &'a DialogueOption<H>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -126,27 +129,28 @@ where
     }
 }
 
-impl<S, E, A> DialogueRuntime<S> for DefaultRuntime<E, A>
+impl<S, H, E, A> DialogueRuntime<S, H> for DefaultRuntime<E, A>
 where
     S: NarrativeState + ?Sized,
     E: ConditionEvaluator<S>,
-    A: OutcomeApplier<S>,
+    A: OutcomeApplier<S, H>,
 {
     type OptionsIter<'a>
-        = AvailableOptionsIter<'a, E, S>
+        = AvailableOptionsIter<'a, E, S, H>
     where
         Self: 'a,
-        S: 'a;
+        S: 'a,
+        H: 'a;
 
     fn available_options<'a>(
         &'a self,
-        node: &'a DialogueNode,
+        node: &'a DialogueNode<H>,
         state: &'a S,
     ) -> Self::OptionsIter<'a> {
         AvailableOptionsIter::new(node, &self.evaluator, state)
     }
 
-    fn choose_option(&mut self, option: &DialogueOption, state: &mut S) -> DialogTarget {
+    fn choose_option(&mut self, option: &DialogueOption<H>, state: &mut S) -> DialogTarget {
         state.emit_event(EventKind::DialogOptionChosen {
             node_id: option.source_node_id,
             option_id: option.id,
@@ -171,6 +175,95 @@ mod tests {
         CharacterId, Condition, DialogText, DialogueOption, DialogueOptionId, EntityId, Fact,
         FactId, FactScope,
     };
+
+    #[test]
+    fn host_outcomes_go_to_the_host_handler() {
+        use crate::evaluation::{CustomHandler, DefaultOutcomeApplier, HostHandler};
+        use crate::state::HasDialogWorldState;
+        use dramaturge_model::Outcome;
+
+        #[derive(Debug, Clone, PartialEq)]
+        enum Effect {
+            Goto(&'static str),
+            Give(u32),
+        }
+
+        #[derive(Default)]
+        struct Game {
+            room: &'static str,
+            items: Vec<u32>,
+            dialog: DialogWorldState,
+        }
+
+        impl HasDialogWorldState for Game {
+            fn dialog(&self) -> &DialogWorldState {
+                &self.dialog
+            }
+            fn dialog_mut(&mut self) -> &mut DialogWorldState {
+                &mut self.dialog
+            }
+        }
+
+        #[derive(Default)]
+        struct Effects;
+
+        impl CustomHandler<Game> for Effects {}
+
+        impl HostHandler<Effect, Game> for Effects {
+            fn host_outcome(&mut self, outcome: &Effect, game: &mut Game) {
+                match outcome {
+                    Effect::Goto(room) => game.room = room,
+                    Effect::Give(item) => game.items.push(*item),
+                }
+            }
+        }
+
+        let speaker = CharacterId::new(EntityId::new(1));
+        let mut node = DialogueNode::<Effect>::typed(1, speaker, DialogText::inline("Leave?"));
+        let mut option =
+            DialogueOption::typed(1, DialogText::inline("Yes."), DialogTarget::End, node.id);
+        option.outcomes = vec![
+            Outcome::Host(Effect::Give(7)),
+            Outcome::SetFact {
+                scope: FactScope::World,
+                fact: Fact::bool("left", true),
+            },
+            Outcome::Host(Effect::Goto("street")),
+        ];
+        node.options.push(option);
+
+        let mut rt = DefaultRuntime::with_parts(
+            DefaultConditionEvaluator::new(),
+            DefaultOutcomeApplier::with_custom(Effects),
+        );
+        let mut game = Game::default();
+        let chosen = rt.available_options(&node, &game).next().cloned().unwrap();
+        let target = rt.choose_option(&chosen, &mut game);
+
+        check!(target == DialogTarget::End);
+        check!(game.room == "street");
+        check!(game.items == vec![7]);
+        check!(
+            game.dialog
+                .fact_exists(&FactScope::World, &FactId::new("left"))
+        );
+    }
+
+    #[test]
+    fn unit_host_outcome_is_a_no_op() {
+        let mut rt = DefaultRuntime::new();
+        let mut state = DialogWorldState::new();
+        let mut option = DialogueOption::new(
+            1,
+            DialogText::inline("..."),
+            DialogTarget::End,
+            dramaturge_model::DialogueNodeId::new(1),
+        );
+        option.outcomes.push(dramaturge_model::Outcome::Host(()));
+        rt.choose_option(&option, &mut state);
+        // Only the DialogOptionChosen event.
+        check!(state.events().len() == 1);
+    }
 
     #[test]
     fn default_runtime_construction() {
