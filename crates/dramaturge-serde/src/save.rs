@@ -10,7 +10,7 @@
 //!
 //! ```rust
 //! use dramaturge_model::{Fact, FactScope, RelationshipAxisId, SymbolTable};
-//! use dramaturge_runtime::{DialogCursor, DialogWorldState};
+//! use dramaturge_runtime::DialogWorldState;
 //! use dramaturge_serde::save::SavedWorldState;
 //!
 //! // Content v1 knows two characters.
@@ -158,7 +158,10 @@ impl SavedDialogCursor {
     }
 
     /// Rebuilds the cursor, re-resolving `current` and every node of the
-    /// return stack by key against `current`.
+    /// return stack by key against `current`. Ids that had no key at save
+    /// time are kept as they were, as in [`SavedWorldState::restore`]: build
+    /// cursors from ids of the graph's symbol table so that every node has a
+    /// key.
     ///
     /// Node keys that `current` does not know are interned and listed in
     /// the [`RestoreReport`], as in [`SavedWorldState::restore`]. Such a node
