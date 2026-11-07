@@ -6,6 +6,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0-alpha.4] - 2026-11-07
+
 ### Added
 
 - New crate `dramaturge-syntax`: one dialogue AST (`Dialogue`, `Node`,
@@ -397,7 +399,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Initial release.
 
-[Unreleased]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.3...HEAD
+[Unreleased]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.4...HEAD
+[0.3.0-alpha.4]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.3...v0.3.0-alpha.4
 [0.3.0-alpha.3]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.2...v0.3.0-alpha.3
 [0.3.0-alpha.2]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.1...v0.3.0-alpha.2
 [0.3.0-alpha.1]: https://github.com/sunsided/dramaturge/compare/v0.2.0...v0.3.0-alpha.1
