@@ -181,7 +181,7 @@ pub trait ProgressStore {
 pub fn select<'p, X, J, P, R>(
     pool: &'p Pool<X>,
     pools: &'p Pools<X>,
-    caller: &str,                       // copied into `Selection::caller`
+    caller: Arc<str>,                   // moved into `Selection::caller`
     query: &Query<X>,
     judge: &J,
     progress: &P,
