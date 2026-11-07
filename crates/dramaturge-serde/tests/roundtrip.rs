@@ -8,11 +8,12 @@ use dramaturge_model::{
     FragmentMode, Intention, Memory, MemoryId, MemoryQuery, MemoryTag, NavigationHint, Outcome,
     RelationshipAxisId, SymbolTable, TextFragment,
 };
-use dramaturge_runtime::{DialogWorldState, FragmentProgress, TextProgress};
+use dramaturge_runtime::{DialogCursor, DialogWorldState, FragmentProgress, TextProgress};
 use dramaturge_serde::dto::{
-    ConditionDto, DialogueGraphDto, IntoModel, OutcomeDto, TextProgressDto, WorldStateDto,
+    ConditionDto, DialogCursorDto, DialogueGraphDto, IntoModel, OutcomeDto, TextProgressDto,
+    WorldStateDto,
 };
-use dramaturge_serde::save::{OrphanedKey, SavedWorldState, SymbolKind};
+use dramaturge_serde::save::{OrphanedKey, SavedDialogCursor, SavedWorldState, SymbolKind};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -474,6 +475,32 @@ fn world_state_without_event_log_field_keeps_the_log_on() {
     check!(!back.into_model().event_log_enabled());
 }
 
+proptest! {
+    #[test]
+    fn dialog_cursor_roundtrips(current in 0u64..8, targets in vec(proptest::option::of(0u64..8), 0..8)) {
+        let mut cursor = DialogCursor::new(DialogueNodeId::new(current));
+        for target in targets {
+            match target {
+                Some(n) => cursor.follow(&DialogTarget::node(n)),
+                None => cursor.follow(&DialogTarget::Return),
+            };
+        }
+        let back = json_roundtrip(&DialogCursorDto::from(&cursor)).into_model();
+        prop_assert_eq!(back, cursor);
+    }
+}
+
+#[test]
+fn dialog_cursor_json_shape() {
+    let mut cursor = DialogCursor::new(DialogueNodeId::new(1));
+    check!(serde_json::to_string(&DialogCursorDto::from(&cursor)).unwrap() == r#"{"current":1}"#);
+    cursor.follow(&DialogTarget::node(4));
+    check!(
+        serde_json::to_string(&DialogCursorDto::from(&cursor)).unwrap()
+            == r#"{"current":4,"back":[1]}"#
+    );
+}
+
 #[test]
 fn dialogue_graph_reads_the_old_entry_node_field() {
     let dto: DialogueGraphDto = serde_json::from_str(r#"{"nodes":[],"entry_node":3}"#).unwrap();
@@ -607,6 +634,22 @@ fn with_module_embeds_state_in_host_struct() {
 }
 
 #[test]
+fn with_module_embeds_cursor_in_host_struct() {
+    #[derive(Serialize, Deserialize)]
+    struct Talk {
+        #[serde(with = "dramaturge_serde::dialog_cursor")]
+        cursor: DialogCursor,
+    }
+
+    let mut cursor = DialogCursor::new(DialogueNodeId::new(1));
+    cursor.follow(&DialogTarget::node(2));
+    let json = serde_json::to_string(&Talk { cursor }).unwrap();
+    let back: Talk = serde_json::from_str(&json).unwrap();
+    check!(back.cursor.current == DialogueNodeId::new(2));
+    check!(back.cursor.back == vec![DialogueNodeId::new(1)]);
+}
+
+#[test]
 fn saved_state_survives_reordered_content() {
     let mut v1 = SymbolTable::new();
     let player = v1.intern_entity("player");
@@ -706,4 +749,38 @@ fn restore_reports_orphaned_keys() {
     let ghost2 = v2.entity("ghost").expect("orphan is interned");
     check!(ghost2 != player2);
     check!(restored.get_relationship(player2, ghost2, &RelationshipAxisId::new("fear")) == Some(3));
+}
+
+#[test]
+fn saved_cursor_remaps_current_and_back_by_key() {
+    let mut v1 = SymbolTable::new();
+    let hub = v1.intern_node("hub");
+    let a = v1.intern_node("a");
+    let b = v1.intern_node("b");
+    let mut cursor = DialogCursor::new(hub);
+    cursor.follow(&DialogTarget::Node(a));
+    cursor.follow(&DialogTarget::Node(b));
+    let json = serde_json::to_string(&SavedDialogCursor::new(&cursor, &v1)).unwrap();
+
+    // Content v2 reorders the nodes and removes `a`.
+    let mut v2 = SymbolTable::new();
+    let b2 = v2.intern_node("b");
+    v2.intern_node("intro");
+    let hub2 = v2.intern_node("hub");
+    let saved: SavedDialogCursor = serde_json::from_str(&json).unwrap();
+    let (restored, report) = saved.restore(&mut v2);
+
+    let a2 = v2.node("a").expect("orphan is interned");
+    check!(restored.current == b2);
+    check!(restored.back == vec![hub2, a2]);
+    check!(
+        report.orphaned
+            == vec![OrphanedKey {
+                kind: SymbolKind::Node,
+                key: "a".into(),
+            }]
+    );
+    // Raw ids changed, so the identity mapping would restore wrong nodes.
+    check!(b2 != b);
+    check!(hub2 != hub);
 }

@@ -18,7 +18,8 @@
 //! ```
 //!
 //! These modules store raw ids. For saves that must survive content
-//! changes, use [`SavedWorldState`](crate::save::SavedWorldState).
+//! changes, use [`SavedWorldState`](crate::save::SavedWorldState) and
+//! [`SavedDialogCursor`](crate::save::SavedDialogCursor).
 
 /// Defines a `with` module for a type with a host outcome parameter `H`
 /// (`$model<H>`, serialized through `$dto<H>`).
@@ -96,6 +97,15 @@ with_module!(
     text_progress,
     dramaturge_runtime::TextProgress,
     crate::dto::TextProgressDto
+);
+with_module!(
+    /// `with` module for [`DialogCursor`](dramaturge_runtime::DialogCursor).
+    ///
+    /// Stores raw node ids. For a save that must survive content changes,
+    /// use [`SavedDialogCursor`](crate::save::SavedDialogCursor).
+    dialog_cursor,
+    dramaturge_runtime::DialogCursor,
+    crate::dto::DialogCursorDto
 );
 with_module_host!(
     /// `with` module for [`Outcome<H>`](dramaturge_model::Outcome), for any

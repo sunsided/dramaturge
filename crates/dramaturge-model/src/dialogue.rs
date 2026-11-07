@@ -245,9 +245,10 @@ pub struct DialogueNode<H = ()> {
     pub text: DialogText,
     /// Conditions that must be satisfied for this node to be entered.
     ///
-    /// `dramaturge_runtime::select_entry` checks them for the entry nodes.
-    /// The runtime does not check them when an option leads to the node;
-    /// a host that wants that checks them itself.
+    /// `dramaturge_runtime::select_entry` checks them for the entry nodes,
+    /// and `DialogueRuntime::enter_node` checks them when the host enters a
+    /// node. `choose_option` does not check the conditions of the target
+    /// node.
     pub conditions: Vec<Condition>,
     /// Outcomes that apply when this node is entered.
     pub outcomes_on_enter: Vec<Outcome<H>>,

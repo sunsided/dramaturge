@@ -274,9 +274,11 @@ pub struct YamlNode {
     /// Conditions for entering the node (`DialogueNode::conditions`).
     ///
     /// `dramaturge_runtime::select_entry` skips an entry node whose
-    /// conditions do not hold. The runtime does not check them when an
-    /// option leads to the node; on a node that is not an entry node they
-    /// take effect only if the host checks them.
+    /// conditions do not hold, and `DialogueRuntime::enter_node` returns
+    /// `Blocked` for a node whose conditions do not hold. `choose_option`
+    /// does not check the conditions of the target node, so on a node that
+    /// is not an entry node they take effect when the host enters the node
+    /// with `enter_node`.
     #[serde(default)]
     pub conditions: Vec<YamlCondition>,
     /// Outcomes applied when node is entered.

@@ -2156,3 +2156,39 @@ no_ids!(TextProgressDto => dramaturge_runtime::TextProgress, |d| {
     }
     p
 });
+
+// ---------------------------------------------------------------------------
+// Dialogue cursor
+// ---------------------------------------------------------------------------
+
+/// DTO for [`DialogCursor`](dramaturge_runtime::DialogCursor).
+///
+/// Stores raw node ids. [`IntoModel::into_model_with`] maps them through
+/// the [`IdMap`]. For a save that re-resolves the ids by key, use
+/// [`SavedDialogCursor`](crate::save::SavedDialogCursor).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DialogCursorDto {
+    /// The current node (raw id).
+    pub current: u64,
+    /// The return stack (raw ids), the most recent last.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub back: Vec<u64>,
+}
+
+impl From<&dramaturge_runtime::DialogCursor> for DialogCursorDto {
+    fn from(c: &dramaturge_runtime::DialogCursor) -> Self {
+        Self {
+            current: c.current.0,
+            back: c.back.iter().map(|n| n.0).collect(),
+        }
+    }
+}
+
+impl IntoModel for DialogCursorDto {
+    type Model = dramaturge_runtime::DialogCursor;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> dramaturge_runtime::DialogCursor {
+        let mut cursor = dramaturge_runtime::DialogCursor::new(ids.node(self.current));
+        cursor.back = self.back.into_iter().map(|n| ids.node(n)).collect();
+        cursor
+    }
+}

@@ -1,8 +1,9 @@
 //! Dialogue runtime trait and default implementation for driving conversations.
 //!
 //! The [`DialogueRuntime`] trait defines the interface for driving a
-//! dialogue session: filtering available options by conditions and
-//! applying outcomes when an option is chosen. [`DefaultRuntime`]
+//! dialogue session: entering a node ([`DialogueRuntime::enter_node`]),
+//! filtering available options by conditions and applying outcomes when an
+//! option is chosen. [`DefaultRuntime`]
 //! combines a condition evaluator and an outcome applier (by default
 //! [`DefaultConditionEvaluator`] and [`DefaultOutcomeApplier`]).
 //!
@@ -17,13 +18,46 @@ use crate::evaluation::{
 };
 use crate::state::NarrativeState;
 use dramaturge_model::{
-    DialogTarget, DialogueGraph, DialogueNode, DialogueNodeId, DialogueOption, EventKind,
+    Condition, DialogTarget, DialogueGraph, DialogueNode, DialogueNodeId, DialogueOption,
+    EventKind, Outcome,
 };
+
+/// What [`DialogueRuntime::enter_node`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum EnterResult {
+    /// The node's conditions do not hold. No outcome was applied.
+    Blocked,
+    /// The node's conditions hold and its outcomes on enter were applied.
+    Entered {
+        /// `true` if at least one option of the node is available after
+        /// the outcomes on enter were applied. `false` means the talk ends
+        /// at this node, unless the host continues it.
+        has_options: bool,
+    },
+}
+
+impl EnterResult {
+    /// Returns `true` if the node was entered.
+    pub fn is_entered(&self) -> bool {
+        matches!(self, Self::Entered { .. })
+    }
+
+    /// Returns `true` if the node was entered and has an available option.
+    pub fn has_options(&self) -> bool {
+        matches!(self, Self::Entered { has_options: true })
+    }
+}
 
 /// Trait defining the interface for driving a dialogue session.
 ///
 /// Implementations determine which options are available at a given
 /// node and handle the consequences of choosing an option.
+///
+/// An implementation gives the two primitives
+/// [`conditions_hold`](Self::conditions_hold) and
+/// [`apply_outcomes`](Self::apply_outcomes). [`enter_node`](Self::enter_node)
+/// has a default implementation that uses them.
 pub trait DialogueRuntime<S: NarrativeState + ?Sized = DialogWorldState, H = ()> {
     /// The iterator type returned by [`available_options`](Self::available_options).
     ///
@@ -53,6 +87,56 @@ pub trait DialogueRuntime<S: NarrativeState + ?Sized = DialogWorldState, H = ()>
     /// This mutates the state by applying each outcome in order,
     /// then returns the option's target for the next navigation step.
     fn choose_option(&mut self, option: &DialogueOption<H>, state: &mut S) -> DialogTarget;
+
+    /// Returns `true` if all `conditions` hold for `state`.
+    ///
+    /// An empty list holds.
+    fn conditions_hold(&self, conditions: &[Condition], state: &S) -> bool;
+
+    /// Applies `outcomes` to `state`, in order.
+    fn apply_outcomes(&mut self, outcomes: &[Outcome<H>], state: &mut S);
+
+    /// Enters `node`: checks its conditions, applies its outcomes on enter
+    /// and reports if it has an available option.
+    ///
+    /// If the node's [`conditions`](DialogueNode::conditions) do not hold,
+    /// nothing changes and the result is [`EnterResult::Blocked`].
+    /// Otherwise the [`outcomes_on_enter`](DialogueNode::outcomes_on_enter)
+    /// are applied once per call, in order, and the result is
+    /// [`EnterResult::Entered`]. `has_options` is computed after the
+    /// outcomes, so an outcome on enter can make an option available.
+    ///
+    /// `enter_node` is not idempotent: every call applies the outcomes
+    /// again. Call it once per visit of a node. A host that renders the
+    /// same node again (for example after a screen redraw) does not call
+    /// it again, or the outcomes apply twice.
+    ///
+    /// ```rust
+    /// use dramaturge_model::{
+    ///     CharacterId, DialogText, DialogueNode, EntityId, Fact, FactId, FactScope, Outcome,
+    /// };
+    /// use dramaturge_runtime::{DefaultRuntime, DialogWorldState, DialogueRuntime, EnterResult};
+    ///
+    /// let mut node = DialogueNode::new(1, CharacterId::new(EntityId::new(1)), DialogText::inline("Hi."));
+    /// node.outcomes_on_enter.push(Outcome::SetFact {
+    ///     scope: FactScope::World,
+    ///     fact: Fact::bool("met_mara", true),
+    /// });
+    ///
+    /// let mut runtime = DefaultRuntime::new();
+    /// let mut state = DialogWorldState::new();
+    /// let result = runtime.enter_node(&node, &mut state);
+    /// assert_eq!(result, EnterResult::Entered { has_options: false });
+    /// assert!(state.fact_exists(&FactScope::World, &FactId::new("met_mara")));
+    /// ```
+    fn enter_node(&mut self, node: &DialogueNode<H>, state: &mut S) -> EnterResult {
+        if !self.conditions_hold(&node.conditions, state) {
+            return EnterResult::Blocked;
+        }
+        self.apply_outcomes(&node.outcomes_on_enter, state);
+        let has_options = self.available_options(node, state).next().is_some();
+        EnterResult::Entered { has_options }
+    }
 }
 
 /// Combines a [`ConditionEvaluator`] and an [`OutcomeApplier`] into a
@@ -215,10 +299,18 @@ where
             intentions: option.intentions.clone(),
         });
 
-        for outcome in &option.outcomes {
+        self.apply_outcomes(&option.outcomes, state);
+        option.target.clone()
+    }
+
+    fn conditions_hold(&self, conditions: &[Condition], state: &S) -> bool {
+        conditions.iter().all(|c| self.evaluator.evaluate(c, state))
+    }
+
+    fn apply_outcomes(&mut self, outcomes: &[Outcome<H>], state: &mut S) {
+        for outcome in outcomes {
             self.applier.apply(outcome, state);
         }
-        option.target.clone()
     }
 }
 
@@ -232,6 +324,117 @@ mod tests {
         CharacterId, Condition, DialogText, DialogueOption, DialogueOptionId, EntityId, Fact,
         FactId, FactScope,
     };
+
+    fn speaker() -> CharacterId {
+        CharacterId::new(EntityId::new(1))
+    }
+
+    fn add_visits() -> dramaturge_model::Outcome {
+        dramaturge_model::Outcome::AddFact {
+            scope: FactScope::World,
+            fact_id: FactId::new("visits"),
+            delta: 1,
+        }
+    }
+
+    fn visits(state: &DialogWorldState) -> Option<i64> {
+        match state.get_fact(&FactScope::World, &FactId::new("visits")) {
+            Some(dramaturge_model::FactValue::Int(n)) => Some(*n),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn enter_node_blocked_when_conditions_are_false() {
+        let mut node = DialogueNode::new(1, speaker(), DialogText::inline("Hi."));
+        node.conditions.push(Condition::Never);
+        node.outcomes_on_enter.push(add_visits());
+        node.options.push(DialogueOption::new(
+            1,
+            DialogText::inline("Bye."),
+            DialogTarget::End,
+            node.id,
+        ));
+
+        let mut rt = DefaultRuntime::new();
+        let mut state = DialogWorldState::new();
+        let result = rt.enter_node(&node, &mut state);
+        check!(result == EnterResult::Blocked);
+        check!(!result.is_entered());
+        check!(!result.has_options());
+        check!(visits(&state).is_none());
+        check!(state.events().is_empty());
+    }
+
+    #[test]
+    fn enter_node_applies_outcomes_per_call() {
+        let mut node = DialogueNode::new(1, speaker(), DialogText::inline("Hi."));
+        node.outcomes_on_enter.push(add_visits());
+        node.options.push(DialogueOption::new(
+            1,
+            DialogText::inline("Bye."),
+            DialogTarget::End,
+            node.id,
+        ));
+
+        let mut rt = DefaultRuntime::new();
+        let mut state = DialogWorldState::new();
+        let result = rt.enter_node(&node, &mut state);
+        check!(result == EnterResult::Entered { has_options: true });
+        check!(result.has_options());
+        check!(visits(&state) == Some(1));
+
+        // A second visit applies the outcomes a second time.
+        rt.enter_node(&node, &mut state);
+        check!(visits(&state) == Some(2));
+    }
+
+    #[test]
+    fn enter_node_without_options() {
+        let node = DialogueNode::new(1, speaker(), DialogText::inline("The end."));
+        let mut rt = DefaultRuntime::new();
+        let mut state = DialogWorldState::new();
+        let result = rt.enter_node(&node, &mut state);
+        check!(result == EnterResult::Entered { has_options: false });
+        check!(result.is_entered());
+        check!(!result.has_options());
+    }
+
+    #[test]
+    fn enter_node_checks_options_after_the_outcomes() {
+        let mut node = DialogueNode::new(1, speaker(), DialogText::inline("Hi."));
+        node.outcomes_on_enter
+            .push(dramaturge_model::Outcome::SetFact {
+                scope: FactScope::World,
+                fact: Fact::bool("has_key", true),
+            });
+        let mut option =
+            DialogueOption::new(1, DialogText::inline("Open."), DialogTarget::End, node.id);
+        option.conditions.push(Condition::FactEquals {
+            scope: FactScope::World,
+            fact_id: FactId::new("has_key"),
+            value: dramaturge_model::FactValue::Bool(true),
+        });
+        node.options.push(option);
+
+        let mut rt = DefaultRuntime::new();
+        let mut state = DialogWorldState::new();
+        check!(rt.available_options(&node, &state).next().is_none());
+        check!(rt.enter_node(&node, &mut state) == EnterResult::Entered { has_options: true });
+    }
+
+    #[test]
+    fn enter_node_without_available_options() {
+        let mut node = DialogueNode::new(1, speaker(), DialogText::inline("Hi."));
+        let mut option =
+            DialogueOption::new(1, DialogText::inline("Never."), DialogTarget::End, node.id);
+        option.conditions.push(Condition::Never);
+        node.options.push(option);
+
+        let mut rt = DefaultRuntime::new();
+        let mut state = DialogWorldState::new();
+        check!(rt.enter_node(&node, &mut state) == EnterResult::Entered { has_options: false });
+    }
 
     fn entry_graph(conditions: Vec<(u64, Vec<Condition>)>) -> DialogueGraph {
         let speaker = CharacterId::new(EntityId::new(1));
@@ -374,6 +577,37 @@ mod tests {
             game.dialog
                 .fact_exists(&FactScope::World, &FactId::new("left"))
         );
+    }
+
+    #[test]
+    fn enter_node_applies_host_outcomes() {
+        use crate::evaluation::{CustomHandler, DefaultOutcomeApplier, HostHandler};
+
+        #[derive(Default)]
+        struct Rooms(Vec<&'static str>);
+
+        impl<S: ?Sized> CustomHandler<S> for Rooms {}
+
+        impl<S: ?Sized> HostHandler<&'static str, S> for Rooms {
+            fn host_outcome(&mut self, room: &&'static str, _state: &mut S) {
+                self.0.push(room);
+            }
+        }
+
+        let mut node = DialogueNode::<&'static str>::typed(1, speaker(), DialogText::inline("Hi."));
+        node.outcomes_on_enter
+            .push(dramaturge_model::Outcome::Host("hall"));
+        node.outcomes_on_enter
+            .push(add_visits().map_host(|()| "never"));
+
+        let mut rt = DefaultRuntime::with_parts(
+            DefaultConditionEvaluator::new(),
+            DefaultOutcomeApplier::with_custom(Rooms::default()),
+        );
+        let mut state = DialogWorldState::new();
+        check!(rt.enter_node(&node, &mut state) == EnterResult::Entered { has_options: false });
+        check!(rt.applier.custom.0 == vec!["hall"]);
+        check!(visits(&state) == Some(1));
     }
 
     #[test]
