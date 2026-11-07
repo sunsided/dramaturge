@@ -169,9 +169,9 @@ pub trait ProgressStore {
     /// `None`: the candidate has not shown yet.
     fn fragment_progress(&self, key: &str) -> Option<FragmentProgress>;
     fn set_fragment_progress(&mut self, key: &str, progress: FragmentProgress);
-    /// True on the first resolution of `pool` by `caller` (the room, thing,
-    /// node or rule that shows the pool). A host can answer from its own data
-    /// (loremaster: the first visit of the room).
+    /// True on the first resolution of `pool` by `caller`. The caller is a
+    /// scope that the host chooses (section 4). A host can answer from its
+    /// own data (loremaster: the first visit of the room).
     fn first_time(&self, pool: &str, caller: &str) -> bool;
     fn count_resolution(&mut self, pool: &str, caller: &str);
 }
@@ -257,6 +257,11 @@ with this core.
   `keeper_remark` is the same in the rule and in the dialogue.
 - `first_time` is the exception: it counts per pool and caller. A named
   pool that two rooms show has a `first_time` candidate for each room.
+- The caller is the scope of "the first time", and the host chooses it.
+  dramaturge passes the `owner` of `resolve_text`: the node or option key.
+  loremaster passes the room for room text, and the current room for a
+  rule or a dialogue line. Thus a rule and a dialogue node in one room
+  share one first time, and `first_time` means "first visit" as today.
 - `TextProgress` and its DTO (`dramaturge-serde`) store the progress. No new
   save field is necessary for users of dramaturge alone.
 - `ProgressStore` uses its own method names (`fragment_progress`,
@@ -281,7 +286,7 @@ with this core.
 | `Vec<CFragment>` of a room or thing | `Pool { pick: All }`; each fragment is a candidate | Layer sort, `replaces` per layer, runs with `Source`, the joining of text |
 | `Vec<Segment>` (compiled markup) | `X::Leaf` | Rendering, inserts, inline choices |
 | `loremaster_lang` `Condition` + `Eval::holds` | `X::Cond` + `Judge`; loremaster implements `Specificity` | The condition language |
-| `FragmentMode::FirstVisit` | `first_time`; `ProgressStore::first_time` answers from the room visit | The alias in YAML |
+| `FragmentMode::FirstVisit` | `first_time`; the caller is the room, and `ProgressStore::first_time` answers from the room visit | The alias in YAML |
 | `State.progress` (`shown`, `sticky`) | `ProgressStore` on `State` | The save envelope (D5); `sticky` reads as `pick` |
 | `State.rng` + `rng::below` | `TextRng` on `State.rng` | The RNG algorithm, so transcripts keep their text |
 | New: `one_of`, `pick`, `seen_by`, `learn`, `texts/` | `Entry::Pool`, `Pick`, `Judge`, `commit` learner, `Entry::Named` | YAML and `world!` parsers; `learn` sets a world var |
