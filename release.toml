@@ -1,8 +1,9 @@
 # cargo-release configuration for the whole workspace.
 # Usage: `task release:dry -- minor`, then `task release -- minor`.
 
-# Release only from main; all crates share one version and one tag.
-allow-branch = ["main"]
+# Release from main, and alphas of 0.3 from feature/0.3; all crates share
+# one version and one tag.
+allow-branch = ["main", "feature/0.3"]
 shared-version = true
 consolidate-commits = true
 tag-name = "v{{version}}"
