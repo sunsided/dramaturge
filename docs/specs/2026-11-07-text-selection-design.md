@@ -245,7 +245,11 @@ with this core.
 ## 4. State, saves and determinism
 
 - The progress key is `{pool id}/{candidate key or index}`, and nested
-  pools append segments. This is the scheme of `resolve_text` today.
+  pools append segments. The shape is that of `resolve_text` today, but
+  there the first segment is the `owner` that the caller passes. An old key
+  carries over only where the pool id is that same owner: an inline text of
+  a node or a description keeps its keys; a named pool starts with new
+  keys.
 - A named pool has one progress for all callers. The sticky line of
   `keeper_remark` is the same in the rule and in the dialogue.
 - `first_time` is the exception: it counts per pool and caller. A named
