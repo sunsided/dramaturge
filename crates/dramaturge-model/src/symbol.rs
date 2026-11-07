@@ -16,6 +16,29 @@
 //! [`EventId`](crate::EventId) is deliberately not interned. Event ids are
 //! allocated by the runtime, not written by authors.
 //!
+//! # The player
+//!
+//! Relationships go from one entity to another, and memories belong to an
+//! entity. A host where the player is not a character or thing still needs
+//! an entity id for the player. [`SymbolTable::player`] interns the reserved
+//! key [`SymbolTable::PLAYER_KEY`] (`@player`) and returns its id, so every
+//! host uses the same key, and save games that store keys find the player
+//! again.
+//!
+//! ```rust
+//! use dramaturge_model::SymbolTable;
+//!
+//! let mut symbols = SymbolTable::new();
+//! let mara = symbols.intern_entity("mara");
+//! let player = symbols.player();
+//! assert_ne!(player, mara);
+//! assert_eq!(symbols.player(), player);
+//! assert_eq!(symbols.entity_key(player), Some(SymbolTable::PLAYER_KEY));
+//! ```
+//!
+//! The `@` keeps the key apart from author keys. A YAML file that declares a
+//! character `player` gets a different entity; use one of the two in a host.
+//!
 //! # Example
 //!
 //! ```rust
@@ -191,9 +214,21 @@ macro_rules! symbol_accessors {
 }
 
 impl SymbolTable {
+    /// The reserved entity key of the player. See [`player`](Self::player).
+    pub const PLAYER_KEY: &'static str = "@player";
+
     /// Creates an empty symbol table.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Returns the entity id of the player, interning
+    /// [`PLAYER_KEY`](Self::PLAYER_KEY) on first use.
+    ///
+    /// Use it as the source or target of relationships and as the owner or
+    /// subject of memories when the player is not an authored entity.
+    pub fn player(&mut self) -> EntityId {
+        self.intern_entity(Self::PLAYER_KEY)
     }
 
     symbol_accessors!(
@@ -290,6 +325,19 @@ mod tests {
         let id = symbols.intern_node("dlg.intro");
         check!(symbols.display_node(id) == "'dlg.intro'");
         check!(symbols.display_node(DialogueNodeId::new(42)) == "#42");
+    }
+
+    #[test]
+    fn player_is_interned_once_under_the_reserved_key() {
+        let mut symbols = SymbolTable::new();
+        check!(symbols.entity(SymbolTable::PLAYER_KEY).is_none());
+        let mara = symbols.intern_entity("mara");
+        let player = symbols.player();
+        check!(player != mara);
+        check!(symbols.player() == player);
+        check!(symbols.entity(SymbolTable::PLAYER_KEY) == Some(player));
+        check!(symbols.display_entity(player) == "'@player'");
+        check!(symbols.intern_entity("player") != player);
     }
 
     #[test]

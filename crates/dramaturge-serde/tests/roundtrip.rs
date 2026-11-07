@@ -367,9 +367,10 @@ fn world_state() -> impl Strategy<Value = DialogWorldState> {
         vec(tag(), 0..3),
         vec(event_kind(), 0..4),
         any::<bool>(),
+        any::<bool>(),
     )
         .prop_map(
-            |(facts, aligns, rels, defaults, mems, tags, events, drain)| {
+            |(facts, aligns, rels, defaults, mems, tags, events, drain, log_off)| {
                 let mut s = DialogWorldState::new();
                 for (scope, id, value) in facts {
                     s.set_fact(scope, Fact::new(id, value));
@@ -396,6 +397,8 @@ fn world_state() -> impl Strategy<Value = DialogWorldState> {
                 if drain {
                     s.drain_events();
                 }
+                // Last, so that the log may hold events from before.
+                s.set_event_log(!log_off);
                 s
             },
         )
@@ -454,6 +457,20 @@ proptest! {
         let b = serde_json::to_string(&WorldStateDto::from(&s.clone())).unwrap();
         prop_assert_eq!(a, b);
     }
+}
+
+#[test]
+fn world_state_without_event_log_field_keeps_the_log_on() {
+    let dto: WorldStateDto = serde_json::from_str(r#"{"next_event_id":1}"#).unwrap();
+    check!(dto.event_log);
+    check!(dto == WorldStateDto::default());
+    check!(dto.into_model().event_log_enabled());
+
+    let off = DialogWorldState::new().with_event_log(false);
+    let json = serde_json::to_string(&WorldStateDto::from(&off)).unwrap();
+    check!(json.contains(r#""event_log":false"#), "{json}");
+    let back: WorldStateDto = serde_json::from_str(&json).unwrap();
+    check!(!back.into_model().event_log_enabled());
 }
 
 #[test]

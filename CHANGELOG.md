@@ -40,6 +40,13 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 - `ValidationOptions` (`skip`, `report`, `allow_cycles`, `allow_dead_ends`,
   `skip_orphan_facts`) and `GraphValidator::with_options` switch checks off
   (#65).
+- `DialogWorldState::with_event_log(false)`, `set_event_log` and
+  `event_log_enabled`. With the log off, `emit_event` and `add_event` do
+  nothing (`emit_event` returns `None`), so a cloned state does not carry a
+  growing log. `WorldStateDto::event_log` stores the switch (absent means
+  on) (#69).
+- `SymbolTable::PLAYER_KEY` (`"@player"`) and `SymbolTable::player()`, which
+  interns the key on first use and returns the player's entity id (#69).
 
 ### Changed
 

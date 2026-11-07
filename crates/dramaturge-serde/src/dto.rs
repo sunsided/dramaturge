@@ -1899,7 +1899,7 @@ pub struct RelationshipDefaultDto {
 ///
 /// The struct is `#[non_exhaustive]`: build it with `From<&DialogWorldState>`
 /// or `Default`, or deserialize it.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct WorldStateDto {
     /// Facts.
@@ -1925,6 +1925,24 @@ pub struct WorldStateDto {
     pub events: Vec<EventDto>,
     /// Next event id to allocate; `None` once the id space is exhausted.
     pub next_event_id: Option<u64>,
+    /// Whether the event log is on. Defaults to `true` when absent.
+    #[serde(default = "event_log_default", skip_serializing_if = "is_true")]
+    pub event_log: bool,
+}
+
+fn event_log_default() -> bool {
+    true
+}
+
+impl Default for WorldStateDto {
+    /// The DTO of an empty [`DialogWorldState`].
+    fn default() -> Self {
+        Self::from(&DialogWorldState::new())
+    }
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 impl From<&DialogWorldState> for WorldStateDto {
@@ -1972,6 +1990,7 @@ impl From<&DialogWorldState> for WorldStateDto {
             available_tags: dtos(s.available_tags()),
             events: dtos(s.events()),
             next_event_id: s.next_event_id(),
+            event_log: s.event_log_enabled(),
         }
     }
 }
@@ -2006,6 +2025,9 @@ impl IntoModel for WorldStateDto {
             s.add_event(e.into_model_with(ids));
         }
         s.set_next_event_id(self.next_event_id);
+        // After the events, so that a saved log is restored even when the
+        // log was switched off later.
+        s.set_event_log(self.event_log);
         s
     }
 }

@@ -50,6 +50,8 @@ pub struct DialogWorldState {
     memories: BTreeMap<EntityId, Vec<Memory>>,
     available_tags: BTreeSet<DialogTagKind>,
     events: Vec<Event>,
+    /// Whether events are recorded. See [`with_event_log`](Self::with_event_log).
+    event_log: bool,
     /// Next event ID to allocate via [`emit_event`](Self::emit_event).
     ///
     /// Zero means the counter has wrapped around and the ID space is exhausted.
@@ -66,6 +68,7 @@ impl Default for DialogWorldState {
             memories: BTreeMap::new(),
             available_tags: BTreeSet::new(),
             events: Vec::new(),
+            event_log: true,
             event_id_counter: 1,
         }
     }
@@ -279,12 +282,46 @@ impl DialogWorldState {
             .flat_map(|(owner, ms)| ms.iter().map(move |m| (*owner, m)))
     }
 
+    /// Switches the event log on or off and returns self.
+    ///
+    /// The log is on by default. With the log off, [`emit_event`](Self::emit_event)
+    /// and [`add_event`](Self::add_event) do nothing, so the log does not
+    /// grow. Use this for a state that a host clones often and whose events
+    /// nobody reads, such as an explorer that walks all paths of a talk.
+    ///
+    /// ```rust
+    /// use dramaturge_model::EventKind;
+    /// use dramaturge_runtime::DialogWorldState;
+    ///
+    /// let mut state = DialogWorldState::new().with_event_log(false);
+    /// assert!(state.emit_event(EventKind::Custom { kind: "x".into() }).is_none());
+    /// assert!(state.events().is_empty());
+    /// ```
+    pub fn with_event_log(mut self, enabled: bool) -> Self {
+        self.event_log = enabled;
+        self
+    }
+
+    /// Switches the event log on or off. Events already in the log stay.
+    pub fn set_event_log(&mut self, enabled: bool) {
+        self.event_log = enabled;
+    }
+
+    /// Returns `true` if events are recorded (the default).
+    pub fn event_log_enabled(&self) -> bool {
+        self.event_log
+    }
+
     /// Appends an event to the timeline.
     ///
     /// If the event's ID is at or above the current allocation counter, the
     /// counter is advanced past it so that subsequent [`emit_event`](Self::emit_event)
-    /// calls cannot produce a duplicate ID.
+    /// calls cannot produce a duplicate ID. Does nothing when the
+    /// [event log](Self::with_event_log) is off.
     pub fn add_event(&mut self, event: Event) {
+        if !self.event_log {
+            return;
+        }
         if event.id.0 >= self.event_id_counter {
             self.event_id_counter = event.id.0.wrapping_add(1);
         }
@@ -309,8 +346,13 @@ impl DialogWorldState {
 
     /// Allocates a new event ID and appends an event with the given kind.
     ///
-    /// Returns `None` when the event ID space is exhausted.
+    /// Returns `None` when the event ID space is exhausted, or when the
+    /// [event log](Self::with_event_log) is off. With the log off, no ID is
+    /// allocated.
     pub fn emit_event(&mut self, kind: EventKind) -> Option<&Event> {
+        if !self.event_log {
+            return None;
+        }
         let id = self.next_event_id()?;
         let event = Event::new(EventId::new(id), kind);
         self.events.push(event);
@@ -395,8 +437,8 @@ impl DialogWorldState {
     /// Hashes the logical state into a 64-bit fingerprint.
     ///
     /// Covers facts, alignments, relationships, relationship defaults,
-    /// memories and available tags. The event log and the event id counter
-    /// are excluded: they record history, not state.
+    /// memories and available tags. The event log, the event id counter and
+    /// the event log switch are excluded: they record history, not state.
     ///
     /// Defaults count as they are set, not per pair: a tracked score equal
     /// to the default and an untracked pair are distinct, and two states
@@ -590,6 +632,38 @@ mod tests {
         b.set_relationship_default(RelationshipAxisId::new("trust"), 0);
         check!(a.fingerprint() != b.fingerprint());
         check!(!a.same_state(&b));
+    }
+
+    #[test]
+    fn event_log_off_stays_empty() {
+        let mut state = DialogWorldState::new().with_event_log(false);
+        check!(!state.event_log_enabled());
+        check!(
+            state
+                .emit_event(EventKind::Custom { kind: "x".into() })
+                .is_none()
+        );
+        state.add_event(Event::new(
+            EventId::new(7),
+            EventKind::Custom { kind: "y".into() },
+        ));
+        check!(state.events().is_empty());
+        check!(state.next_event_id() == Some(1));
+
+        state.set_event_log(true);
+        let id = state
+            .emit_event(EventKind::Custom { kind: "z".into() })
+            .map(|e| e.id);
+        check!(id == Some(EventId::new(1)));
+        check!(state.events().len() == 1);
+    }
+
+    #[test]
+    fn event_log_switch_does_not_change_fingerprint() {
+        let a = sample_state(false);
+        let b = sample_state(false).with_event_log(false);
+        check!(a.fingerprint() == b.fingerprint());
+        check!(a.same_state(&b));
     }
 
     #[test]
