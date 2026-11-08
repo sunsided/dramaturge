@@ -40,6 +40,7 @@ dramaturge-syntax = { workspace = true, optional = true }
 [dev-dependencies]
 assert2 = { workspace = true }
 dramaturge-authoring = { workspace = true }
+serde_json = "1"
 
 [[example]]
 name = "the_broken_seal"

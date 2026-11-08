@@ -14,10 +14,8 @@ dramaturge is a game-agnostic Rust library for branching dialogue. It models cha
 
 ```toml
 [dependencies]
-dramaturge = { version = "0.3", features = ["macros"] }
-
-# Only to load dialogues from YAML files:
-dramaturge-serde = { version = "0.3", features = ["yaml"] }
+# Add "yaml" to load dialogues from YAML files.
+dramaturge = { version = "0.3", features = ["macros", "yaml"] }
 
 # Only to check dialogues at authoring time (CI, editor, build step):
 dramaturge-authoring = "0.3"
@@ -32,10 +30,8 @@ No feature is on by default. The features of `dramaturge`:
 |---|---|
 | `syntax` | `dramaturge::syntax`: the dialogue AST, its serde shape (YAML, JSON, ...) and its lowering to a graph |
 | `macros` | `dialogue!` and the derives `DialogTag`, `FactValue`, `ConditionBuilder`. Implies `syntax` |
-| `serde` | Compiles `dramaturge-serde` (DTOs for graphs and save states) |
-| `yaml` | Compiles `dramaturge-serde` with its `yaml` feature |
-
-`dramaturge` does not re-export `dramaturge-serde`, so code that calls the YAML loader depends on `dramaturge-serde` directly, as above.
+| `serde` | `dramaturge::serialization` (the `dramaturge-serde` crate): DTOs for graphs and save states |
+| `yaml` | `serde`, plus the YAML loader `dramaturge::serialization::loader` |
 
 ## One dialogue language
 
@@ -79,7 +75,7 @@ let loaded = dialogue! {
 // loaded.graph: the DialogueGraph; loaded.symbols: the keys behind its ids.
 ```
 
-### YAML (`dramaturge-serde`, feature `yaml`)
+### YAML (feature `yaml`)
 
 ```yaml
 with: mara                  # the character the player talks to
@@ -116,8 +112,14 @@ nodes:
     next: end
 ```
 
-```rust
-let loaded = dramaturge_serde::loader::load_yaml(yaml)?; // graph, symbols, warnings
+```rust,no_run
+use dramaturge::serialization::loader::load_yaml;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let yaml = std::fs::read_to_string("mara.yaml")?;
+    let loaded = load_yaml(&yaml)?; // graph, symbols, warnings
+    Ok(())
+}
 ```
 
 ### JSON (feature `syntax`)
@@ -151,9 +153,13 @@ The AST deserializes from self-describing serde formats (JSON, YAML, TOML), not 
 }
 ```
 
-```rust
-let dialogue: dramaturge::syntax::Dialogue = serde_json::from_str(json)?;
-let loaded = dramaturge::syntax::lower_plain(&dialogue)?;
+```rust,no_run
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let json = std::fs::read_to_string("mara.json")?;
+    let dialogue: dramaturge::syntax::Dialogue = serde_json::from_str(&json)?;
+    let loaded = dramaturge::syntax::lower_plain(&dialogue)?;
+    Ok(())
+}
 ```
 
 ### Rust
@@ -164,46 +170,49 @@ let loaded = dramaturge::syntax::lower_plain(&dialogue)?;
 ```rust
 use dramaturge::syntax::{Choice, Dialogue, Node, Outcomes, Target, lower_plain};
 
-let dialogue: Dialogue = Dialogue::new("mara")
-    .with_start("again")
-    .with_start("intro")
-    .with_node(
-        Node::new("intro", "If you came about the shipment, I told the Wardens everything.".into())
-            .with_outcomes(Outcomes::default().with_set("met_mara", true.into()))
-            .with_option(
-                Choice::new("You treated someone with that medicine.".into(), Target::parse("soft"))
-                    .with_outcomes(Outcomes::default().with_relation("trust", 10)),
-            )
-            .with_option(
-                Choice::new("Ten gold says you remember more.".into(), Target::parse("soft"))
-                    .with_when("gold >= 10".into())
-                    .with_outcomes(Outcomes::default().with_add("gold", -10)),
-            )
-            .with_option(
-                Choice::new("Tell me where the crates went.".into(), Target::parse("forced"))
-                    .with_outcomes(
-                        Outcomes::default()
-                            .with_relation("trust", -10)
-                            .with_remember("was_threatened"),
-                    ),
-            )
-            .with_option(Choice::new("Never mind.".into(), Target::End)),
-    )
-    .with_node(
-        Node::new("again", "You again.".into())
-            .with_when("met_mara".into())
-            .with_option(Choice::new("Goodbye.".into(), Target::End)),
-    )
-    .with_node(
-        Node::new("soft", "The refugee camp beyond the east wall.".into())
-            .with_line("player", "I will speak carefully.".into())
-            .with_next(Target::End),
-    )
-    .with_node(
-        Node::new("forced", "The east wall. Take what you want.".into())
-            .with_next(Target::End),
-    );
-let loaded = lower_plain(&dialogue)?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let dialogue: Dialogue = Dialogue::new("mara")
+        .with_start("again")
+        .with_start("intro")
+        .with_node(
+            Node::new("intro", "If you came about the shipment, I told the Wardens everything.".into())
+                .with_outcomes(Outcomes::default().with_set("met_mara", true.into()))
+                .with_option(
+                    Choice::new("You treated someone with that medicine.".into(), Target::parse("soft"))
+                        .with_outcomes(Outcomes::default().with_relation("trust", 10)),
+                )
+                .with_option(
+                    Choice::new("Ten gold says you remember more.".into(), Target::parse("soft"))
+                        .with_when("gold >= 10".into())
+                        .with_outcomes(Outcomes::default().with_add("gold", -10)),
+                )
+                .with_option(
+                    Choice::new("Tell me where the crates went.".into(), Target::parse("forced"))
+                        .with_outcomes(
+                            Outcomes::default()
+                                .with_relation("trust", -10)
+                                .with_remember("was_threatened"),
+                        ),
+                )
+                .with_option(Choice::new("Never mind.".into(), Target::End)),
+        )
+        .with_node(
+            Node::new("again", "You again.".into())
+                .with_when("met_mara".into())
+                .with_option(Choice::new("Goodbye.".into(), Target::End)),
+        )
+        .with_node(
+            Node::new("soft", "The refugee camp beyond the east wall.".into())
+                .with_line("player", "I will speak carefully.".into())
+                .with_next(Target::End),
+        )
+        .with_node(
+            Node::new("forced", "The east wall. Take what you want.".into())
+                .with_next(Target::End),
+        );
+    let loaded = lower_plain(&dialogue)?;
+    Ok(())
+}
 ```
 
 </details>
@@ -240,24 +249,29 @@ one_of:
 
 `select` and `select_named` choose without changing progress or world state (they only draw from the RNG for `shuffle` and `sticky`) and return a `Selection` with a `Trace` that says why each candidate won or lost. `commit` then records the progress and the `learn` items:
 
-```rust
+```rust,no_run
+use dramaturge::serialization::loader::load_pool_yaml;
 use dramaturge::*;
 
-let mut symbols = SymbolTable::new();
-let pools = Pools::new().with(dramaturge_serde::loader::load_pool_yaml(yaml, &mut symbols)?);
-let keeper = CharacterId::new(symbols.entity("keeper").unwrap());
-let player = CharacterId::new(symbols.player());
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let yaml = std::fs::read_to_string("keeper_replies.yaml")?;
+    let mut symbols = SymbolTable::new();
+    let pools = Pools::new().with(load_pool_yaml(&yaml, &mut symbols)?);
+    let keeper = CharacterId::new(symbols.entity("keeper").unwrap());
+    let player = CharacterId::new(symbols.player());
 
-let evaluator = DefaultConditionEvaluator::new();
-let (mut state, mut progress, mut rng) = (DialogWorldState::new(), TextProgress::new(), SplitMix64::new(7));
-state.set_fact(FactScope::World, Fact::bool("stove.hot", true));
+    let evaluator = DefaultConditionEvaluator::new();
+    let (mut state, mut progress, mut rng) = (DialogWorldState::new(), TextProgress::new(), SplitMix64::new(7));
+    state.set_fact(FactScope::World, Fact::bool("stove.hot", true));
 
-// The player sees the hot stove: the last candidate has the highest score.
-let query = Query::new().speaker(keeper).topic("stove".into()).perceiver(player);
-let judge = DefaultJudge::new(&evaluator, &state);
-let selection = select_named("keeper_replies", &pools, "kitchen", &query, &judge, &progress, &mut rng);
-println!("{}", selection.trace);
-commit(&selection, &query, &mut progress, &mut world_learner(&mut state)); // learns ash_is_fresh
+    // The player sees the hot stove: the last candidate has the highest score.
+    let query = Query::new().speaker(keeper).topic("stove".into()).perceiver(player);
+    let judge = DefaultJudge::new(&evaluator, &state);
+    let selection = select_named("keeper_replies", &pools, "kitchen", &query, &judge, &progress, &mut rng);
+    println!("{}", selection.trace);
+    commit(&selection, &query, &mut progress, &mut world_learner(&mut state)); // learns ash_is_fresh
+    Ok(())
+}
 ```
 
 `dramaturge_authoring::GraphValidator::new().validate_pools(&pools)` reports ties in `best` pools, unkeyed progress modes and unknown pool names (see the [`dramaturge-authoring` README](crates/dramaturge-authoring/README.md)). The [`text_selection`](crates/dramaturge/examples/text_selection.rs) example builds pools in Rust instead of YAML.
@@ -266,32 +280,37 @@ commit(&selection, &query, &mut progress, &mut world_learner(&mut state)); // le
 
 `DefaultRuntime` picks the entry node, enters nodes (applying their outcomes) until one offers a choice, and applies the chosen option:
 
-```rust
+```rust,no_run
+use dramaturge::serialization::loader::load_yaml;
 use dramaturge::*;
 
-let (graph, mut symbols) = (loaded.graph, loaded.symbols);
-let player = symbols.player();
-let mut runtime = DefaultRuntime::new();
-let mut state = DialogWorldState::new();
-let mut cursor = DialogCursor::new(runtime.select_entry(&graph, &state).expect("an entry node"));
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let loaded = load_yaml(&std::fs::read_to_string("mara.yaml")?)?;
+    let (graph, mut symbols) = (loaded.graph, loaded.symbols);
+    let player = symbols.player();
+    let mut runtime = DefaultRuntime::new();
+    let mut state = DialogWorldState::new();
+    let mut cursor = DialogCursor::new(runtime.select_entry(&graph, &state).expect("an entry node"));
 
-loop {
-    let advance = runtime.advance(&graph, &mut cursor, &mut state);
-    for id in &advance.entered {
-        for (speaker, text) in graph.node(*id).unwrap().all_lines() {
-            let who = if speaker.0 == player { "you" } else { symbols.entity_key(speaker.0).unwrap_or("?") };
-            println!("{who}: {:?}", text.as_inline());
+    loop {
+        let advance = runtime.advance(&graph, &mut cursor, &mut state);
+        for id in &advance.entered {
+            for (speaker, text) in graph.node(*id).unwrap().all_lines() {
+                let who = if speaker.0 == player { "you" } else { symbols.entity_key(speaker.0).unwrap_or("?") };
+                println!("{who}: {:?}", text.as_inline());
+            }
+        }
+        if advance.stop != AdvanceStop::Choice {
+            break;
+        }
+        let node = graph.node(cursor.current).unwrap();
+        let option = runtime.available_options(node, &state).next().cloned().unwrap(); // the player's pick
+        let target = runtime.choose_option(&option, &mut state);
+        if cursor.follow(&target).is_none() {
+            break;
         }
     }
-    if advance.stop != AdvanceStop::Choice {
-        break;
-    }
-    let node = graph.node(cursor.current).unwrap();
-    let option = runtime.available_options(node, &state).next().cloned().unwrap(); // the player's pick
-    let target = runtime.choose_option(&option, &mut state);
-    if cursor.follow(&target).is_none() {
-        break;
-    }
+    Ok(())
 }
 ```
 
@@ -301,10 +320,16 @@ To keep dialogue state inside your own game state, implement `HasDialogWorldStat
 
 Check graphs at authoring time with [`dramaturge-authoring`](crates/dramaturge-authoring/README.md): missing targets, unreachable nodes, dead ends, cycles, always-false conditions, orphan facts and more.
 
-```rust
-let issues = dramaturge_authoring::GraphValidator::new()
-    .validate_with_symbols(&loaded.graph, &loaded.symbols);
-assert!(issues.is_empty(), "{issues:?}");
+```rust,no_run
+use dramaturge::serialization::loader::load_yaml;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let loaded = load_yaml(&std::fs::read_to_string("mara.yaml")?)?;
+    let issues = dramaturge_authoring::GraphValidator::new()
+        .validate_with_symbols(&loaded.graph, &loaded.symbols);
+    assert!(issues.is_empty(), "{issues:?}");
+    Ok(())
+}
 ```
 
 ## Derive macros (feature `macros`)

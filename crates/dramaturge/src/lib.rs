@@ -152,3 +152,8 @@ mod tests {
         let _: Intention = Intention::Persuade;
     }
 }
+
+/// Compiles and runs the Rust snippets of the workspace README as doctests.
+#[cfg(all(doctest, feature = "macros", feature = "yaml"))]
+#[doc = include_str!("../../../README.md")]
+pub struct ReadmeDoctests;
