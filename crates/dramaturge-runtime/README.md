@@ -70,6 +70,24 @@ assert!(evaluator.evaluate(&cond, &state));
 | `Advance`, `AdvanceStop` | What `advance` entered, and why it stopped |
 | `DialogCursor` | The current node and a return stack |
 | `DefaultRuntime` | Composes evaluator + applier to drive sessions |
+| `resolve_text` | Resolves a `DialogText` fragment list and records its progress |
+| `select`, `select_named` | Text selection core: choose what a text pool shows, with no change to the state |
+| `commit` | Records what a selection showed and hands each `learn` item to the host |
+| `Query`, `Judge`, `DefaultJudge` | Speaker, topic and perceiver of a selection; the host's condition evaluation |
+| `ProgressStore`, `TextProgress` | Where text progress lives (shown counts, sticky variants, resolution counts) |
+| `Selection`, `Trace`, `Verdict` | What shows, what `commit` records, and why each candidate won or lost |
+
+## Text selection
+
+A text pool (`dramaturge_model::Pool`) is an ordered list of candidates and a
+pick rule: `all`, `first` (the default) or `best` (the most tests win; a tie
+goes to file order). `select` chooses for a `Query` (speaker, topic and
+perceiver) and returns a `Selection` with a `Trace`. It does not change the
+progress, so an editor can preview with a copy of the RNG. `commit` records
+the progress and calls the learner. The pool types are generic over the host
+text leaf, condition and learn item (`TextTypes`); `DialogTypes` are those of
+plain dramaturge. See the module `text` and the `text_selection` example of
+the `dramaturge` crate.
 
 ## Part of the dramaturge workspace
 

@@ -9,13 +9,16 @@
 //! [`Plain`] is the host for plain dramaturge: the
 //! [default condition language](crate::condition), [`Text`] and [`Effect`].
 
-use crate::ast::{Dialogue, Effect, Fragment, FragmentMode, Hint, Target, Text, Value};
+use crate::ast::{
+    Dialogue, Effect, Fragment, FragmentMode, Hint, Pick, Target, Text, TextPool, Value, Variant,
+};
 use crate::check::{Issue, IssueKind, OutcomePlace, Place, Severity, check};
 use crate::condition::{self, ParseError};
 use dramaturge_model::{
-    CharacterId, Condition, CustomDialogTag, DialogLine, DialogTarget, DialogText, DialogueGraph,
-    DialogueNode, DialogueOption, EntityId, Fact, FactId, FactValue, Intention, Memory,
-    NavigationHint, Outcome, RelationshipAxisId, SymbolTable, TextFragment,
+    Candidate, CharacterId, Condition, CustomDialogTag, DialogLine, DialogTarget, DialogText,
+    DialogTypes, DialogueGraph, DialogueNode, DialogueOption, EntityId, Entry, Fact, FactId,
+    FactValue, Intention, Memory, NavigationHint, Outcome, Pool, RelationshipAxisId, SymbolTable,
+    TextFragment,
 };
 use std::fmt;
 use std::sync::Arc;
@@ -475,6 +478,7 @@ impl Plain {
     ) -> Result<DialogText<T>, ParseError> {
         match text {
             Text::Plain(s) => Ok(DialogText::Inline(s.clone())),
+            Text::Pool(id) => Ok(DialogText::Pool(Arc::from(id.as_str()))),
             Text::Fragments(fragments) => fragments
                 .iter()
                 .map(|f| fragment(cx, f, condition))
@@ -512,21 +516,24 @@ fn fragment<T>(
         .iter()
         .map(|v| Plain::text_with(cx, v, condition))
         .collect::<Result<Vec<_>, _>>()?;
-    let mode = match f.mode {
-        FragmentMode::Always => dramaturge_model::FragmentMode::Always,
-        FragmentMode::FirstTime => dramaturge_model::FragmentMode::FirstTime,
-        FragmentMode::Once => dramaturge_model::FragmentMode::Once,
-        FragmentMode::Cycle => dramaturge_model::FragmentMode::Cycle,
-        FragmentMode::Shuffle => dramaturge_model::FragmentMode::Shuffle,
-        FragmentMode::Sticky => dramaturge_model::FragmentMode::Sticky,
-    };
-    let mut out = TextFragment::with_mode(mode, variants);
+    let mut out = TextFragment::with_mode(model_mode(f.mode), variants);
     out.key = f.key.as_deref().map(Arc::from);
     out.replaces = f.replaces;
     if let Some(when) = &f.when {
         out.condition = Some(condition(cx, when)?);
     }
     Ok(out)
+}
+
+fn model_mode(mode: FragmentMode) -> dramaturge_model::FragmentMode {
+    match mode {
+        FragmentMode::Always => dramaturge_model::FragmentMode::Always,
+        FragmentMode::FirstTime => dramaturge_model::FragmentMode::FirstTime,
+        FragmentMode::Once => dramaturge_model::FragmentMode::Once,
+        FragmentMode::Cycle => dramaturge_model::FragmentMode::Cycle,
+        FragmentMode::Shuffle => dramaturge_model::FragmentMode::Shuffle,
+        FragmentMode::Sticky => dramaturge_model::FragmentMode::Sticky,
+    }
 }
 
 impl Lower<String, Text, Effect> for Plain {
@@ -575,4 +582,135 @@ pub fn lower_plain(dialogue: &Dialogue) -> Result<Loaded, LowerError<ParseError>
         symbols,
         warnings: lowered.warnings,
     })
+}
+
+/// The result of [`lower_pool`] for the host `L`: a model pool of
+/// [`DialogTypes`] with the host text type.
+pub type PoolResult<C, X, E, L> = Result<
+    Pool<DialogTypes<<L as Lower<C, X, E>>::Text>>,
+    LowerError<<L as Lower<C, X, E>>::Error>,
+>;
+
+/// Lowers a text pool to a model [`Pool`] of [`DialogTypes`].
+///
+/// The pool needs an [`id`](TextPool::id) (a host that takes the id from
+/// the file name sets it first); without one, the result is
+/// [`LowerError::Check`] with [`IssueKind::NoPoolId`]. The hooks of the
+/// host lower the conditions (`when`) and the texts. `speaker` keys go
+/// through [`Lower::entity`], and [`Cx::speaker`] is the candidate's
+/// speaker (or the player) while its condition and text lower. Each
+/// `learn` name becomes `Fact::bool(name, true)`.
+///
+/// A text that lowers to [`DialogText::Pool`] becomes an
+/// [`Entry::Named`]: in YAML, `text: { text: <pool id> }` shows a named
+/// pool. An inline pool without an id takes the key of its candidate, or
+/// its index.
+///
+/// `E` is the effect payload of the host's [`Lower`] implementation. A
+/// pool has no effects; name `E` when `L` implements `Lower` for more than
+/// one payload set.
+pub fn lower_pool<C, X, E, L: Lower<C, X, E>>(
+    pool: &TextPool<C, X>,
+    symbols: &mut SymbolTable,
+    host: &mut L,
+) -> PoolResult<C, X, E, L> {
+    let Some(id) = pool.id.as_deref() else {
+        return Err(LowerError::Check(vec![Issue {
+            severity: Severity::Error,
+            kind: IssueKind::NoPoolId,
+            place: Place::Pool("id".into()),
+            path: "id".into(),
+            message: "a named text pool needs an `id`".into(),
+        }]));
+    };
+    let player = symbols.player();
+    let mut cx = Cx {
+        symbols,
+        player,
+        with: player,
+        speaker: player,
+        place: Place::Pool(String::new()),
+    };
+    pool_with(pool, id, "", &mut cx, host)
+}
+
+fn pool_with<C, X, E, L: Lower<C, X, E>>(
+    pool: &TextPool<C, X>,
+    id: &str,
+    path: &str,
+    cx: &mut Cx<'_>,
+    host: &mut L,
+) -> PoolResult<C, X, E, L> {
+    let fail = |path: String, error| LowerError::Host {
+        place: Place::Pool(path.clone()),
+        path,
+        error,
+    };
+    let pick = match pool.pick.unwrap_or_default() {
+        Pick::All => dramaturge_model::Pick::All,
+        Pick::First => dramaturge_model::Pick::First,
+        Pick::Best => dramaturge_model::Pick::Best,
+    };
+    let mut out = Pool::new(id, pick);
+    for (i, c) in pool.one_of.iter().enumerate() {
+        let here = format!("{path}one_of[{i}]");
+        let speaker = match &c.speaker {
+            Some(key) => {
+                let at = format!("{here}.speaker");
+                cx.place = Place::Pool(at.clone());
+                Some(host.entity(cx, key).map_err(|e| fail(at, e))?)
+            }
+            None => None,
+        };
+        let outer = cx.speaker;
+        cx.speaker = speaker.unwrap_or(cx.player);
+
+        let mut candidate = Candidate::new(Vec::new()).mode(model_mode(c.mode));
+        candidate.key = c.key.as_deref().map(Arc::from);
+        candidate.speaker = speaker.map(CharacterId::new);
+        candidate.topic = c.topic.as_deref().map(Arc::from);
+        if let Some(when) = &c.when {
+            let at = format!("{here}.when");
+            cx.place = Place::Pool(at.clone());
+            candidate.when = Some(host.condition(cx, when).map_err(|e| fail(at, e))?);
+        }
+        for (v, variant) in c.variants.iter().enumerate() {
+            let at = if c.variants.len() == 1 {
+                format!("{here}.text")
+            } else {
+                format!("{here}.variants[{v}]")
+            };
+            let entry = match variant {
+                Variant::Text(x) => {
+                    cx.place = Place::Pool(at.clone());
+                    match host.text(cx, x).map_err(|e| fail(at, e))? {
+                        DialogText::Pool(id) => Entry::Named(id),
+                        text => Entry::Leaf(text),
+                    }
+                }
+                Variant::Pool(inner) => {
+                    let index = i.to_string();
+                    let inner_id = inner.id.as_deref().or(c.key.as_deref()).unwrap_or(&index);
+                    Entry::Pool(pool_with(inner, inner_id, &format!("{at}."), cx, host)?)
+                }
+            };
+            candidate.variants.push(entry);
+        }
+        candidate.learn = c
+            .learn
+            .iter()
+            .map(|name| Fact::bool(name.as_str(), true))
+            .collect();
+        cx.speaker = outer;
+        out.candidates.push(candidate);
+    }
+    Ok(out)
+}
+
+/// Lowers a plain text pool ([`Plain`] hooks) into `symbols`.
+pub fn lower_pool_plain(
+    pool: &TextPool,
+    symbols: &mut SymbolTable,
+) -> Result<Pool<DialogTypes>, LowerError<ParseError>> {
+    lower_pool::<String, Text, Effect, Plain>(pool, symbols, &mut Plain)
 }

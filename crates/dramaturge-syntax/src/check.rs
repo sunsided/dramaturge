@@ -43,6 +43,9 @@ pub enum Place {
     OptionGo(usize, usize),
     /// An outcome of option `o` of node `n`.
     OptionOutcome(usize, usize, OutcomePlace),
+    /// A place in a [`TextPool`](crate::TextPool), as its path, for
+    /// example `one_of[2].when`.
+    Pool(String),
 }
 
 /// An entry in [`Outcomes`](crate::Outcomes).
@@ -87,6 +90,7 @@ impl Place {
             Place::OptionWhen(n, o) => format!("{}.options[{o}].when", node(n)),
             Place::OptionGo(n, o) => format!("{}.options[{o}].go", node(n)),
             Place::OptionOutcome(n, o, out) => format!("{}.options[{o}].{out}", node(n)),
+            Place::Pool(path) => path.clone(),
         }
     }
 }
@@ -135,6 +139,8 @@ pub enum IssueKind {
     /// sees only a missing `say`; [`lower`](crate::lower()) also reports
     /// a `say` that lowers to empty text.
     NoLabel,
+    /// A named [`TextPool`](crate::TextPool) has no `id`.
+    NoPoolId,
 }
 
 /// A problem in a dialogue.

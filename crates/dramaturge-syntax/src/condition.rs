@@ -15,12 +15,13 @@
 //! | `relation(trust) >= 3` | relation of the player to the speaker of the node |
 //! | `relation(trust, orren) >= 3` | relation of the player to `orren` |
 //! | `remembers(mara, saw_the_seal)` | `mara` has the memory |
+//! | `seen_by(player)` | the perceiver of a text is `player` (`Condition::SeenBy`) |
 //! | `true`, `false` | always, never |
 //! | `not a`, `a and b`, `a or b`, `( a )` | also `!`, `&&`, `\|\|` |
 //!
 //! Names are identifiers joined with dots: `mara.met` is the world fact
-//! `mara.met`. The key `player` is the player in `remembers` and
-//! `relation`.
+//! `mara.met`. The key `player` is the player in `remembers`, `relation`
+//! and `seen_by`.
 //!
 //! [`parse`] reads the text into an [`Expr`] without the model, so the
 //! `dialogue!` macro checks a condition at compile time.
@@ -28,7 +29,8 @@
 
 use crate::lower::Cx;
 use dramaturge_model::{
-    Condition, FactId, FactScope, FactValue, MemoryQuery, RelationshipAxisId, SymbolTable,
+    CharacterId, Condition, FactId, FactScope, FactValue, MemoryQuery, RelationshipAxisId,
+    SymbolTable,
 };
 use std::fmt;
 use std::ops::Range;
@@ -65,6 +67,8 @@ pub enum Expr {
         /// The memory key.
         memory: String,
     },
+    /// `seen_by(actor)`: the perceiver of a text is this character.
+    SeenBy(String),
 }
 
 /// A fact name with its scope.
@@ -464,6 +468,12 @@ impl Parser<'_> {
                 self.expect(Tok::RParen, "`)`")?;
                 return Ok(Expr::Remembers { owner, memory });
             }
+            "seen_by" if self.peek() == Some(&Tok::LParen) => {
+                self.pos += 1;
+                let actor = self.name()?;
+                self.expect(Tok::RParen, "`)`")?;
+                return Ok(Expr::SeenBy(actor));
+            }
             "relation" if self.peek() == Some(&Tok::LParen) => {
                 self.pos += 1;
                 let axis = self.name()?;
@@ -485,7 +495,9 @@ impl Parser<'_> {
             }
             _ if self.peek() == Some(&Tok::LParen) => {
                 return Err(ParseError::new(
-                    format!("unknown function `{name}`; use `exists`, `remembers` or `relation`"),
+                    format!(
+                        "unknown function `{name}`; use `exists`, `remembers`, `relation` or `seen_by`"
+                    ),
                     start.start..self.range().end,
                 ));
             }
@@ -567,6 +579,7 @@ impl Expr {
                 owner: cx.entity(owner),
                 query: MemoryQuery::by_id(cx.symbols.intern_memory(memory)),
             },
+            Expr::SeenBy(actor) => Condition::SeenBy(CharacterId::new(cx.entity(actor))),
             Expr::Compare { left, op, value } => match left {
                 Operand::Fact(fact) => fact_compare(fact, *op, value),
                 Operand::Relation { axis, target } => {

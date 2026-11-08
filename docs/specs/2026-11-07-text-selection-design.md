@@ -1,7 +1,9 @@
 # Text selection core: design note
 
 **Date:** 2026-11-07
-**Status:** Draft, for review before the code
+**Status:** Accepted. Q1 to Q8 take their recommendations (Markus,
+2026-11-07). Implemented in R9 (#79); section 9 records where the code is
+different from the sketch in section 3.
 **Roadmap item:** P3-05 (#78). The code is R9 (#79, milestone 0.3.0-alpha.4).
 **Decision:** D2 (decided 2026-11-06): dramaturge owns the selection core
 (fragments, modes, tuples, perceiver), generic over a host text leaf.
@@ -406,3 +408,83 @@ warns about a tie in a `best` pool.
   verdicts and scores above.
 - `resolve_text_unchanged`: the existing `resolve_text` tests pass on the
   new core.
+
+## 9. As built (R9)
+
+The code follows sections 2 to 6. This section records the changes to the
+sketch of section 3, and how the code settles the five API points from the
+review of #90 (comment on #79).
+
+### Where the parts are
+
+| Part | Place |
+| --- | --- |
+| `TextTypes`, `Specificity`, `DialogTypes<T>`, `Pick`, `Pool`, `Candidate`, `Entry`, `Pools` | `dramaturge-model`, module `pool` |
+| `Condition::SeenBy(CharacterId)`, `DialogText::Pool(id)` | `dramaturge-model` |
+| `select`, `select_named`, `commit`, `Query`, `Judge`, `DefaultJudge`, `world_learner`, `ProgressStore`, `Count`, `CountKey`, `Selection`, `Step`, `Shown`, `Trace`, `TraceRow`, `Verdict` | `dramaturge-runtime`, module `text::select` (`text.rs` plus `text/select.rs`) |
+| `TextProgress::named_resolutions` and the `named` map | `dramaturge-runtime` |
+| `TextProgressDto::named` (serde default), `ConditionDto::SeenBy`, `DialogTextDto::Pool`, `PoolDto` | `dramaturge-serde` |
+| `GraphValidator::validate_pools` (`PickTie`, `UnkeyedProgress`, `UnknownPool`) | `dramaturge-authoring` |
+| `TextPool`, `Candidate`, `Variant`, `Pick`, `Text::Pool`, `lower_pool`, `seen_by(x)` | `dramaturge-syntax` |
+| `load_pool_yaml`, `pool_from_yaml`, `pool_to_yaml` | `dramaturge-serde`, module `loader` |
+
+### Changes to the sketch
+
+- **No `Pool::named` flag** (review point 2). The place of a pool gives
+  the kind of its count: the root of `select` is inline, the root of
+  `select_named` is named, an `Entry::Pool` is inline (it uses the count of
+  the nearest root or named pool around it), and an `Entry::Named` is named.
+  To select a named pool, call `select_named(id, pools, ..)`.
+- **Two entry points.** `select(pool, ..)` for an inline pool and
+  `select_named(id, ..)` for a named pool. Each has seven parameters, as in
+  the sketch. `caller` is `impl Into<Arc<str>>`.
+- **`Selection::steps`.** The sketch gave the progress to each shown leaf.
+  But a candidate whose variant is a pool shows zero or more leaves, and it
+  needs progress too (`resolve_text` records the outer fragment). Thus
+  `Selection` has `steps` (one `Step` for each candidate that shows: its
+  progress key, candidate, variant, the progress after `commit`, and the
+  range of its leaves) and `shown` (the leaves, each with its step).
+  `learn` is on the step (`Step::learn`), not on each leaf.
+- **The score is a method.** `Candidate::score()` computes the score from
+  the fields. The fields are public, so a stored score can become wrong.
+  The computation is a short walk of the condition.
+- **More verdicts.** `Verdict::Recursive`: a named pool that names itself
+  (directly or through other pools) shows nothing at the second level.
+  `Trace::missing` marks a pool that is not in `Pools`. `Trace` implements
+  `Display` in the form of section 2.
+- **A walk overlay.** When one selection shows the same candidate twice (a
+  named pool named twice), the second time reads the progress of the first.
+  `commit` writes the steps in order, so the last write has the full count.
+- **`DialogText::Pool(id)`** is the `DialogText` variant that section 3
+  allows: `say: { text: keeper_remark }` lowers to it. `resolve_text` has no
+  pools, so it returns the id as a `ResolvedText::Pool` piece. In a pool, a
+  text that lowers to `DialogText::Pool` becomes an `Entry::Named`.
+- **`resolve_text` on the core.** The fragment list becomes a `Pick::All`
+  pool with the id `owner`, with borrowed leaves and conditions (no clone of
+  the graph). The keys, counts, RNG draws and pieces are those of
+  0.3.0-alpha.4. `replaces` stays in `resolve_text`: it takes the leaves
+  from the last shown step with `replaces`.
+
+### The five review points
+
+1. **`Selection::counts` lists only the named pools that contributed shown
+   leaves.** A losing candidate never resolves its variant, so its named
+   pool is not resolved. A named pool that the walk resolves but that shows
+   no leaf (all conditions false) is not counted. Each named pool is in the
+   list once. The inline root is always first in the list: as in
+   `resolve_text`, a resolution counts even when it shows nothing.
+2. **The count kind comes from `Entry::Named` against `Entry::Pool`** (and
+   from the entry point for the root), not from a stored flag. `Pool` has
+   no `named` field.
+3. **Inline `first_time` is per owner, not per caller.** An inline pool has
+   one place, so the caller does not split its first time.
+   `Count::Inline { owner }` counts in the `owners` map, keyed by the owner
+   as in `resolve_text`, so old `owners` keys load with the same meaning.
+   Named pools count in the new `named` map, keyed by pool id and caller.
+   The DTO field `named` has a serde default, so a save without it loads.
+4. **The inline owner that `select` passes is the pool id** of the root
+   pool (`Count::Inline { owner: &pool.id }`). The progress keys start with
+   the same id. `resolve_text` makes a pool with the id `owner`, so its
+   owner and keys do not change.
+5. **`Count` and `CountKey` are `#[non_exhaustive]`**, as `Pick` and
+   `Verdict` are. A host `ProgressStore` matches them with a `_` arm.

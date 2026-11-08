@@ -48,8 +48,37 @@
 //! so a host with its own payloads reads the same shape and lowers it with
 //! its own [`Lower`](dramaturge_syntax::Lower) hooks. [`load_yaml`] uses
 //! the defaults of plain dramaturge.
+//!
+//! # Text pools
+//!
+//! [`load_pool_yaml`] reads a text pool (`id`, `pick`, `one_of`; see
+//! `dramaturge_syntax::shape`) into a
+//! [`Pool<DialogTypes>`](dramaturge_model::Pool) for the selection core
+//! (`dramaturge_runtime::text`). A dialogue line says a named pool with
+//! `say: { text: <pool id> }`.
+//!
+//! ```rust
+//! use dramaturge_model::{Pick, Pools, SymbolTable};
+//! use dramaturge_serde::loader::load_pool_yaml;
+//!
+//! let yaml = r#"
+//! id: keeper_remark
+//! pick: best
+//! one_of:
+//!   - "Mind your step."
+//!   - when: room == "kitchen"
+//!     text: "Do not touch the stove."
+//! "#;
+//! let mut symbols = SymbolTable::new();
+//! let pool = load_pool_yaml(yaml, &mut symbols).unwrap();
+//! assert_eq!(pool.pick, Pick::Best);
+//! let pools = Pools::new().with(pool);
+//! assert!(pools.get("keeper_remark").is_some());
+//! ```
 
-pub use dramaturge_syntax::{Dialogue, Issue, Loaded as LoadedDialogue, LowerError, ParseError};
+pub use dramaturge_syntax::{
+    Dialogue, Issue, Loaded as LoadedDialogue, LowerError, ParseError, TextPool,
+};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::fmt;
@@ -134,7 +163,7 @@ pub fn to_yaml<C: Serialize, X: Serialize, E: Serialize, M: Serialize>(
     })
 }
 
-/// An error of [`load_yaml`].
+/// An error of [`load_yaml`] and [`load_pool_yaml`].
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum LoadError {
@@ -163,6 +192,43 @@ impl std::error::Error for LoadError {}
 pub fn load_yaml(yaml: &str) -> Result<LoadedDialogue, LoadError> {
     let dialogue: Dialogue = from_yaml(yaml).map_err(LoadError::Yaml)?;
     dramaturge_syntax::lower_plain(&dialogue).map_err(LoadError::Lower)
+}
+
+/// Reads a text pool from YAML.
+///
+/// `C` and `X` are the condition and text payloads. For plain dramaturge,
+/// use the defaults: `let p: TextPool = pool_from_yaml(yaml)?;`.
+pub fn pool_from_yaml<C, X>(yaml: &str) -> Result<TextPool<C, X>, YamlError>
+where
+    C: DeserializeOwned,
+    X: DeserializeOwned,
+{
+    serde_saphyr::from_str(yaml).map_err(YamlError::from)
+}
+
+/// Writes a text pool as YAML.
+pub fn pool_to_yaml<C: Serialize, X: Serialize>(
+    pool: &TextPool<C, X>,
+) -> Result<String, YamlError> {
+    serde_saphyr::to_string(pool).map_err(|e| YamlError {
+        message: e.to_string(),
+        line: None,
+        column: None,
+    })
+}
+
+/// Reads a text pool from YAML and lowers it to a
+/// [`Pool<DialogTypes>`](dramaturge_model::Pool).
+///
+/// Speaker keys and the actors of `seen_by(..)` go into `symbols`, so
+/// pass the symbol table of the dialogues that use the pool. The pool needs
+/// an `id`.
+pub fn load_pool_yaml(
+    yaml: &str,
+    symbols: &mut dramaturge_model::SymbolTable,
+) -> Result<dramaturge_model::Pool<dramaturge_model::DialogTypes>, LoadError> {
+    let pool: TextPool = pool_from_yaml(yaml).map_err(LoadError::Yaml)?;
+    dramaturge_syntax::lower_pool_plain(&pool, symbols).map_err(LoadError::Lower)
 }
 
 #[cfg(test)]

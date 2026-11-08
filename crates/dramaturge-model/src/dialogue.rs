@@ -89,6 +89,12 @@ pub enum DialogText<T = ()> {
     /// dramaturge does not look into host text. The validator does not
     /// check it, and `dramaturge_runtime::resolve_text` returns it as it is.
     Host(T),
+    /// The id of a named text pool (`say: { text: keeper_remark }`).
+    ///
+    /// The host selects the pool with `dramaturge_runtime::text::select_named`.
+    /// `dramaturge_runtime::resolve_text` has no pools: it returns the id as
+    /// a `ResolvedText::Pool` piece.
+    Pool(Arc<str>),
 }
 
 /// One piece of a [`DialogText::Fragments`] list.
@@ -214,6 +220,19 @@ impl<T> DialogText<T> {
         Self::Host(text)
     }
 
+    /// Creates a reference to a named text pool.
+    pub fn pool(id: impl Into<Arc<str>>) -> Self {
+        Self::Pool(id.into())
+    }
+
+    /// Returns the inline text, or `None` for every other variant.
+    pub fn as_inline(&self) -> Option<&str> {
+        match self {
+            Self::Inline(text) => Some(text),
+            _ => None,
+        }
+    }
+
     /// Returns the host text, or `None` for every other variant.
     ///
     /// Host text inside a fragment list is not returned. Use
@@ -245,6 +264,7 @@ impl<T> DialogText<T> {
                     .collect(),
             ),
             Self::Host(text) => DialogText::Host(f(text)),
+            Self::Pool(id) => DialogText::Pool(id),
         }
     }
 }

@@ -437,7 +437,8 @@ impl From<String> for Value {
     }
 }
 
-/// The default text payload: a string, or a list of fragments.
+/// The default text payload: a string, a list of fragments, or a named
+/// text pool.
 ///
 /// ```yaml
 /// say:
@@ -447,6 +448,10 @@ impl From<String> for Value {
 ///   - mode: cycle
 ///     variants: ["\"Again?\"", "\"You.\""]
 /// ```
+///
+/// ```yaml
+/// say: { text: keeper_remark }   # the named pool `keeper_remark`
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Text {
@@ -454,6 +459,9 @@ pub enum Text {
     Plain(String),
     /// A list of fragments (`DialogText::Fragments`).
     Fragments(Vec<Fragment>),
+    /// The id of a named text pool (`DialogText::Pool`). The YAML form is
+    /// `{ text: <pool id> }`.
+    Pool(String),
 }
 
 impl Text {
@@ -462,6 +470,7 @@ impl Text {
         match self {
             Text::Plain(s) => s.is_empty(),
             Text::Fragments(f) => f.is_empty(),
+            Text::Pool(id) => id.is_empty(),
         }
     }
 }
@@ -525,6 +534,131 @@ pub enum FragmentMode {
     Shuffle,
     /// A random variant the first time, then always that one.
     Sticky,
+}
+
+/// A text pool: an ordered list of candidates and a pick rule
+/// (`dramaturge_model::Pool`).
+///
+/// ```yaml
+/// id: keeper_remark
+/// pick: best
+/// one_of:
+///   - "Mind your step."
+///   - when: in_kitchen
+///     text: "Do not touch the stove."
+///   - when: in_kitchen and ash_is_fresh
+///     mode: sticky
+///     variants: ["I let it go out at midnight.", "Cold stove, cold supper."]
+/// ```
+///
+/// `C` and `X` are the host's condition and text payloads, as in
+/// [`Dialogue`].
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct TextPool<C = String, X = Text> {
+    /// The id. A named pool needs it; a host can take it from the file
+    /// name instead. An inline pool without an id takes the key of its
+    /// candidate.
+    pub id: Option<String>,
+    /// The pick rule. `None` is the default, [`Pick::First`].
+    pub pick: Option<Pick>,
+    /// The candidates, in file order (`one_of`).
+    pub one_of: Vec<Candidate<C, X>>,
+}
+
+impl<C, X> TextPool<C, X> {
+    /// Creates an empty pool with an id.
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: Some(id.into()),
+            pick: None,
+            one_of: Vec::new(),
+        }
+    }
+
+    /// Sets the pick rule and returns the pool.
+    pub fn with_pick(mut self, pick: Pick) -> Self {
+        self.pick = Some(pick);
+        self
+    }
+
+    /// Adds a candidate and returns the pool.
+    pub fn with_candidate(mut self, candidate: Candidate<C, X>) -> Self {
+        self.one_of.push(candidate);
+        self
+    }
+}
+
+/// The pick rule of a [`TextPool`] (`dramaturge_model::Pick`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Pick {
+    /// Every eligible candidate, in file order.
+    All,
+    /// The first eligible candidate. The default.
+    #[default]
+    First,
+    /// The eligible candidate with the most tests.
+    Best,
+}
+
+/// One candidate of a [`TextPool`] (`dramaturge_model::Candidate`).
+///
+/// A bare text is a candidate with that text and nothing else.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct Candidate<C = String, X = Text> {
+    /// A stable progress key.
+    pub key: Option<String>,
+    /// The condition.
+    pub when: Option<C>,
+    /// The speaker key (ask and show). The key `player` is the player.
+    pub speaker: Option<String>,
+    /// The topic or thing key.
+    pub topic: Option<String>,
+    /// The display mode.
+    pub mode: FragmentMode,
+    /// The variants. One for `always`, `first_time` and `once`.
+    pub variants: Vec<Variant<C, X>>,
+    /// Facts that the perceiver learns when the candidate shows. The
+    /// plain lowering sets each one to `true` in the world scope.
+    pub learn: Vec<String>,
+}
+
+impl<C, X> Candidate<C, X> {
+    /// A candidate with one variant and nothing else.
+    pub fn new(variant: Variant<C, X>) -> Self {
+        Self {
+            key: None,
+            when: None,
+            speaker: None,
+            topic: None,
+            mode: FragmentMode::Always,
+            variants: vec![variant],
+            learn: Vec::new(),
+        }
+    }
+
+    /// A candidate with one text.
+    pub fn text(text: X) -> Self {
+        Self::new(Variant::Text(text))
+    }
+
+    /// Sets the condition and returns the candidate.
+    pub fn with_when(mut self, when: C) -> Self {
+        self.when = Some(when);
+        self
+    }
+}
+
+/// A variant of a [`Candidate`]: a text, or an inline pool (`one_of`).
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum Variant<C = String, X = Text> {
+    /// A text.
+    Text(X),
+    /// An inline pool.
+    Pool(TextPool<C, X>),
 }
 
 /// The default effect payload, for hosts without their own effects.

@@ -8,10 +8,11 @@ use dramaturge_model::{
     FactValue, FragmentMode, Intention, Memory, MemoryId, MemoryQuery, MemoryTag, NavigationHint,
     Outcome, RelationshipAxisId, SymbolTable, TextFragment,
 };
+use dramaturge_model::{Candidate, DialogTypes, Entry, Pick, Pool};
 use dramaturge_runtime::{DialogCursor, DialogWorldState, FragmentProgress, TextProgress};
 use dramaturge_serde::dto::{
     ConditionDto, DialogCursorDto, DialogTextDto, DialogueGraphDto, DialogueNodeDto, IntoModel,
-    OutcomeDto, TextProgressDto, WorldStateDto,
+    OutcomeDto, PoolDto, TextProgressDto, WorldStateDto,
 };
 use dramaturge_serde::save::{OrphanedKey, SavedDialogCursor, SavedWorldState, SymbolKind};
 use proptest::collection::vec;
@@ -194,6 +195,7 @@ fn condition() -> impl Strategy<Value = Condition> {
         }),
         (entity(), memory_query()).prop_map(|(owner, query)| Condition::HasMemory { owner, query }),
         tag().prop_map(|tag| Condition::HasTagAvailable { tag }),
+        entity().prop_map(|who| Condition::SeenBy(CharacterId::new(who))),
         (key(), vec(fact_value(), 0..3)).prop_map(|(key, args)| Condition::Custom { key, args }),
     ];
     leaf.prop_recursive(3, 24, 4, |inner| {
@@ -261,6 +263,7 @@ fn text() -> impl Strategy<Value = DialogText> {
     let leaf = prop_oneof![
         ".{0,16}".prop_map(DialogText::Inline),
         key().prop_map(DialogText::localized),
+        key().prop_map(DialogText::pool),
     ];
     leaf.prop_recursive(2, 12, 3, |inner| {
         vec(
@@ -281,6 +284,49 @@ fn text() -> impl Strategy<Value = DialogText> {
             0..3,
         )
         .prop_map(DialogText::Fragments)
+    })
+}
+
+fn pick() -> impl Strategy<Value = Pick> {
+    prop_oneof![Just(Pick::All), Just(Pick::First), Just(Pick::Best)]
+}
+
+fn candidate(
+    entry: impl Strategy<Value = Entry<DialogTypes>>,
+) -> impl Strategy<Value = Candidate<DialogTypes>> {
+    (
+        proptest::option::of(key()),
+        proptest::option::of(entity()),
+        proptest::option::of(key()),
+        proptest::option::of(condition()),
+        fragment_mode(),
+        vec(entry, 0..3),
+        vec((key(), any::<bool>()), 0..2),
+    )
+        .prop_map(|(k, speaker, topic, when, mode, variants, learn)| {
+            let mut c = Candidate::new(variants).mode(mode);
+            c.key = k.map(Into::into);
+            c.speaker = speaker.map(CharacterId::new);
+            c.topic = topic.map(Into::into);
+            c.when = when;
+            c.learn = learn.into_iter().map(|(n, v)| Fact::bool(n, v)).collect();
+            c
+        })
+}
+
+fn pool() -> impl Strategy<Value = Pool<DialogTypes>> {
+    let leaf = prop_oneof![text().prop_map(Entry::Leaf), key().prop_map(Entry::named),];
+    let entry = leaf.prop_recursive(2, 8, 2, |inner| {
+        (key(), pick(), vec(candidate(inner), 0..3)).prop_map(|(id, pick, candidates)| {
+            let mut p = Pool::new(id, pick);
+            p.candidates = candidates;
+            Entry::Pool(p)
+        })
+    });
+    (key(), pick(), vec(candidate(entry), 0..4)).prop_map(|(id, pick, candidates)| {
+        let mut p = Pool::new(id, pick);
+        p.candidates = candidates;
+        p
     })
 }
 
@@ -448,6 +494,7 @@ proptest! {
     fn text_progress_roundtrips(
         fragments in vec((key(), any::<u32>(), proptest::option::of(any::<u32>())), 0..6),
         owners in vec((key(), any::<u32>()), 0..4),
+        named in vec((key(), key(), any::<u32>()), 0..4),
     ) {
         let mut p = TextProgress::new();
         for (k, shown, pick) in fragments {
@@ -456,7 +503,16 @@ proptest! {
         for (o, n) in owners {
             p.set_resolutions(o, n);
         }
+        for (pool, caller, n) in named {
+            p.set_named_resolutions(pool, caller, n);
+        }
         let back = json_roundtrip(&TextProgressDto::from(&p)).into_model();
+        prop_assert_eq!(back, p);
+    }
+
+    #[test]
+    fn pool_roundtrips(p in pool()) {
+        let back = json_roundtrip(&PoolDto::from(&p)).into_model();
         prop_assert_eq!(back, p);
     }
 
@@ -882,4 +938,78 @@ fn saved_cursor_remaps_current_and_back_by_key() {
     // Raw ids changed, so the identity mapping would restore wrong nodes.
     check!(b2 != b);
     check!(hub2 != hub);
+}
+
+#[test]
+fn text_progress_from_before_named_pools_loads() {
+    // A save of 0.3.0-alpha.4: no `named` field.
+    let json = r#"{"fragments":[{"key":"mara.intro/0","shown":2}],"owners":[{"owner":"mara.intro","resolutions":2}]}"#;
+    let dto: TextProgressDto = serde_json::from_str(json).unwrap();
+    let p: TextProgress = dto.into_model();
+    check!(p.resolutions("mara.intro") == 2);
+    check!(p.fragment("mara.intro/0").map(|f| f.shown) == Some(2));
+    check!(p.named().count() == 0);
+    // A named pool with the same id as an owner does not read the owner count.
+    check!(p.named_resolutions("mara.intro", "mara.intro") == 0);
+}
+
+#[test]
+fn sticky_in_named_pool_survives_save() {
+    use dramaturge_runtime::{
+        DefaultConditionEvaluator, DefaultJudge, Query, SplitMix64, commit, select_named,
+    };
+    let fresh = Condition::FactExists {
+        scope: FactScope::World,
+        fact_id: FactId::new("ash_is_fresh"),
+    };
+    let pools = dramaturge_model::Pools::new().with(
+        Pool::<DialogTypes>::new("keeper_remark", Pick::Best)
+            .with_candidate(Candidate::leaf(DialogText::inline("Mind your step.")))
+            .with_candidate(
+                Candidate::new(
+                    ["I let it go out.", "Cold stove, cold supper.", "Go to bed."]
+                        .map(|s| Entry::Leaf(DialogText::inline(s)))
+                        .into(),
+                )
+                .mode(FragmentMode::Sticky)
+                .when(fresh),
+            ),
+    );
+    let mut state = DialogWorldState::new();
+    state.set_fact(FactScope::World, Fact::bool("ash_is_fresh", true));
+    let evaluator = DefaultConditionEvaluator::new();
+    let query = Query::new();
+    let say = |progress: &TextProgress, seed: u64| {
+        let judge = DefaultJudge::new(&evaluator, &state);
+        let mut rng = SplitMix64::new(seed);
+        let s = select_named(
+            "keeper_remark",
+            &pools,
+            "kitchen",
+            &query,
+            &judge,
+            progress,
+            &mut rng,
+        );
+        let text = s
+            .leaves()
+            .next()
+            .and_then(DialogText::as_inline)
+            .map(str::to_string);
+        let mut after = progress.clone();
+        commit(&s, &query, &mut after, &mut |_, _| {});
+        (text, after)
+    };
+    let (first, progress) = say(&TextProgress::new(), 11);
+    let json = serde_json::to_string(&TextProgressDto::from(&progress)).unwrap();
+    let loaded: TextProgress = serde_json::from_str::<TextProgressDto>(&json)
+        .unwrap()
+        .into_model();
+    check!(loaded == progress);
+    check!(loaded.named_resolutions("keeper_remark", "kitchen") == 1);
+    // Another seed: the sticky variant comes from the save, not the RNG.
+    for seed in 0..8 {
+        let (again, _) = say(&loaded, seed);
+        check!(again == first);
+    }
 }

@@ -1086,6 +1086,8 @@ pub enum ConditionDto {
     HasTagAvailable {
         tag: DialogTagDto,
     },
+    /// The perceiver is this character (raw entity id).
+    SeenBy(u64),
     Custom {
         key: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1170,6 +1172,7 @@ impl From<&model::Condition> for ConditionDto {
                 query: query.into(),
             },
             C::HasTagAvailable { tag } => Self::HasTagAvailable { tag: tag.into() },
+            C::SeenBy(who) => Self::SeenBy(who.0.0),
             C::Custom { key, args } => Self::Custom {
                 key: key.clone(),
                 args: dtos(args),
@@ -1259,6 +1262,7 @@ impl IntoModel for ConditionDto {
             Self::HasTagAvailable { tag } => C::HasTagAvailable {
                 tag: tag.into_model_with(ids),
             },
+            Self::SeenBy(who) => C::SeenBy(model::CharacterId::new(ids.entity(who))),
             Self::Custom { key, args } => C::Custom {
                 key,
                 args: args.into_model_with(ids),
@@ -1481,6 +1485,8 @@ pub enum DialogTextDto<T = ()> {
     Fragments(Vec<TextFragmentDto<T>>),
     /// Host text, as it is.
     Host(T),
+    /// The id of a named text pool.
+    Pool(String),
 }
 
 impl<T: Clone> From<&model::DialogText<T>> for DialogTextDto<T> {
@@ -1491,6 +1497,7 @@ impl<T: Clone> From<&model::DialogText<T>> for DialogTextDto<T> {
             D::LocalizedKey(k) => Self::LocalizedKey(k.to_string()),
             D::Fragments(fs) => Self::Fragments(dtos(fs)),
             D::Host(h) => Self::Host(h.clone()),
+            D::Pool(id) => Self::Pool(id.to_string()),
             _ => unknown_variant("DialogText"),
         }
     }
@@ -1505,6 +1512,7 @@ impl<T> IntoModel for DialogTextDto<T> {
             Self::LocalizedKey(k) => D::LocalizedKey(arc(k)),
             Self::Fragments(fs) => D::Fragments(fs.into_model_with(ids)),
             Self::Host(h) => D::Host(h),
+            Self::Pool(id) => D::Pool(arc(id)),
         }
     }
 }
@@ -1600,6 +1608,161 @@ impl<T> IntoModel for TextFragmentDto<T> {
             mode: self.mode.into_model_with(ids),
             replaces: self.replaces,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Text pools
+// ---------------------------------------------------------------------------
+
+/// DTO for [`model::Pick`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum PickDto {
+    All,
+    #[default]
+    First,
+    Best,
+}
+
+impl From<&model::Pick> for PickDto {
+    fn from(p: &model::Pick) -> Self {
+        match p {
+            model::Pick::All => Self::All,
+            model::Pick::First => Self::First,
+            model::Pick::Best => Self::Best,
+            _ => unknown_variant("Pick"),
+        }
+    }
+}
+
+no_ids!(PickDto => model::Pick, |d| match d {
+    PickDto::All => model::Pick::All,
+    PickDto::First => model::Pick::First,
+    PickDto::Best => model::Pick::Best,
+});
+
+/// DTO for [`model::Entry`] of [`model::DialogTypes<T>`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub enum EntryDto<T = ()> {
+    /// A text leaf.
+    Leaf(DialogTextDto<T>),
+    /// An inline pool.
+    Pool(PoolDto<T>),
+    /// The id of a named pool.
+    Named(String),
+}
+
+impl<T: Clone> From<&model::Entry<model::DialogTypes<T>>> for EntryDto<T> {
+    fn from(e: &model::Entry<model::DialogTypes<T>>) -> Self {
+        match e {
+            model::Entry::Leaf(t) => Self::Leaf(t.into()),
+            model::Entry::Pool(p) => Self::Pool(p.into()),
+            model::Entry::Named(id) => Self::Named(id.to_string()),
+            _ => unknown_variant("Entry"),
+        }
+    }
+}
+
+impl<T> IntoModel for EntryDto<T> {
+    type Model = model::Entry<model::DialogTypes<T>>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> Self::Model {
+        match self {
+            Self::Leaf(t) => model::Entry::Leaf(t.into_model_with(ids)),
+            Self::Pool(p) => model::Entry::Pool(p.into_model_with(ids)),
+            Self::Named(id) => model::Entry::Named(arc(id)),
+        }
+    }
+}
+
+/// DTO for [`model::Candidate`] of [`model::DialogTypes<T>`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub struct CandidateDto<T = ()> {
+    /// Progress key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// Speaker key (raw entity id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<u64>,
+    /// Topic key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    /// Condition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<ConditionDto>,
+    /// Mode.
+    #[serde(default)]
+    pub mode: FragmentModeDto,
+    /// Variants.
+    pub variants: Vec<EntryDto<T>>,
+    /// Facts the perceiver learns.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub learn: Vec<FactDto>,
+}
+
+impl<T: Clone> From<&model::Candidate<model::DialogTypes<T>>> for CandidateDto<T> {
+    fn from(c: &model::Candidate<model::DialogTypes<T>>) -> Self {
+        // `Candidate` is `#[non_exhaustive]`; a new field must be added here too.
+        Self {
+            key: c.key.as_deref().map(str::to_string),
+            speaker: c.speaker.map(|s| s.0.0),
+            topic: c.topic.as_deref().map(str::to_string),
+            when: c.when.as_ref().map(Into::into),
+            mode: (&c.mode).into(),
+            variants: dtos(&c.variants),
+            learn: dtos(&c.learn),
+        }
+    }
+}
+
+impl<T> IntoModel for CandidateDto<T> {
+    type Model = model::Candidate<model::DialogTypes<T>>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> Self::Model {
+        let mut c = model::Candidate::new(self.variants.into_model_with(ids))
+            .mode(self.mode.into_model_with(ids));
+        c.key = self.key.map(arc);
+        c.speaker = self.speaker.map(|s| model::CharacterId::new(ids.entity(s)));
+        c.topic = self.topic.map(arc);
+        c.when = self.when.into_model_with(ids);
+        c.learn = self.learn.into_model_with(ids);
+        c
+    }
+}
+
+/// DTO for [`model::Pool`] of [`model::DialogTypes<T>`]. `T` is the host
+/// text type (see [`DialogTextDto`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub struct PoolDto<T = ()> {
+    /// Pool id.
+    pub id: String,
+    /// Pick rule.
+    #[serde(default)]
+    pub pick: PickDto,
+    /// Candidates, in file order.
+    pub candidates: Vec<CandidateDto<T>>,
+}
+
+impl<T: Clone> From<&model::Pool<model::DialogTypes<T>>> for PoolDto<T> {
+    fn from(p: &model::Pool<model::DialogTypes<T>>) -> Self {
+        Self {
+            id: p.id.to_string(),
+            pick: (&p.pick).into(),
+            candidates: dtos(&p.candidates),
+        }
+    }
+}
+
+impl<T> IntoModel for PoolDto<T> {
+    type Model = model::Pool<model::DialogTypes<T>>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> Self::Model {
+        let mut pool = model::Pool::new(self.id, self.pick.into_model_with(ids));
+        pool.candidates = self.candidates.into_model_with(ids);
+        pool
     }
 }
 
@@ -2165,18 +2328,36 @@ pub struct OwnerResolutionsDto {
     pub resolutions: u32,
 }
 
+/// How often one named text pool was resolved for one caller.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NamedResolutionsDto {
+    /// Pool id.
+    pub pool: String,
+    /// Caller (the scope of `first_time`).
+    pub caller: String,
+    /// Resolution count.
+    pub resolutions: u32,
+}
+
 /// DTO for [`TextProgress`](dramaturge_runtime::TextProgress).
 ///
 /// Progress keys are author keys (owner and fragment keys), not ids, so
 /// text progress stays valid across content changes without remapping.
+///
+/// `named` (the counts of named text pools, per caller) has a serde
+/// default. A save from before named pools loads: its `owners` counts keep
+/// their meaning for inline texts, and named pools start with no counts.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextProgressDto {
     /// Fragment progress.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fragments: Vec<FragmentProgressDto>,
-    /// Owner resolution counts.
+    /// Owner resolution counts (inline texts).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub owners: Vec<OwnerResolutionsDto>,
+    /// Named pool resolution counts, per caller.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub named: Vec<NamedResolutionsDto>,
 }
 
 impl From<&dramaturge_runtime::TextProgress> for TextProgressDto {
@@ -2197,6 +2378,14 @@ impl From<&dramaturge_runtime::TextProgress> for TextProgressDto {
                     resolutions,
                 })
                 .collect(),
+            named: p
+                .named()
+                .map(|(pool, caller, resolutions)| NamedResolutionsDto {
+                    pool: pool.to_string(),
+                    caller: caller.to_string(),
+                    resolutions,
+                })
+                .collect(),
         }
     }
 }
@@ -2214,6 +2403,9 @@ no_ids!(TextProgressDto => dramaturge_runtime::TextProgress, |d| {
     }
     for o in d.owners {
         p.set_resolutions(o.owner, o.resolutions);
+    }
+    for n in d.named {
+        p.set_named_resolutions(n.pool, n.caller, n.resolutions);
     }
     p
 });

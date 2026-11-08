@@ -19,10 +19,38 @@
 //! option write their outcomes (`set`, `add`, `relation`, `remember`,
 //! `then`) next to their other fields. The dialogue, a node and an option
 //! can have author `notes` (a list of `M`, left out when empty).
+//!
+//! A line can say a named text pool: `say: { text: keeper_remark }`
+//! ([`Text::Pool`]).
+//!
+//! # Text pools
+//!
+//! A [`TextPool`] (for example `texts/keeper_remark.yaml`):
+//!
+//! ```yaml
+//! id: keeper_replies
+//! pick: best                 # all, first (the default) or best
+//! one_of:
+//!   - { speaker: keeper, topic: stove, text: '"Leave the stove alone."' }
+//!   - { speaker: keeper, text: '"I keep the lock. That is all."' }
+//!   - "Nobody answers."      # a bare text: the default row
+//!   - when: stove.hot and seen_by(player)
+//!     text: "The ash on the grate is fresh."
+//!     learn: [ash_is_fresh]
+//!   - id: weather            # an inline pool in place of a text
+//!     pick: first
+//!     one_of: ["Rain.", "Wind."]
+//! ```
+//!
+//! A candidate has `key`, `when`, `speaker`, `topic`, `mode`, `learn`, and
+//! its text: `text` (one variant), `variants` (a list), or `id`, `pick` and
+//! `one_of` (an inline pool). A variant is a text, or an inline pool
+//! `{ id, pick, one_of }`. In a pool, `{ text: … }` is a candidate with that
+//! text, not a pool reference.
 
 use crate::ast::{
-    Choice, Dialogue, Effect, Fragment, FragmentMode, Hint, Intentions, Line, Node, Outcomes, Tag,
-    Target, Text, Value,
+    Candidate, Choice, Dialogue, Effect, Fragment, FragmentMode, Hint, Intentions, Line, Node,
+    Outcomes, Pick, Tag, Target, Text, TextPool, Value, Variant,
 };
 use serde::de::{self, MapAccess, Visitor};
 use serde::ser::SerializeMap;
@@ -631,6 +659,14 @@ impl<'de> Deserialize<'de> for Hint {
 enum TextRepr {
     Plain(String),
     Fragments(Vec<FragmentRepr>),
+    Pool(PoolRef),
+}
+
+/// `{ text: <pool id> }`: a named text pool.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PoolRef {
+    text: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -678,6 +714,7 @@ impl From<&Text> for TextRepr {
         match t {
             Text::Plain(s) => TextRepr::Plain(s.clone()),
             Text::Fragments(fs) => TextRepr::Fragments(fs.iter().map(FragmentRepr::from).collect()),
+            Text::Pool(id) => TextRepr::Pool(PoolRef { text: id.clone() }),
         }
     }
 }
@@ -726,6 +763,7 @@ impl From<TextRepr> for Text {
             TextRepr::Fragments(fs) => {
                 Text::Fragments(fs.into_iter().map(Fragment::from).collect())
             }
+            TextRepr::Pool(r) => Text::Pool(r.text),
         }
     }
 }
@@ -765,6 +803,262 @@ impl Serialize for Text {
 impl<'de> Deserialize<'de> for Text {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         TextRepr::deserialize(d).map(Text::from)
+    }
+}
+
+// -------------------------------------------------------------- text pools
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum PickRepr {
+    All,
+    First,
+    Best,
+}
+
+impl From<Pick> for PickRepr {
+    fn from(p: Pick) -> Self {
+        match p {
+            Pick::All => PickRepr::All,
+            Pick::First => PickRepr::First,
+            Pick::Best => PickRepr::Best,
+        }
+    }
+}
+
+impl From<PickRepr> for Pick {
+    fn from(p: PickRepr) -> Self {
+        match p {
+            PickRepr::All => Pick::All,
+            PickRepr::First => Pick::First,
+            PickRepr::Best => Pick::Best,
+        }
+    }
+}
+
+fn mode_repr(m: FragmentMode) -> ModeRepr {
+    match m {
+        FragmentMode::Always => ModeRepr::Always,
+        FragmentMode::FirstTime => ModeRepr::FirstTime,
+        FragmentMode::Once => ModeRepr::Once,
+        FragmentMode::Cycle => ModeRepr::Cycle,
+        FragmentMode::Shuffle => ModeRepr::Shuffle,
+        FragmentMode::Sticky => ModeRepr::Sticky,
+    }
+}
+
+fn mode_ast(m: ModeRepr) -> FragmentMode {
+    match m {
+        ModeRepr::Always => FragmentMode::Always,
+        ModeRepr::FirstTime => FragmentMode::FirstTime,
+        ModeRepr::Once => FragmentMode::Once,
+        ModeRepr::Cycle => FragmentMode::Cycle,
+        ModeRepr::Shuffle => FragmentMode::Shuffle,
+        ModeRepr::Sticky => FragmentMode::Sticky,
+    }
+}
+
+#[derive(Serialize)]
+#[serde(bound = "C: Serialize, X: Serialize")]
+struct PoolOut<'a, C, X> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: &'a Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pick: Option<PickRepr>,
+    one_of: &'a [Candidate<C, X>],
+}
+
+impl<C: Serialize, X: Serialize> Serialize for TextPool<C, X> {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        PoolOut {
+            id: &self.id,
+            pick: self.pick.map(PickRepr::from),
+            one_of: &self.one_of,
+        }
+        .serialize(s)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(bound = "C: Deserialize<'de>, X: Deserialize<'de>")]
+struct PoolIn<C, X> {
+    #[serde(default, deserialize_with = "opt_key")]
+    id: Option<String>,
+    #[serde(default)]
+    pick: Option<PickRepr>,
+    one_of: Vec<Candidate<C, X>>,
+}
+
+impl<C, X> From<PoolIn<C, X>> for TextPool<C, X> {
+    fn from(p: PoolIn<C, X>) -> Self {
+        TextPool {
+            id: p.id,
+            pick: p.pick.map(Pick::from),
+            one_of: p.one_of,
+        }
+    }
+}
+
+impl<'de, C: Deserialize<'de>, X: Deserialize<'de>> Deserialize<'de> for TextPool<C, X> {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        PoolIn::<C, X>::deserialize(d).map(TextPool::from)
+    }
+}
+
+impl<C: Serialize, X: Serialize> Serialize for Variant<C, X> {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Variant::Text(x) => x.serialize(s),
+            Variant::Pool(p) => p.serialize(s),
+        }
+    }
+}
+
+/// A pool first: it needs `one_of`, so a host text that is a map does not
+/// read as a pool.
+#[derive(Deserialize)]
+#[serde(untagged)]
+#[serde(bound = "C: Deserialize<'de>, X: Deserialize<'de>")]
+enum VariantIn<C, X> {
+    Pool(PoolIn<C, X>),
+    Text(X),
+}
+
+impl<'de, C: Deserialize<'de>, X: Deserialize<'de>> Deserialize<'de> for Variant<C, X> {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(match VariantIn::<C, X>::deserialize(d)? {
+            VariantIn::Pool(p) => Variant::Pool(p.into()),
+            VariantIn::Text(x) => Variant::Text(x),
+        })
+    }
+}
+
+#[derive(Serialize)]
+#[serde(bound = "C: Serialize, X: Serialize")]
+struct CandidateOut<'a, C, X> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key: &'a Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    speaker: &'a Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    topic: &'a Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    when: &'a Option<C>,
+    #[serde(skip_serializing_if = "is_always")]
+    mode: ModeRepr,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<&'a Variant<C, X>>,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    variants: &'a [Variant<C, X>],
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    learn: &'a [String],
+}
+
+impl<C: Serialize, X: Serialize> Serialize for Candidate<C, X> {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        // Always the map form: a bare host text that is a map (such as
+        // `Text::Pool`, `{ text: id }`) would read back as a candidate map.
+        let (text, variants) = match self.variants.as_slice() {
+            [one] => (Some(one), &[][..]),
+            many => (None, many),
+        };
+        CandidateOut {
+            key: &self.key,
+            speaker: &self.speaker,
+            topic: &self.topic,
+            when: &self.when,
+            mode: mode_repr(self.mode),
+            text,
+            variants,
+            learn: &self.learn,
+        }
+        .serialize(s)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(bound = "C: Deserialize<'de>, X: Deserialize<'de>")]
+struct CandidateSpec<C, X> {
+    #[serde(default, deserialize_with = "opt_key")]
+    key: Option<String>,
+    #[serde(default, deserialize_with = "opt_key")]
+    speaker: Option<String>,
+    #[serde(default, deserialize_with = "opt_key")]
+    topic: Option<String>,
+    #[serde(default)]
+    when: Option<C>,
+    #[serde(default)]
+    mode: ModeRepr,
+    #[serde(default)]
+    text: Option<Variant<C, X>>,
+    #[serde(default)]
+    variants: Vec<Variant<C, X>>,
+    #[serde(default)]
+    learn: Vec<String>,
+    // An inline pool in place of `text`.
+    #[serde(default, deserialize_with = "opt_key")]
+    id: Option<String>,
+    #[serde(default)]
+    pick: Option<PickRepr>,
+    #[serde(default)]
+    one_of: Option<Vec<Candidate<C, X>>>,
+}
+
+/// A candidate map first, then a bare text.
+#[derive(Deserialize)]
+#[serde(untagged)]
+#[serde(bound = "C: Deserialize<'de>, X: Deserialize<'de>")]
+enum CandidateIn<C, X> {
+    Spec(Box<CandidateSpec<C, X>>),
+    Text(X),
+}
+
+impl<'de, C: Deserialize<'de>, X: Deserialize<'de>> Deserialize<'de> for Candidate<C, X> {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let spec = match CandidateIn::<C, X>::deserialize(d)? {
+            CandidateIn::Text(x) => return Ok(Candidate::text(x)),
+            CandidateIn::Spec(spec) => *spec,
+        };
+        let mut variants: Vec<Variant<C, X>> = spec.text.into_iter().collect();
+        variants.extend(spec.variants);
+        match spec.one_of {
+            Some(one_of) => variants.push(Variant::Pool(TextPool {
+                id: spec.id,
+                pick: spec.pick.map(Pick::from),
+                one_of,
+            })),
+            None if spec.id.is_some() || spec.pick.is_some() => {
+                return Err(de::Error::custom(
+                    "`id` and `pick` on a candidate need `one_of` (an inline pool)",
+                ));
+            }
+            None => {}
+        }
+        if variants.is_empty() {
+            return Err(de::Error::custom(
+                "a candidate needs `text`, `variants` or `one_of`",
+            ));
+        }
+        let single = matches!(
+            spec.mode,
+            ModeRepr::Always | ModeRepr::FirstTime | ModeRepr::Once
+        );
+        if single && variants.len() > 1 {
+            return Err(de::Error::custom(
+                "this mode shows one text; use `variants` only with `cycle`, `shuffle` or `sticky`",
+            ));
+        }
+        Ok(Candidate {
+            key: spec.key,
+            when: spec.when,
+            speaker: spec.speaker,
+            topic: spec.topic,
+            mode: mode_ast(spec.mode),
+            variants,
+            learn: spec.learn,
+        })
     }
 }
 

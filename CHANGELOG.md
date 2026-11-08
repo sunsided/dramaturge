@@ -6,6 +6,71 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Text selection core (decision D2, design note
+  `docs/specs/2026-11-07-text-selection-design.md`). `dramaturge-model`
+  module `pool`: `Pool` (an ordered list of `Candidate`s and a `Pick` rule:
+  `All`, `First` (the default) or `Best`), `Candidate` (key, tuple keys
+  `speaker` and `topic`, `when`, `mode`, variants, `learn`), `Entry` (a
+  leaf, an inline pool, or a named pool by id), `Pools` (named pools by id),
+  and `TextTypes`, the host types (text leaf, condition, learn item, actor,
+  topic). `DialogTypes<T>` are the types of plain dramaturge. `Specificity`
+  gives the score of `Best`: each test counts 1, `and` adds, `or` takes the
+  smaller side, and each tuple key counts 1. A tie goes to file order (#79).
+- `dramaturge-runtime` module `text::select`: `select` (an inline pool) and
+  `select_named` (a named pool) choose what shows for a `Query` (speaker,
+  topic, perceiver) with no change to the state. They return a `Selection`
+  (`steps`, `shown` leaves, `counts`) with a `Trace` (score, `Verdict` and
+  variant for each candidate; `Display` prints it). `commit` records the
+  progress and hands each `learn` item to a learner; `world_learner` sets
+  the facts in the world scope. `Judge` is the host's condition evaluation;
+  `DefaultJudge` walks `All`, `Any` and `Not`, answers `SeenBy` from the
+  perceiver and asks a `ConditionEvaluator` for the rest. `ProgressStore`
+  is where the progress lives (`TextProgress` implements it). `Count` and
+  `CountKey` say where a resolution counts: inline pools per owner (the
+  pool id), named pools per pool and caller. Both are `#[non_exhaustive]`
+  (#79).
+- `Condition::SeenBy(CharacterId)`: true when the perceiver of a text is
+  the character. A `ConditionEvaluator` alone has no perceiver, so
+  `DefaultConditionEvaluator` returns `false` for it (#79).
+- `DialogText::Pool(id)` and `ResolvedText::Pool(id)`: a line that says a
+  named text pool. `resolve_text` returns the id as a piece; the host
+  selects the pool with `select_named`. `DialogText::as_inline` (#79).
+- `TextProgress::named_resolutions`, `set_named_resolutions` and `named`:
+  resolution counts of named pools, per pool and caller, in a map apart
+  from the owner counts (#79).
+- `dramaturge-serde`: `PoolDto`, `CandidateDto`, `EntryDto`, `PickDto`,
+  `NamedResolutionsDto`; `loader::load_pool_yaml`, `pool_from_yaml` and
+  `pool_to_yaml` for text pools in YAML (#79).
+- `dramaturge-syntax`: the text pool AST (`TextPool`, `Candidate`,
+  `Variant`, `Pick`) with its YAML shape (`id`, `pick`, `one_of`, and on a
+  candidate `key`, `when`, `speaker`, `topic`, `mode`, `text`, `variants`,
+  `learn`, or an inline pool), `lower_pool` and `lower_pool_plain`.
+  `Text::Pool`: `say: { text: <pool id> }` in a dialogue. `seen_by(x)` in
+  the default condition language. `Place::Pool` and `IssueKind::NoPoolId`
+  (#79).
+- `dramaturge-authoring`: `GraphValidator::validate_pools` and
+  `validate_pool` report ties in `best` pools (`PickTie`), `once`, `cycle`,
+  `shuffle` and `sticky` candidates without a key (`UnkeyedProgress`), and
+  names of pools that do not exist (`UnknownPool`).
+  `ValidationIssue::path` gives the place in the pool (#79).
+- `dramaturge` facade: re-exports of the text selection types and the
+  example `text_selection` (#79).
+
+### Changed
+
+- `resolve_text` runs on the text selection core: a fragment list is a
+  `Pick::All` pool with the id `owner`. Its signature, progress keys,
+  counts, random draws and results do not change (#79).
+- **Breaking:** `ConditionDto` has the variant `SeenBy` and `DialogTextDto`
+  has the variant `Pool`. These enums are exhaustive, so a `match` on them
+  needs the new arms (#79).
+- **Breaking:** `TextProgressDto` has the field `named` (the counts of
+  named pools). Code that builds the struct with a literal must set it.
+  The field has a serde default: a save without it loads, its `owners`
+  counts keep their meaning, and named pools start with no counts (#79).
+
 ## [0.3.0-alpha.4] - 2026-11-07
 
 ### Added
