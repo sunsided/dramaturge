@@ -410,7 +410,9 @@ pub struct TraceRow {
     /// For a candidate that showed: the chosen variant and the number of
     /// variants.
     pub variant: Option<(u32, u32)>,
-    /// The trace of the pool in the chosen variant, if it is a pool.
+    /// The trace of the pool in the chosen variant, if it is a pool. For
+    /// [`Verdict::MissingPool`] it is a [`missing`](Trace::missing) trace;
+    /// for [`Verdict::Recursive`] it is `None`.
     pub nested: Option<Box<Trace>>,
 }
 
@@ -886,7 +888,7 @@ where
                 && let Some(verdict) = self.unresolvable(id)
             {
                 row.verdict = verdict;
-                row.nested = Some(Box::new(Trace::not_found(id)));
+                row.nested = missing_trace(verdict, id);
                 continue;
             }
             p.shown = p.shown.saturating_add(1);
@@ -918,7 +920,7 @@ where
                     Ok(trace) => rows[index].nested = Some(Box::new(trace)),
                     Err(verdict) => {
                         rows[index].verdict = verdict;
-                        rows[index].nested = Some(Box::new(Trace::not_found(id)));
+                        rows[index].nested = missing_trace(verdict, id);
                     }
                 },
                 // `Entry` is non-exhaustive; entries this core does not
@@ -935,6 +937,13 @@ where
             rows,
         }
     }
+}
+
+/// The nested trace of a named pool that does not open: a `missing` trace
+/// only when the pool is not in the pools. A recursive pool exists, and its
+/// trace is already open above this row.
+fn missing_trace(verdict: Verdict, id: &str) -> Option<Box<Trace>> {
+    (verdict == Verdict::MissingPool).then(|| Box::new(Trace::not_found(id)))
 }
 
 fn mode_allows(mode: FragmentMode, p: FragmentProgress, first: bool) -> bool {

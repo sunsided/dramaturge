@@ -72,7 +72,7 @@
 //! - **Text selection** — put lines in a text [`Pool`] with a [`Pick`] rule
 //!   (`all`, `first`, `best`), tuple keys (speaker, topic) and a perceiver
 //!   test ([`Condition::SeenBy`]). [`select`](fn@select) chooses with no side effect
-//!   and returns a [`Trace`]; [`commit`] records the progress and the
+//!   and returns a [`Selection`] with a [`Trace`]; [`commit`] records the progress and the
 //!   `learn` items. The pool types are generic over the host text leaf
 //!   ([`TextTypes`]). See the `text_selection` example.
 //!

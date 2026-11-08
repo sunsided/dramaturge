@@ -630,6 +630,9 @@ fn missing_and_recursive_pools() {
     let s = select_named("loop", &pools, "c", &query, &judge, &progress, &mut rng);
     check!(s.is_empty());
     check!(s.trace.rows[0].verdict == Verdict::Recursive);
+    // A recursive pool exists: its row has no `missing` trace.
+    check!(s.trace.rows[0].nested.is_none());
+    check!(!s.trace.to_string().contains("missing"));
     check!(s.counts.is_empty());
 
     let s = select_named("gap", &pools, "c", &query, &judge, &progress, &mut rng);
