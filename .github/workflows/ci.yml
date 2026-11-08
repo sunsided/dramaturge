@@ -38,7 +38,10 @@ jobs:
         run: cargo test --workspace --all-features --doc
 
       - name: Derives with only the facade as dependency
-        run: cargo run --manifest-path ci/facade-only/Cargo.toml --target-dir target
+        run: |
+          cargo fmt --manifest-path ci/facade-only/Cargo.toml -- --check
+          cargo clippy --manifest-path ci/facade-only/Cargo.toml --target-dir target -- -D warnings
+          cargo run --manifest-path ci/facade-only/Cargo.toml --target-dir target
 
       - name: Build for wasm32
         run: cargo build -p dramaturge-serde -p dramaturge-runtime --all-features --target wasm32-unknown-unknown

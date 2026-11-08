@@ -1,6 +1,7 @@
 # A crate that depends only on the facade, as a user following the README
 # would. CI runs it to check that the derives reach the model through
-# `dramaturge::model`. Not part of the workspace, never published.
+# `dramaturge::model` and that the `yaml` feature gives the loader.
+# Not part of the workspace, never published.
 [package]
 name = "facade-only"
 version = "0.0.0"
@@ -8,6 +9,6 @@ edition = "2024"
 publish = false
 
 [dependencies]
-dramaturge = { path = "../../crates/dramaturge", features = ["macros"] }
+dramaturge = { path = "../../crates/dramaturge", features = ["macros", "yaml"] }
 
 [workspace]

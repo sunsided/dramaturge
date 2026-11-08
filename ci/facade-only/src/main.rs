@@ -1,4 +1,5 @@
-//! The derives must compile with `dramaturge` as the only dependency.
+//! The derives and the YAML loader must work with `dramaturge` as the only
+//! dependency.
 
 use dramaturge::*;
 
@@ -18,4 +19,5 @@ fn main() {
     let _ = Fact::MetMara.is_true(FactScope::Player);
     assert_eq!(Tag::Good.axis(), "moral");
     assert_eq!(Tag::Good.key(), "good");
+    assert!(dramaturge::serialization::loader::load_yaml("nodes: [").is_err());
 }
