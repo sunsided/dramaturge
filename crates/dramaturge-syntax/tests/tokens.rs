@@ -175,3 +175,20 @@ fn a_condition_error_points_at_its_token() {
     let at = err.span().start();
     check!(at.column == 19, "at the last token, `=`");
 }
+
+#[test]
+fn a_minus_before_a_number_is_its_sign() {
+    use dramaturge_syntax::tokens::ConditionSource;
+    let text = |src: &str| {
+        let tokens: proc_macro2::TokenStream = src.parse().unwrap();
+        ConditionSource::new(tokens, proc_macro2::Span::call_site()).text
+    };
+    check!(text("gold >= -3") == "gold >= -3");
+    check!(text("relation(trust) < - 2") == "relation ( trust ) < -2");
+    check!(text("a == \"-\"") == "a == \"-\"");
+
+    let d =
+        parse("with mara start a { a: \"Hi.\" { when gold >= -3; \"Bye.\" => end; } }").unwrap();
+    check!(d.dialogue.nodes[0].when.as_deref() == Some("gold >= -3"));
+    assert!(lower_plain(&d.dialogue).is_ok());
+}
