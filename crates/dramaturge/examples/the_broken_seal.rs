@@ -16,9 +16,9 @@
 //! cargo run -p dramaturge --example the_broken_seal --features yaml
 //! ```
 
+use dramaturge::serialization::loader::{LoadedDialogue, load_yaml};
 use dramaturge::*;
 use dramaturge_authoring::{GraphValidator, ValidationSeverity};
-use dramaturge::serde::loader::{LoadedDialogue, load_yaml};
 use std::collections::HashMap;
 use std::io::{self, Write};
 

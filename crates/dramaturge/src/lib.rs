@@ -60,7 +60,7 @@
 //!   such nodes one after the other until a node offers a choice. See the
 //!   `exchange` example.
 //! - **One dialogue format** — write a dialogue as YAML (feature `yaml`,
-//!   `dramaturge::serde::loader::load_yaml`) or as Rust tokens with
+//!   `dramaturge::serialization::loader::load_yaml`) or as Rust tokens with
 //!   `dialogue!` (feature `macros`). Both read into the AST of
 //!   `dramaturge::syntax` (feature `syntax`) and make the same graph. A host
 //!   with its own conditions, text or effects lowers the AST through its
@@ -119,7 +119,8 @@ pub use dramaturge_syntax as syntax;
 /// The YAML loader and the serde shapes (the `dramaturge-serde` crate).
 #[cfg(feature = "serde")]
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
-pub use dramaturge_serde as serde;
+// Not `serde`: after `use dramaturge::*` that would clash with the `serde` crate.
+pub use dramaturge_serde as serialization;
 
 /// The macros: [`dialogue!`] builds a dialogue graph from Rust tokens.
 #[cfg(feature = "macros")]

@@ -8,7 +8,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- `dramaturge::serde` re-exports `dramaturge-serde` (feature `serde` or `yaml`), so `dramaturge = { features = ["yaml"] }` alone gives `dramaturge::serde::loader::load_yaml`. The feature `yaml` now implies `serde`.
+- `dramaturge::serialization` re-exports `dramaturge-serde` (feature `serde` or `yaml`), so `dramaturge = { features = ["yaml"] }` alone gives `dramaturge::serialization::loader::load_yaml`. The feature `yaml` now implies `serde`.
 
 ### Fixed
 
