@@ -6,6 +6,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The README links to examples, crate READMEs, docs and licenses are absolute GitHub URLs, so they resolve on crates.io instead of pointing at `crates/dramaturge/crates/...`.
+
 ## [0.3.0] - 2026-11-08
 
 ### Added

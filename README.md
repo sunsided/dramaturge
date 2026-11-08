@@ -217,7 +217,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 </details>
 
-You can also skip the AST and build a `DialogueGraph` from model types (`DialogueNode`, `DialogueOption`, `Outcome`, `Condition`) with numeric ids. The [`exchange`](crates/dramaturge/examples/exchange.rs) example does that.
+You can also skip the AST and build a `DialogueGraph` from model types (`DialogueNode`, `DialogueOption`, `Outcome`, `Condition`) with numeric ids. The [`exchange`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge/examples/exchange.rs) example does that.
 
 ### The parts
 
@@ -227,7 +227,7 @@ You can also skip the AST and build a `DialogueGraph` from model types (`Dialogu
 - **Options** also take `id`, `tags`, `intentions` and a navigation `hint` (`continue`, `leave`, `end`, `return`, `{ go_to: X }`).
 - **Exchanges**: `lines` give a node more lines, each with its own speaker; `next` goes on without a choice. The runtime enters such nodes one after the other until a node offers a choice.
 
-The full field reference is in the [`dramaturge-syntax` README](crates/dramaturge-syntax/README.md).
+The full field reference is in the [`dramaturge-syntax` README](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge-syntax/README.md).
 
 ## Text selection
 
@@ -274,7 +274,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`dramaturge_authoring::GraphValidator::new().validate_pools(&pools)` reports ties in `best` pools, unkeyed progress modes and unknown pool names (see the [`dramaturge-authoring` README](crates/dramaturge-authoring/README.md)). The [`text_selection`](crates/dramaturge/examples/text_selection.rs) example builds pools in Rust instead of YAML.
+`dramaturge_authoring::GraphValidator::new().validate_pools(&pools)` reports ties in `best` pools, unkeyed progress modes and unknown pool names (see the [`dramaturge-authoring` README](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge-authoring/README.md)). The [`text_selection`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge/examples/text_selection.rs) example builds pools in Rust instead of YAML.
 
 ## Running a dialogue
 
@@ -314,11 +314,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-To keep dialogue state inside your own game state, implement `HasDialogWorldState`; to answer game-specific conditions and outcomes (`Condition::Custom`, `Outcome::Custom`), pass a `CustomHandler` to `DefaultConditionEvaluator::with_custom` and `DefaultOutcomeApplier::with_custom`, and give both to `DefaultRuntime::with_parts(evaluator, applier)` (`DefaultRuntime::new()` uses handlers that answer nothing). See the [`host_state`](crates/dramaturge/examples/host_state.rs) example.
+To keep dialogue state inside your own game state, implement `HasDialogWorldState`; to answer game-specific conditions and outcomes (`Condition::Custom`, `Outcome::Custom`), pass a `CustomHandler` to `DefaultConditionEvaluator::with_custom` and `DefaultOutcomeApplier::with_custom`, and give both to `DefaultRuntime::with_parts(evaluator, applier)` (`DefaultRuntime::new()` uses handlers that answer nothing). See the [`host_state`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge/examples/host_state.rs) example.
 
 ### Validation
 
-Check graphs at authoring time with [`dramaturge-authoring`](crates/dramaturge-authoring/README.md): missing targets, unreachable nodes, dead ends, cycles, always-false conditions, orphan facts and more.
+Check graphs at authoring time with [`dramaturge-authoring`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge-authoring/README.md): missing targets, unreachable nodes, dead ends, cycles, always-false conditions, orphan facts and more.
 
 ```rust,no_run
 use dramaturge::serialization::loader::load_yaml;
@@ -363,40 +363,40 @@ let can_pay = Facts::all(vec![
 ]);
 ```
 
-More in the [`dramaturge-macros` README](crates/dramaturge-macros/README.md).
+More in the [`dramaturge-macros` README](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge-macros/README.md).
 
 ## Examples
 
 | Example | Shows | Run |
 |---|---|---|
-| [`the_broken_seal`](crates/dramaturge/examples/the_broken_seal.rs) | A full scene loaded from [YAML](crates/dramaturge/examples/dialogue.yaml): skill tags, fragments, relationships, validation, a text UI | `cargo run -p dramaturge --example the_broken_seal --features yaml` |
-| [`dialogue_macro`](crates/dramaturge/examples/dialogue_macro.rs) | A dialogue written with `dialogue!`, played twice | `cargo run -p dramaturge --example dialogue_macro --features macros` |
-| [`exchange`](crates/dramaturge/examples/exchange.rs) | A graph built from model types; lines that continue without a choice; `back` | `cargo run -p dramaturge --example exchange` |
-| [`host_state`](crates/dramaturge/examples/host_state.rs) | Custom conditions against your own game state | `cargo run -p dramaturge --example host_state` |
-| [`text_selection`](crates/dramaturge/examples/text_selection.rs) | Text pools, `best`, tuple keys, `seen_by`, `learn`, the trace | `cargo run -p dramaturge --example text_selection` |
+| [`the_broken_seal`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge/examples/the_broken_seal.rs) | A full scene loaded from [YAML](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge/examples/dialogue.yaml): skill tags, fragments, relationships, validation, a text UI | `cargo run -p dramaturge --example the_broken_seal --features yaml` |
+| [`dialogue_macro`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge/examples/dialogue_macro.rs) | A dialogue written with `dialogue!`, played twice | `cargo run -p dramaturge --example dialogue_macro --features macros` |
+| [`exchange`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge/examples/exchange.rs) | A graph built from model types; lines that continue without a choice; `back` | `cargo run -p dramaturge --example exchange` |
+| [`host_state`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge/examples/host_state.rs) | Custom conditions against your own game state | `cargo run -p dramaturge --example host_state` |
+| [`text_selection`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge/examples/text_selection.rs) | Text pools, `best`, tuple keys, `seen_by`, `learn`, the trace | `cargo run -p dramaturge --example text_selection` |
 
 ## Upgrading from 0.2
 
-0.3 has one dialogue shape, and the 0.2 YAML shape no longer loads. [docs/migration-0.3-yaml.md](docs/migration-0.3-yaml.md) maps each 0.2 field to its 0.3 form. The [CHANGELOG](CHANGELOG.md) lists the API changes.
+0.3 has one dialogue shape, and the 0.2 YAML shape no longer loads. [docs/migration-0.3-yaml.md](https://github.com/sunsided/dramaturge/blob/main/docs/migration-0.3-yaml.md) maps each 0.2 field to its 0.3 form. The [CHANGELOG](https://github.com/sunsided/dramaturge/blob/main/CHANGELOG.md) lists the API changes.
 
 ## Workspace Layout
 
 | Crate | Purpose |
 |---|---|
 | [`dramaturge`](https://docs.rs/dramaturge) | Public facade: re-exports the most important items |
-| [`dramaturge-model`](crates/dramaturge-model/README.md) | Core domain types: characters, facts, conditions, outcomes, dialogue graphs, text pools |
-| [`dramaturge-runtime`](crates/dramaturge-runtime/README.md) | Evaluation traits, the default runtime, text selection |
-| [`dramaturge-syntax`](crates/dramaturge-syntax/README.md) | The dialogue AST, its checks, the token and serde forms, and the lowering to graphs |
-| [`dramaturge-macros`](crates/dramaturge-macros/README.md) | `dialogue!` and the derives `DialogTag`, `FactValue`, `ConditionBuilder` |
-| [`dramaturge-serde`](crates/dramaturge-serde/README.md) | Serialization DTOs and the YAML loader (`yaml` feature) |
-| [`dramaturge-authoring`](crates/dramaturge-authoring/README.md) | Authoring-time validation: graph checks, dead ends, orphan facts, pool checks |
+| [`dramaturge-model`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge-model/README.md) | Core domain types: characters, facts, conditions, outcomes, dialogue graphs, text pools |
+| [`dramaturge-runtime`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge-runtime/README.md) | Evaluation traits, the default runtime, text selection |
+| [`dramaturge-syntax`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge-syntax/README.md) | The dialogue AST, its checks, the token and serde forms, and the lowering to graphs |
+| [`dramaturge-macros`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge-macros/README.md) | `dialogue!` and the derives `DialogTag`, `FactValue`, `ConditionBuilder` |
+| [`dramaturge-serde`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge-serde/README.md) | Serialization DTOs and the YAML loader (`yaml` feature) |
+| [`dramaturge-authoring`](https://github.com/sunsided/dramaturge/blob/main/crates/dramaturge-authoring/README.md) | Authoring-time validation: graph checks, dead ends, orphan facts, pool checks |
 
 ## License
 
 Licensed under any of:
 
-- [EUPL-1.2](LICENSE-EUPL-1.2)
-- [MIT License](LICENSE-MIT)
-- [Apache License, Version 2.0](LICENSE-APACHE)
+- [EUPL-1.2](https://github.com/sunsided/dramaturge/blob/main/LICENSE-EUPL-1.2)
+- [MIT License](https://github.com/sunsided/dramaturge/blob/main/LICENSE-MIT)
+- [Apache License, Version 2.0](https://github.com/sunsided/dramaturge/blob/main/LICENSE-APACHE)
 
 at your option.
