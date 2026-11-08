@@ -304,7 +304,7 @@ fn lex(src: &str) -> Result<Vec<(Tok, Range<usize>)>, ParseError> {
                 let mut d = i + usize::from(neg);
                 // `- 3` is `-3` too: Rust tokens (`dialogue!`) put a space
                 // after a lone `-`.
-                while neg && d < bytes.len() && bytes[d] == b' ' {
+                while neg && d < bytes.len() && matches!(bytes[d], b' ' | b'\t' | b'\n' | b'\r') {
                     d += 1;
                 }
                 let mut j = d;
