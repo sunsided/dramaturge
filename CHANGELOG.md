@@ -6,6 +6,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0-alpha.5] - 2026-11-08
+
 ### Added
 
 - Text selection core (decision D2, design note
@@ -464,7 +466,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Initial release.
 
-[Unreleased]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.4...HEAD
+[Unreleased]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.5...HEAD
+[0.3.0-alpha.5]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.4...v0.3.0-alpha.5
 [0.3.0-alpha.4]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.3...v0.3.0-alpha.4
 [0.3.0-alpha.3]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.2...v0.3.0-alpha.3
 [0.3.0-alpha.2]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.1...v0.3.0-alpha.2
