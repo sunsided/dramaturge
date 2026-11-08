@@ -19,16 +19,23 @@
 //! to specify the axis and key for each tag. If a variant lacks the
 //! attribute, the axis or key defaults to an empty string.
 //!
-//! ```ignore
-//! use dramaturge_macros::DialogTag;
+//! The trait needs `Debug`, `Clone`, `PartialEq`, `Eq` and `Hash`, so derive
+//! them too.
 //!
-//! #[derive(DialogTag)]
+//! ```
+//! use dramaturge_macros::DialogTag;
+//! use dramaturge_model::DialogTag as _;
+//!
+//! #[derive(Debug, Clone, PartialEq, Eq, Hash, DialogTag)]
 //! enum MyTag {
 //!     #[tag(axis = "moral", key = "good")]
 //!     Good,
 //!     #[tag(axis = "moral", key = "evil")]
 //!     Evil,
 //! }
+//!
+//! assert_eq!(MyTag::Evil.axis(), "moral");
+//! assert_eq!(MyTag::Good.key(), "good");
 //! ```
 //!
 //! # `#[derive(FactValue)]`
@@ -242,17 +249,23 @@ pub fn derive_dialog_tag(input: TokenStream) -> TokenStream {
     output.into()
 }
 
-/// Resolves the path to the `dramaturge-model` crate using `proc_macro_crate`.
-/// Falls back to `::dramaturge_model` if resolution fails.
+/// The path of `dramaturge-model` in the calling crate: the crate itself,
+/// a direct dependency, or `dramaturge::model` through the facade.
 fn resolve_dramaturge_model_path() -> syn::Path {
+    let ident = |name: &str| syn::Ident::new(name, proc_macro2::Span::call_site());
     match proc_macro_crate::crate_name("dramaturge-model") {
-        Ok(FoundCrate::Itself) => syn::parse_quote! { crate },
+        Ok(FoundCrate::Itself) => return syn::parse_quote! { crate },
         Ok(FoundCrate::Name(name)) => {
-            let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
-            syn::parse_quote! { ::#ident }
+            let name = ident(&name);
+            return syn::parse_quote! { ::#name };
         }
-        Err(_) => syn::parse_quote! { ::dramaturge_model },
+        Err(_) => {}
     }
+    if let Ok(FoundCrate::Name(name)) = proc_macro_crate::crate_name("dramaturge") {
+        let name = ident(&name);
+        return syn::parse_quote! { ::#name::model };
+    }
+    syn::parse_quote! { ::dramaturge_model }
 }
 
 /// Parses `#[tag(key = "...")]` from variant attributes using `syn`'s proper parsing.
