@@ -6,6 +6,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-08
+
 ### Added
 
 - `dramaturge::serialization` re-exports `dramaturge-serde` (feature `serde` or `yaml`), so `dramaturge = { features = ["yaml"] }` alone gives `dramaturge::serialization::loader::load_yaml`. The feature `yaml` now implies `serde`.
@@ -486,7 +488,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Initial release.
 
-[Unreleased]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.5...HEAD
+[Unreleased]: https://github.com/sunsided/dramaturge/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.5...v0.3.0
 [0.3.0-alpha.5]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.4...v0.3.0-alpha.5
 [0.3.0-alpha.4]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.3...v0.3.0-alpha.4
 [0.3.0-alpha.3]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.2...v0.3.0-alpha.3
