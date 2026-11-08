@@ -40,6 +40,44 @@
 //!
 //! For handlers that need host state, implement [`CustomHandler`] for your
 //! state type and use it as `S`; see the `host_state` example.
+//!
+//! # Handling Host Outcomes
+//!
+//! [`Outcome::Host`] holds a typed host outcome `H`. [`DefaultOutcomeApplier`]
+//! hands it to its handler's [`HostHandler<H, S>`] implementation. Every type
+//! handles `()` (the default `H`) as a no-op, so a handler for `Custom` only
+//! needs no extra code.
+//!
+//! ```rust
+//! use dramaturge_runtime::{
+//!     CustomHandler, DefaultOutcomeApplier, DialogWorldState, HostHandler, OutcomeApplier,
+//! };
+//! use dramaturge_model::Outcome;
+//!
+//! #[derive(Debug, Clone, PartialEq)]
+//! enum Effect {
+//!     Goto(&'static str),
+//! }
+//!
+//! #[derive(Default)]
+//! struct Effects {
+//!     room: &'static str,
+//! }
+//!
+//! impl<S: ?Sized> CustomHandler<S> for Effects {}
+//!
+//! impl<S: ?Sized> HostHandler<Effect, S> for Effects {
+//!     fn host_outcome(&mut self, outcome: &Effect, _state: &mut S) {
+//!         let Effect::Goto(room) = outcome;
+//!         self.room = room;
+//!     }
+//! }
+//!
+//! let mut applier = DefaultOutcomeApplier::with_custom(Effects::default());
+//! let mut state = DialogWorldState::new();
+//! applier.apply(&Outcome::Host(Effect::Goto("street")), &mut state);
+//! assert_eq!(applier.custom.room, "street");
+//! ```
 
 use crate::context::DialogWorldState;
 use crate::state::NarrativeState;
@@ -69,10 +107,11 @@ pub trait ConditionEvaluator<S: NarrativeState + ?Sized = DialogWorldState> {
 
 /// Trait for applying outcomes to narrative state.
 ///
-/// `S` defaults to [`DialogWorldState`].
-pub trait OutcomeApplier<S: NarrativeState + ?Sized = DialogWorldState> {
+/// `S` defaults to [`DialogWorldState`]. `H` is the type of
+/// [host outcomes](Outcome::Host) and defaults to `()`.
+pub trait OutcomeApplier<S: NarrativeState + ?Sized = DialogWorldState, H = ()> {
     /// Applies an outcome to the given state, mutating it.
-    fn apply(&mut self, outcome: &Outcome, state: &mut S);
+    fn apply(&mut self, outcome: &Outcome<H>, state: &mut S);
 }
 
 /// Host hook for [`Condition::Custom`] and [`Outcome::Custom`].
@@ -90,6 +129,22 @@ pub trait CustomHandler<S: ?Sized> {
     fn outcome(&mut self, key: &str, args: &[FactValue], state: &mut S) {
         let _ = (key, args, state);
     }
+}
+
+/// Host hook for [`Outcome::Host`] with the host outcome type `H`.
+///
+/// [`DefaultOutcomeApplier`] calls [`host_outcome`](Self::host_outcome) for
+/// every `Outcome::Host(h)`. Every type implements `HostHandler<(), S>` as a
+/// no-op, so the default `H = ()` needs no implementation. A host with its
+/// own outcome type implements `HostHandler<MyOutcome, S>` on the same type
+/// that implements [`CustomHandler`].
+pub trait HostHandler<H, S: ?Sized> {
+    /// Applies a host outcome.
+    fn host_outcome(&mut self, outcome: &H, state: &mut S);
+}
+
+impl<S: ?Sized, T: ?Sized> HostHandler<(), S> for T {
+    fn host_outcome(&mut self, _outcome: &(), _state: &mut S) {}
 }
 
 /// The default [`CustomHandler`]: every custom condition is `false`, every
@@ -143,7 +198,7 @@ where
                 fact_id,
                 value,
             } => match state.fact(scope, fact_id) {
-                Some(existing) => partial_eq_values(existing, value),
+                Some(existing) => partial_eq_values(&existing, value),
                 None => false,
             },
             Condition::FactExists { scope, fact_id } => state.fact(scope, fact_id).is_some(),
@@ -179,7 +234,7 @@ where
                 value,
             } => state
                 .fact(scope, fact_id)
-                .map(|v| matches!(v, FactValue::Int(v) if *v >= *value))
+                .map(|v| matches!(*v, FactValue::Int(v) if v >= *value))
                 .unwrap_or(false),
             Condition::FactAtMost {
                 scope,
@@ -187,11 +242,14 @@ where
                 value,
             } => state
                 .fact(scope, fact_id)
-                .map(|v| matches!(v, FactValue::Int(v) if *v <= *value))
+                .map(|v| matches!(*v, FactValue::Int(v) if v <= *value))
                 .unwrap_or(false),
             Condition::HasMemory { owner, query } => state.matches_memory_query(*owner, query),
             Condition::HasTagAvailable { tag } => state.has_tag_available(tag),
             Condition::Custom { key, args } => self.custom.condition(key, args, state),
+            // `Condition` is non-exhaustive; a variant this evaluator does not
+            // know is not satisfied.
+            _ => false,
         }
     }
 }
@@ -224,12 +282,13 @@ pub fn partial_eq_values(a: &FactValue, b: &FactValue) -> bool {
 /// This applier provides the default semantics for each outcome:
 /// fact operations mutate the state directly, alignment and
 /// relationship adjustments delegate to the state methods,
-/// quest management uses fact-based placeholders, and `Custom` goes to
-/// the [`CustomHandler`] `H` (by default [`NoCustom`], a no-op).
+/// quest management uses fact-based placeholders, `Custom` goes to the
+/// [`CustomHandler`] `C` (by default [`NoCustom`], a no-op), and `Host`
+/// goes to the [`HostHandler`] implementation of `C`.
 #[derive(Debug, Clone, Default)]
-pub struct DefaultOutcomeApplier<H = NoCustom> {
-    /// Handler for `Outcome::Custom`.
-    pub custom: H,
+pub struct DefaultOutcomeApplier<C = NoCustom> {
+    /// Handler for `Outcome::Custom` and `Outcome::Host`.
+    pub custom: C,
 }
 
 impl DefaultOutcomeApplier {
@@ -239,19 +298,19 @@ impl DefaultOutcomeApplier {
     }
 }
 
-impl<H> DefaultOutcomeApplier<H> {
-    /// Creates an applier that hands custom outcomes to `custom`.
-    pub fn with_custom(custom: H) -> Self {
+impl<C> DefaultOutcomeApplier<C> {
+    /// Creates an applier that hands custom and host outcomes to `custom`.
+    pub fn with_custom(custom: C) -> Self {
         Self { custom }
     }
 }
 
-impl<S, H> OutcomeApplier<S> for DefaultOutcomeApplier<H>
+impl<S, H, C> OutcomeApplier<S, H> for DefaultOutcomeApplier<C>
 where
     S: NarrativeState + ?Sized,
-    H: CustomHandler<S>,
+    C: CustomHandler<S> + HostHandler<H, S>,
 {
-    fn apply(&mut self, outcome: &Outcome, state: &mut S) {
+    fn apply(&mut self, outcome: &Outcome<H>, state: &mut S) {
         match outcome {
             Outcome::SetFact { scope, fact } => {
                 state.set_fact(scope.clone(), fact.clone());
@@ -262,6 +321,27 @@ where
             }
             Outcome::RemoveFact { scope, fact_id } => {
                 state.remove_fact(scope, fact_id);
+            }
+            Outcome::AddFact {
+                scope,
+                fact_id,
+                delta,
+            } => {
+                let current = match state.fact(scope, fact_id).as_deref() {
+                    None => 0,
+                    Some(FactValue::Int(value)) => *value,
+                    // Only integer facts can be added to.
+                    Some(_) => return,
+                };
+                let fact = Fact::new(
+                    fact_id.clone(),
+                    FactValue::Int(current.saturating_add(*delta)),
+                );
+                state.set_fact(scope.clone(), fact);
+                state.emit_event(EventKind::FactLearned {
+                    scope: scope.clone(),
+                    fact_id: fact_id.clone(),
+                });
             }
             Outcome::AddAlignment { axis, pole, delta } => {
                 state.add_alignment(axis.clone(), pole.clone(), *delta);
@@ -313,6 +393,10 @@ where
                 });
             }
             Outcome::Custom { key, args } => self.custom.outcome(key, args, state),
+            Outcome::Host(host) => self.custom.host_outcome(host, state),
+            // `Outcome` is non-exhaustive; a variant this applier does not
+            // know changes nothing.
+            _ => {}
         }
     }
 }
@@ -570,6 +654,59 @@ mod tests {
         check!(!ctx.fact_exists(&FactScope::World, &FactId::new("met_hero")));
     }
 
+    fn add_fact(delta: i64) -> Outcome {
+        Outcome::AddFact {
+            scope: FactScope::World,
+            fact_id: FactId::new("gold"),
+            delta,
+        }
+    }
+
+    #[test]
+    fn default_applier_add_fact_starts_missing_fact_at_zero() {
+        let mut applier = DefaultOutcomeApplier::new();
+        let mut ctx = DialogWorldState::new();
+        applier.apply(&add_fact(5), &mut ctx);
+        check!(ctx.get_fact(&FactScope::World, &FactId::new("gold")) == Some(&FactValue::Int(5)));
+        check!(ctx.events_of_kind("FactLearned").len() == 1);
+    }
+
+    #[test]
+    fn default_applier_add_fact_negative_delta() {
+        let mut applier = DefaultOutcomeApplier::new();
+        let mut ctx = DialogWorldState::new();
+        ctx.set_fact(FactScope::World, Fact::int("gold", 2));
+        applier.apply(&add_fact(-5), &mut ctx);
+        check!(ctx.get_fact(&FactScope::World, &FactId::new("gold")) == Some(&FactValue::Int(-3)));
+        applier.apply(&add_fact(-1), &mut ctx);
+        check!(ctx.get_fact(&FactScope::World, &FactId::new("gold")) == Some(&FactValue::Int(-4)));
+    }
+
+    #[test]
+    fn default_applier_add_fact_saturates() {
+        let mut applier = DefaultOutcomeApplier::new();
+        let mut ctx = DialogWorldState::new();
+        ctx.set_fact(FactScope::World, Fact::int("gold", i64::MAX - 1));
+        applier.apply(&add_fact(10), &mut ctx);
+        check!(
+            ctx.get_fact(&FactScope::World, &FactId::new("gold"))
+                == Some(&FactValue::Int(i64::MAX))
+        );
+    }
+
+    #[test]
+    fn default_applier_add_fact_leaves_non_integer_fact_unchanged() {
+        let mut applier = DefaultOutcomeApplier::new();
+        let mut ctx = DialogWorldState::new();
+        ctx.set_fact(FactScope::World, Fact::text("gold", "plenty"));
+        applier.apply(&add_fact(5), &mut ctx);
+        check!(
+            ctx.get_fact(&FactScope::World, &FactId::new("gold"))
+                == Some(&FactValue::Text("plenty".into()))
+        );
+        check!(ctx.events().is_empty());
+    }
+
     #[test]
     fn default_applier_custom_noop() {
         let mut applier = DefaultOutcomeApplier::new();
@@ -596,6 +733,39 @@ mod tests {
         let outcome = Outcome::RemoveMemory { owner, memory_id };
         applier.apply(&outcome, &mut ctx);
         check!(ctx.get_memories(owner).is_empty());
+    }
+
+    #[test]
+    fn relationship_conditions_on_untracked_pair_use_axis_default() {
+        let evaluator = DefaultConditionEvaluator::new();
+        let mut ctx = DialogWorldState::new();
+        let (source, target) = (EntityId::new(1), EntityId::new(2));
+        let at_most = |value| Condition::RelationshipAtMost {
+            source,
+            target,
+            axis: RelationshipAxisId::new("trust"),
+            value,
+        };
+        let at_least = |value| Condition::RelationshipAtLeast {
+            source,
+            target,
+            axis: RelationshipAxisId::new("trust"),
+            value,
+        };
+
+        // Without a default an untracked pair is missing: both are false.
+        check!(!evaluator.evaluate(&at_most(0), &ctx));
+        check!(!evaluator.evaluate(&at_least(0), &ctx));
+
+        ctx.set_relationship_default(RelationshipAxisId::new("trust"), 0);
+        check!(evaluator.evaluate(&at_most(0), &ctx));
+        check!(evaluator.evaluate(&at_least(0), &ctx));
+        check!(!evaluator.evaluate(&at_least(1), &ctx));
+        check!(!evaluator.evaluate(&at_most(-1), &ctx));
+
+        ctx.set_relationship_default(RelationshipAxisId::new("trust"), 50);
+        check!(evaluator.evaluate(&at_least(50), &ctx));
+        check!(!evaluator.evaluate(&at_most(49), &ctx));
     }
 
     #[test]
@@ -773,6 +943,80 @@ mod tests {
         };
         applier.apply(&outcome, &mut ctx);
         check!(ctx.get_relationship(source, target, &RelationshipAxisId::new("trust")) == Some(15));
+    }
+    /// A host store that keeps its own value type and returns owned facts.
+    struct IntStore(std::collections::BTreeMap<String, i64>);
+
+    impl crate::NarrativeState for IntStore {
+        fn fact(&self, _: &FactScope, id: &FactId) -> Option<std::borrow::Cow<'_, FactValue>> {
+            let n = self.0.get(id.0.as_ref())?;
+            Some(std::borrow::Cow::Owned(FactValue::Int(*n)))
+        }
+        fn set_fact(&mut self, _: FactScope, fact: Fact) {
+            if let FactValue::Int(n) = fact.value {
+                self.0.insert(fact.id.0.to_string(), n);
+            }
+        }
+        fn remove_fact(&mut self, _: &FactScope, id: &FactId) -> bool {
+            self.0.remove(id.0.as_ref()).is_some()
+        }
+        fn alignment(&self, _: &AlignmentAxisId, _: &AlignmentPoleId) -> Option<i32> {
+            None
+        }
+        fn add_alignment(&mut self, _: AlignmentAxisId, _: AlignmentPoleId, _: i32) {}
+        fn relationship(&self, _: EntityId, _: EntityId, _: &RelationshipAxisId) -> Option<i32> {
+            None
+        }
+        fn add_relationship(&mut self, _: EntityId, _: EntityId, _: RelationshipAxisId, _: i32) {}
+        fn add_memory(&mut self, _: EntityId, _: dramaturge_model::Memory) {}
+        fn remove_memory(&mut self, _: EntityId, _: dramaturge_model::MemoryId) -> bool {
+            false
+        }
+        fn matches_memory_query(&self, _: EntityId, _: &dramaturge_model::MemoryQuery) -> bool {
+            false
+        }
+        fn has_tag_available(&self, _: &dramaturge_model::DialogTagKind) -> bool {
+            false
+        }
+        fn emit_event(&mut self, _: dramaturge_model::EventKind) {}
+    }
+
+    #[test]
+    fn default_evaluator_reads_owned_facts_from_a_host_store() {
+        let evaluator = DefaultConditionEvaluator::new();
+        let store = IntStore([("coins".to_string(), 3)].into());
+        let coins = FactId::new("coins");
+        check!(evaluator.evaluate(
+            &Condition::FactAtLeast {
+                scope: FactScope::World,
+                fact_id: coins.clone(),
+                value: 3
+            },
+            &store
+        ));
+        check!(!evaluator.evaluate(
+            &Condition::FactAtMost {
+                scope: FactScope::World,
+                fact_id: coins.clone(),
+                value: 2
+            },
+            &store
+        ));
+        check!(evaluator.evaluate(
+            &Condition::FactEquals {
+                scope: FactScope::World,
+                fact_id: coins.clone(),
+                value: FactValue::Int(3),
+            },
+            &store
+        ));
+        check!(evaluator.evaluate(
+            &Condition::FactExists {
+                scope: FactScope::World,
+                fact_id: coins
+            },
+            &store
+        ));
     }
 }
 

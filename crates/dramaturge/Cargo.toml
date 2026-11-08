@@ -1,7 +1,7 @@
 [package]
 name = "dramaturge"
 description = "A Rust toolkit for branching dialogue, character memory, and narrative state."
-readme = "../../README.md"
+readme = "README.md"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,7 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [package.metadata.docs.rs]
-features = ["yaml"]
+features = ["yaml", "macros"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 # The workspace changelog is rotated once, with the facade crate's release.
@@ -23,18 +23,31 @@ pre-release-replacements = [
 
 [features]
 serde = ["dep:dramaturge-serde"]
-yaml = ["dep:dramaturge-serde", "dramaturge-serde/yaml"]
+yaml = ["serde", "dramaturge-serde/yaml"]
+# The dialogue AST, its serde shape and its lowering (`dramaturge::syntax`).
+syntax = ["dep:dramaturge-syntax", "dramaturge-syntax/serde"]
+# The macros: `dialogue!` and the derives. Implies `syntax`, because the
+# code of `dialogue!` uses `dramaturge::syntax`.
+macros = ["syntax", "dep:dramaturge-macros"]
 
 [dependencies]
 dramaturge-model = { workspace = true }
 dramaturge-runtime = { workspace = true }
+dramaturge-macros = { workspace = true, optional = true }
 dramaturge-serde = { workspace = true, optional = true }
+dramaturge-syntax = { workspace = true, optional = true }
 
 [dev-dependencies]
 assert2 = { workspace = true }
 dramaturge-authoring = { workspace = true }
+serde_json = "1"
 
 [[example]]
 name = "the_broken_seal"
 path = "examples/the_broken_seal.rs"
 required-features = ["yaml"]
+
+[[example]]
+name = "dialogue_macro"
+path = "examples/dialogue_macro.rs"
+required-features = ["macros"]

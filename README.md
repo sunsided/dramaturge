@@ -3,62 +3,393 @@
 > A Rust toolkit for branching dialogue, character memory, and narrative state.
 
 [![CI](https://github.com/sunsided/dramaturge/actions/workflows/ci.yml/badge.svg)](https://github.com/sunsided/dramaturge/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/dramaturge.svg)](https://crates.io/crates/dramaturge)
+[![docs.rs](https://docs.rs/dramaturge/badge.svg)](https://docs.rs/dramaturge)
 
 ---
 
-dramaturge is a game-agnostic Rust library for building branching dialogue systems. It models characters, facts, alignment, relationships, memories, and events as pure data — no game engine knowledge baked in. Your game-specific rules live in typed IDs, tags, facts, and state changes; the library evaluates conditions, applies outcomes, and drives dialogue sessions.
+dramaturge is a game-agnostic Rust library for branching dialogue. It models characters, facts, alignment, relationships, memories, and events as plain data, with no game engine baked in. Your game's rules live in typed IDs, tags, facts, and state changes; the library evaluates conditions, applies outcomes, selects text, and drives dialogue sessions.
 
-## Quick Start
+## Install
 
 ```toml
 [dependencies]
-# workspace member (not yet published to crates.io)
-dramaturge = { path = "crates/dramaturge" }
+# Add "yaml" to load dialogues from YAML files.
+dramaturge = { version = "0.3", features = ["macros", "yaml"] }
+
+# Only to check dialogues at authoring time (CI, editor, build step):
+dramaturge-authoring = "0.3"
+
+# Only to read dialogues from JSON:
+serde_json = "1"
 ```
+
+No feature is on by default. The features of `dramaturge`:
+
+| Feature | What it enables |
+|---|---|
+| `syntax` | `dramaturge::syntax`: the dialogue AST, its serde shape (YAML, JSON, ...) and its lowering to a graph |
+| `macros` | `dialogue!` and the derives `DialogTag`, `FactValue`, `ConditionBuilder`. Implies `syntax` |
+| `serde` | `dramaturge::serialization` (the `dramaturge-serde` crate): DTOs for graphs and save states |
+| `yaml` | `serde`, plus the YAML loader `dramaturge::serialization::loader` |
+
+## One dialogue language
+
+A dialogue has one AST (`dramaturge::syntax::Dialogue`), and every authoring form reads into it. YAML, JSON, the `dialogue!` macro and the Rust builder are the same language with different spelling, and they lower to the same `DialogueGraph`. The four examples below make equal graphs.
+
+The dialogue: Mara greets the player once (`intro`) and briefly after that (`again`). The player can be kind, pay, or threaten her; each choice changes state.
+
+### `dialogue!` (feature `macros`)
+
+The macro checks the dialogue at compile time: unknown targets, duplicate keys and conditions it cannot read are compile errors at the offending token.
 
 ```rust
-use dramaturge::{
-    Character, EntityId, Fact, FactId, FactScope, FactValue,
-    Condition, DialogWorldState, DefaultConditionEvaluator, ConditionEvaluator,
+use dramaturge::dialogue;
+
+let loaded = dialogue! {
+    with mara start [again, intro] {
+        intro: "If you came about the shipment, I told the Wardens everything." {
+            set met_mara = true;
+            "You treated someone with that medicine." => soft { relation trust += 10; }
+            "Ten gold says you remember more." when gold >= 10 => soft { add gold -= 10; }
+            "Tell me where the crates went." => forced {
+                relation trust -= 10;
+                remember was_threatened;
+            }
+            "Never mind." => end;
+        }
+        again: "You again." {
+            when met_mara;
+            "Goodbye." => end;
+        }
+        soft {
+            mara: "The refugee camp beyond the east wall.";
+            player: "I will speak carefully.";
+            -> end;
+        }
+        forced: "The east wall. Take what you want." {
+            -> end;
+        }
+    }
 };
-
-// Create a character
-let hero = Character::new(EntityId::new(1), "hero", "Elara");
-assert_eq!(&*hero.display_name, "Elara");
-
-// Set a fact in the world state
-let mut world = DialogWorldState::new();
-world.set_fact(FactScope::Player, Fact::bool("met_the_oracle", true));
-
-// Gate a dialogue option on that fact
-let condition = Condition::FactEquals {
-    scope: FactScope::Player,
-    fact_id: FactId::new("met_the_oracle"),
-    value: FactValue::Bool(true),
-};
-
-let evaluator = DefaultConditionEvaluator::new();
-assert!(evaluator.evaluate(&condition, &world));
+// loaded.graph: the DialogueGraph; loaded.symbols: the keys behind its ids.
 ```
 
-## Full Example
+### YAML (feature `yaml`)
 
-[`the_broken_seal`](crates/dramaturge/examples/the_broken_seal.rs) demonstrates a complete dialogue scene loaded from YAML: branching conditions based on player skills, relationship outcomes, and a simple text-based TUI. Run it with:
-
-```bash
-cargo run -p dramaturge --example the_broken_seal
+```yaml
+with: mara                  # the character the player talks to
+start: [again, intro]       # entry nodes: the first whose `when` holds starts
+nodes:
+  intro:
+    say: "If you came about the shipment, I told the Wardens everything."
+    set: { met_mara: true }  # on enter
+    options:
+      - say: "You treated someone with that medicine."
+        relation: { trust: 10 }   # player -> the node's speaker
+        go: soft
+      - say: "Ten gold says you remember more."
+        when: gold >= 10
+        add: { gold: -10 }
+        go: soft
+      - say: "Tell me where the crates went."
+        relation: { trust: -10 }
+        remember: [was_threatened]  # a memory of the node's speaker
+        go: forced
+      - say: "Never mind."    # without `go`, the option ends the talk
+  again:
+    when: met_mara
+    say: "You again."
+    options:
+      - say: "Goodbye."
+  soft:                       # a scripted exchange: more lines, then on
+    say: "The refugee camp beyond the east wall."
+    lines:
+      - { speaker: player, say: "I will speak carefully." }
+    next: end
+  forced:
+    say: "The east wall. Take what you want."
+    next: end
 ```
+
+```rust,no_run
+use dramaturge::serialization::loader::load_yaml;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let yaml = std::fs::read_to_string("mara.yaml")?;
+    let loaded = load_yaml(&yaml)?; // graph, symbols, warnings
+    Ok(())
+}
+```
+
+### JSON (feature `syntax`)
+
+The AST deserializes from self-describing serde formats (JSON, YAML, TOML), not from binary ones like bincode.
+
+```json
+{
+  "with": "mara",
+  "start": ["again", "intro"],
+  "nodes": {
+    "intro": {
+      "say": "If you came about the shipment, I told the Wardens everything.",
+      "set": { "met_mara": true },
+      "options": [
+        { "say": "You treated someone with that medicine.", "relation": { "trust": 10 }, "go": "soft" },
+        { "say": "Ten gold says you remember more.", "when": "gold >= 10", "add": { "gold": -10 }, "go": "soft" },
+        { "say": "Tell me where the crates went.", "relation": { "trust": -10 },
+          "remember": ["was_threatened"], "go": "forced" },
+        { "say": "Never mind." }
+      ]
+    },
+    "again": { "when": "met_mara", "say": "You again.", "options": [{ "say": "Goodbye." }] },
+    "soft": {
+      "say": "The refugee camp beyond the east wall.",
+      "lines": [{ "speaker": "player", "say": "I will speak carefully." }],
+      "next": "end"
+    },
+    "forced": { "say": "The east wall. Take what you want.", "next": "end" }
+  }
+}
+```
+
+```rust,no_run
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let json = std::fs::read_to_string("mara.json")?;
+    let dialogue: dramaturge::syntax::Dialogue = serde_json::from_str(&json)?;
+    let loaded = dramaturge::syntax::lower_plain(&dialogue)?;
+    Ok(())
+}
+```
+
+### Rust
+
+<details>
+<summary>The same dialogue with the AST builder (feature <code>syntax</code>)</summary>
+
+```rust
+use dramaturge::syntax::{Choice, Dialogue, Node, Outcomes, Target, lower_plain};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let dialogue: Dialogue = Dialogue::new("mara")
+        .with_start("again")
+        .with_start("intro")
+        .with_node(
+            Node::new("intro", "If you came about the shipment, I told the Wardens everything.".into())
+                .with_outcomes(Outcomes::default().with_set("met_mara", true.into()))
+                .with_option(
+                    Choice::new("You treated someone with that medicine.".into(), Target::parse("soft"))
+                        .with_outcomes(Outcomes::default().with_relation("trust", 10)),
+                )
+                .with_option(
+                    Choice::new("Ten gold says you remember more.".into(), Target::parse("soft"))
+                        .with_when("gold >= 10".into())
+                        .with_outcomes(Outcomes::default().with_add("gold", -10)),
+                )
+                .with_option(
+                    Choice::new("Tell me where the crates went.".into(), Target::parse("forced"))
+                        .with_outcomes(
+                            Outcomes::default()
+                                .with_relation("trust", -10)
+                                .with_remember("was_threatened"),
+                        ),
+                )
+                .with_option(Choice::new("Never mind.".into(), Target::End)),
+        )
+        .with_node(
+            Node::new("again", "You again.".into())
+                .with_when("met_mara".into())
+                .with_option(Choice::new("Goodbye.".into(), Target::End)),
+        )
+        .with_node(
+            Node::new("soft", "The refugee camp beyond the east wall.".into())
+                .with_line("player", "I will speak carefully.".into())
+                .with_next(Target::End),
+        )
+        .with_node(
+            Node::new("forced", "The east wall. Take what you want.".into())
+                .with_next(Target::End),
+        );
+    let loaded = lower_plain(&dialogue)?;
+    Ok(())
+}
+```
+
+</details>
+
+You can also skip the AST and build a `DialogueGraph` from model types (`DialogueNode`, `DialogueOption`, `Outcome`, `Condition`) with numeric ids. The [`exchange`](crates/dramaturge/examples/exchange.rs) example does that.
+
+### The parts
+
+- **Targets**: a node key, `end` (the default for options) or `back` (the node before).
+- **Conditions** (`when`): `met_mara`, `exists(f)`, `gold >= 10`, `player.gold` (scopes `player.`, `party.`, `world.`), `remembers(mara, saw_it)`, `relation(trust) >= 3`, `seen_by(player)`, joined with `and`, `or`, `not` and parentheses. In YAML, quote `"true"` and `"false"`.
+- **Outcomes** on a node (on enter) or an option (when chosen): `set`, `add`, `relation`, `remember`, and `then` for other effects (`relation` between any two characters, `custom`).
+- **Options** also take `id`, `tags`, `intentions` and a navigation `hint` (`continue`, `leave`, `end`, `return`, `{ go_to: X }`).
+- **Exchanges**: `lines` give a node more lines, each with its own speaker; `next` goes on without a choice. The runtime enters such nodes one after the other until a node offers a choice.
+
+The full field reference is in the [`dramaturge-syntax` README](crates/dramaturge-syntax/README.md).
+
+## Text selection
+
+New in 0.3: a line can vary. In YAML, `say` takes a list of fragments with their own `when` and `mode` (`always`, `first_time`, `once`, `cycle`, `shuffle`, `sticky`), or `{ text: <pool id> }` to say a named text pool. A pool is an ordered list of candidates with a pick rule: `first` (the default), `all`, or `best` (the highest score wins: the specificity of the candidate's condition plus one for each `speaker` or `topic` key; a tie goes to file order). Candidates can have tuple keys (`speaker`, `topic`), a perceiver test (`seen_by`), and `learn` facts.
+
+```yaml
+id: keeper_replies
+pick: best
+one_of:
+  - { speaker: keeper, topic: stove, text: "Leave the stove alone." }
+  - { speaker: keeper, text: "I keep the lock. That is all." }
+  - "Nobody answers."
+  - speaker: keeper
+    topic: stove
+    when: stove.hot and seen_by(player)
+    text: "The ash on the grate is fresh."
+    learn: [ash_is_fresh]
+```
+
+`select` and `select_named` choose without changing progress or world state (they only draw from the RNG for `shuffle` and `sticky`) and return a `Selection` with a `Trace` that says why each candidate won or lost. `commit` then records the progress and the `learn` items:
+
+```rust,no_run
+use dramaturge::serialization::loader::load_pool_yaml;
+use dramaturge::*;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let yaml = std::fs::read_to_string("keeper_replies.yaml")?;
+    let mut symbols = SymbolTable::new();
+    let pools = Pools::new().with(load_pool_yaml(&yaml, &mut symbols)?);
+    let keeper = CharacterId::new(symbols.entity("keeper").unwrap());
+    let player = CharacterId::new(symbols.player());
+
+    let evaluator = DefaultConditionEvaluator::new();
+    let (mut state, mut progress, mut rng) = (DialogWorldState::new(), TextProgress::new(), SplitMix64::new(7));
+    state.set_fact(FactScope::World, Fact::bool("stove.hot", true));
+
+    // The player sees the hot stove: the last candidate has the highest score.
+    let query = Query::new().speaker(keeper).topic("stove".into()).perceiver(player);
+    let judge = DefaultJudge::new(&evaluator, &state);
+    let selection = select_named("keeper_replies", &pools, "kitchen", &query, &judge, &progress, &mut rng);
+    println!("{}", selection.trace);
+    commit(&selection, &query, &mut progress, &mut world_learner(&mut state)); // learns ash_is_fresh
+    Ok(())
+}
+```
+
+`dramaturge_authoring::GraphValidator::new().validate_pools(&pools)` reports ties in `best` pools, unkeyed progress modes and unknown pool names (see the [`dramaturge-authoring` README](crates/dramaturge-authoring/README.md)). The [`text_selection`](crates/dramaturge/examples/text_selection.rs) example builds pools in Rust instead of YAML.
+
+## Running a dialogue
+
+`DefaultRuntime` picks the entry node, enters nodes (applying their outcomes) until one offers a choice, and applies the chosen option:
+
+```rust,no_run
+use dramaturge::serialization::loader::load_yaml;
+use dramaturge::*;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let loaded = load_yaml(&std::fs::read_to_string("mara.yaml")?)?;
+    let (graph, mut symbols) = (loaded.graph, loaded.symbols);
+    let player = symbols.player();
+    let mut runtime = DefaultRuntime::new();
+    let mut state = DialogWorldState::new();
+    let mut cursor = DialogCursor::new(runtime.select_entry(&graph, &state).expect("an entry node"));
+
+    loop {
+        let advance = runtime.advance(&graph, &mut cursor, &mut state);
+        for id in &advance.entered {
+            for (speaker, text) in graph.node(*id).unwrap().all_lines() {
+                let who = if speaker.0 == player { "you" } else { symbols.entity_key(speaker.0).unwrap_or("?") };
+                println!("{who}: {:?}", text.as_inline());
+            }
+        }
+        if advance.stop != AdvanceStop::Choice {
+            break;
+        }
+        let node = graph.node(cursor.current).unwrap();
+        let option = runtime.available_options(node, &state).next().cloned().unwrap(); // the player's pick
+        let target = runtime.choose_option(&option, &mut state);
+        if cursor.follow(&target).is_none() {
+            break;
+        }
+    }
+    Ok(())
+}
+```
+
+To keep dialogue state inside your own game state, implement `HasDialogWorldState`; to answer game-specific conditions and outcomes (`Condition::Custom`, `Outcome::Custom`), pass a `CustomHandler` to `DefaultConditionEvaluator::with_custom` and `DefaultOutcomeApplier::with_custom`, and give both to `DefaultRuntime::with_parts(evaluator, applier)` (`DefaultRuntime::new()` uses handlers that answer nothing). See the [`host_state`](crates/dramaturge/examples/host_state.rs) example.
+
+### Validation
+
+Check graphs at authoring time with [`dramaturge-authoring`](crates/dramaturge-authoring/README.md): missing targets, unreachable nodes, dead ends, cycles, always-false conditions, orphan facts and more.
+
+```rust,no_run
+use dramaturge::serialization::loader::load_yaml;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let loaded = load_yaml(&std::fs::read_to_string("mara.yaml")?)?;
+    let issues = dramaturge_authoring::GraphValidator::new()
+        .validate_with_symbols(&loaded.graph, &loaded.symbols);
+    assert!(issues.is_empty(), "{issues:?}");
+    Ok(())
+}
+```
+
+## Derive macros (feature `macros`)
+
+- `FactValue` on a fact enum: typed condition helpers per variant (`is_true`, `at_least`, `equals_text`, `exists`, ...). `#[fact(int)]`, `float`, `text`, `entity` set the type; the default is `bool`.
+- `ConditionBuilder` on the same enum: `all`, `any`, `not`, `always`, `never`, `custom`, and more.
+- `DialogTag` on a tag enum: implements the `DialogTag` trait from `#[tag(axis = "...", key = "...")]`. The trait needs `Debug, Clone, PartialEq, Eq, Hash`.
+- `Dramaturge`: a placeholder that generates nothing. It is not re-exported by `dramaturge`.
+
+```rust
+use dramaturge::{ConditionBuilder, DialogTag, FactScope, FactValue};
+
+#[derive(FactValue, ConditionBuilder)]
+enum Facts {
+    MetMara,
+    #[fact(int)]
+    Gold,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DialogTag)]
+enum Tone {
+    #[tag(axis = "moral", key = "paragon")]
+    Kind,
+    #[tag(axis = "moral", key = "renegade")]
+    Harsh,
+}
+
+let can_pay = Facts::all(vec![
+    Facts::MetMara.is_true(FactScope::World),
+    Facts::Gold.at_least(FactScope::World, 10),
+]);
+```
+
+More in the [`dramaturge-macros` README](crates/dramaturge-macros/README.md).
+
+## Examples
+
+| Example | Shows | Run |
+|---|---|---|
+| [`the_broken_seal`](crates/dramaturge/examples/the_broken_seal.rs) | A full scene loaded from [YAML](crates/dramaturge/examples/dialogue.yaml): skill tags, fragments, relationships, validation, a text UI | `cargo run -p dramaturge --example the_broken_seal --features yaml` |
+| [`dialogue_macro`](crates/dramaturge/examples/dialogue_macro.rs) | A dialogue written with `dialogue!`, played twice | `cargo run -p dramaturge --example dialogue_macro --features macros` |
+| [`exchange`](crates/dramaturge/examples/exchange.rs) | A graph built from model types; lines that continue without a choice; `back` | `cargo run -p dramaturge --example exchange` |
+| [`host_state`](crates/dramaturge/examples/host_state.rs) | Custom conditions against your own game state | `cargo run -p dramaturge --example host_state` |
+| [`text_selection`](crates/dramaturge/examples/text_selection.rs) | Text pools, `best`, tuple keys, `seen_by`, `learn`, the trace | `cargo run -p dramaturge --example text_selection` |
+
+## Upgrading from 0.2
+
+0.3 has one dialogue shape, and the 0.2 YAML shape no longer loads. [docs/migration-0.3-yaml.md](docs/migration-0.3-yaml.md) maps each 0.2 field to its 0.3 form. The [CHANGELOG](CHANGELOG.md) lists the API changes.
 
 ## Workspace Layout
 
 | Crate | Purpose |
 |---|---|
-| `dramaturge` | Public facade — re-exports the most important items |
-| `dramaturge-model` | Core domain types: characters, facts, conditions, outcomes, dialogue graphs |
-| `dramaturge-runtime` | Evaluation traits and default runtime engine |
-| `dramaturge-macros` | Derive macros: `DialogTag`, `FactValue`, `ConditionBuilder` |
-| `dramaturge-serde` | Optional serialization integration (`serde` and `yaml` features) |
-| `dramaturge-authoring` | Authoring-time validation: graph structure checks, dead-end detection, orphan facts |
+| [`dramaturge`](https://docs.rs/dramaturge) | Public facade: re-exports the most important items |
+| [`dramaturge-model`](crates/dramaturge-model/README.md) | Core domain types: characters, facts, conditions, outcomes, dialogue graphs, text pools |
+| [`dramaturge-runtime`](crates/dramaturge-runtime/README.md) | Evaluation traits, the default runtime, text selection |
+| [`dramaturge-syntax`](crates/dramaturge-syntax/README.md) | The dialogue AST, its checks, the token and serde forms, and the lowering to graphs |
+| [`dramaturge-macros`](crates/dramaturge-macros/README.md) | `dialogue!` and the derives `DialogTag`, `FactValue`, `ConditionBuilder` |
+| [`dramaturge-serde`](crates/dramaturge-serde/README.md) | Serialization DTOs and the YAML loader (`yaml` feature) |
+| [`dramaturge-authoring`](crates/dramaturge-authoring/README.md) | Authoring-time validation: graph checks, dead ends, orphan facts, pool checks |
 
 ## License
 

@@ -13,12 +13,12 @@
 //! ## Run the Example
 //!
 //! ```bash
-//! cargo run --example the_broken_seal
+//! cargo run -p dramaturge --example the_broken_seal --features yaml
 //! ```
 
+use dramaturge::serialization::loader::{LoadedDialogue, load_yaml};
 use dramaturge::*;
 use dramaturge_authoring::{GraphValidator, ValidationSeverity};
-use dramaturge_serde::loader::{LoadedDialogue, YamlDialogueGraph};
 use std::collections::HashMap;
 use std::io::{self, Write};
 
@@ -42,7 +42,7 @@ impl Entities {
                 .unwrap_or_else(|| panic!("dialogue.yaml has no character '{key}'"))
         };
         Self {
-            player: get("player"),
+            player: get(SymbolTable::PLAYER_KEY),
             mara: get("mara"),
             orren: get("orren"),
         }
@@ -121,9 +121,8 @@ impl GameState {
         .into_iter()
         .collect();
 
-        let entry_node = graph
-            .entry_node
-            .expect("dialogue.yaml defines an entry node");
+        let entry_node = select_entry(&graph, &DefaultConditionEvaluator::new(), &world)
+            .expect("dialogue.yaml defines an entry node whose conditions hold");
 
         let mut state = Self {
             world,
@@ -160,7 +159,7 @@ impl GameState {
                 &mut self.rng,
             )
             .iter()
-            .map(|p| p.text.as_str().to_string())
+            .filter_map(|p| p.text.as_str().map(str::to_string))
             .collect::<Vec<_>>()
             .join(" ")
         };
@@ -691,18 +690,10 @@ fn show_intro_and_configure() -> (bool, bool) {
 fn main() {
     // Load dialogue from YAML
     let yaml_content = include_str!("dialogue.yaml");
-    let yaml_graph = match YamlDialogueGraph::from_yaml(yaml_content) {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("Failed to parse YAML: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    let loaded = match yaml_graph.to_model() {
+    let loaded = match load_yaml(yaml_content) {
         Ok(loaded) => loaded,
         Err(e) => {
-            eprintln!("Failed to convert to model: {}", e);
+            eprintln!("Failed to load the dialogue: {e}");
             std::process::exit(1);
         }
     };
@@ -719,6 +710,7 @@ fn main() {
                 ValidationSeverity::Error => "  [ERROR]",
                 ValidationSeverity::Warning => "  [WARN] ",
                 ValidationSeverity::Info => "  [INFO] ",
+                _ => "  [?]    ",
             };
             eprintln!("{} {}", prefix, issue.message);
         }
@@ -753,33 +745,23 @@ mod tests {
     #[test]
     fn test_yaml_loads() {
         let yaml = r#"
-version: "2.0"
-entry_node: hello
-characters:
-  player:
-    name: "Player"
+with: player
+start: hello
 nodes:
-  - id: hello
-    speaker: player
-    text: "Hello"
+  hello:
+    say: "Hello"
     options:
-      - id: hello.end
-        text: "End"
-        target: end
+      - { id: hello.end, say: "End", go: end }
 "#;
-
-        let yaml_graph = YamlDialogueGraph::from_yaml(yaml).expect("Should parse");
-        check!(yaml_graph.nodes.len() == 1);
+        let loaded = load_yaml(yaml).expect("Should load");
+        check!(loaded.graph.nodes.len() == 1);
     }
 
     #[test]
     fn bundled_dialogue_loads_with_keys_and_validates() {
-        let loaded = YamlDialogueGraph::from_yaml(include_str!("dialogue.yaml"))
-            .expect("Should parse")
-            .to_model()
-            .expect("Should convert");
+        let loaded = load_yaml(include_str!("dialogue.yaml")).expect("Should load");
         check!(loaded.warnings.is_empty(), "{:?}", loaded.warnings);
-        let entry = loaded.graph.entry_node.unwrap();
+        let entry = loaded.graph.entry_node().unwrap();
         check!(loaded.symbols.node_key(entry) == Some("mara.intro"));
         Entities::resolve(&loaded.symbols);
 
@@ -795,30 +777,18 @@ nodes:
     #[test]
     fn option_fragment_text_is_resolved() {
         let yaml = r#"
-version: "2.0"
-entry_node: hello
-characters:
-  player:
-    name: "Player"
-  mara:
-    name: "Mara"
-  orren:
-    name: "Orren"
+with: mara
+start: hello
 nodes:
-  - id: hello
-    speaker: mara
-    text: "Hello"
+  hello:
+    say: "Hello"
     options:
-      - id: hello.bye
-        text:
-          - "Goodbye,"
-          - "Mara."
-        target: end
+      - say: ["Goodbye,", "Mara."]
+        go: end
 "#;
-        let loaded = YamlDialogueGraph::from_yaml(yaml)
-            .unwrap()
-            .to_model()
-            .unwrap();
+        let mut loaded = load_yaml(yaml).unwrap();
+        // The scene code looks up the whole cast.
+        loaded.symbols.intern_entity("orren");
         let state = GameState::new(loaded, false, false);
         let option = &state.current_node().unwrap().options[0];
         check!(format_option_text_only(&state, option) == "Goodbye, Mara.");

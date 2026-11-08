@@ -1,8 +1,10 @@
 //! Procedural macros for the `dramaturge` dialogue toolkit.
 //!
-//! This crate provides derive macros that integrate with the dramaturge
-//! ecosystem. Currently four macros are available:
+//! This crate provides macros that integrate with the dramaturge
+//! ecosystem: the function-like macro `dialogue!` and four derive macros.
 //!
+//! - `dialogue!` — writes a dialogue in Rust tokens and builds its graph.
+//!   See [`dialogue!`].
 //! - `DialogTag` — implements the `DialogTag` trait for an enum,
 //!   using `#[tag]` attributes on variants.
 //! - `Dramaturge` — a no-op placeholder derive macro.
@@ -17,16 +19,23 @@
 //! to specify the axis and key for each tag. If a variant lacks the
 //! attribute, the axis or key defaults to an empty string.
 //!
-//! ```ignore
-//! use dramaturge_macros::DialogTag;
+//! The trait needs `Debug`, `Clone`, `PartialEq`, `Eq` and `Hash`, so derive
+//! them too.
 //!
-//! #[derive(DialogTag)]
+//! ```
+//! use dramaturge_macros::DialogTag;
+//! use dramaturge_model::DialogTag as _;
+//!
+//! #[derive(Debug, Clone, PartialEq, Eq, Hash, DialogTag)]
 //! enum MyTag {
 //!     #[tag(axis = "moral", key = "good")]
 //!     Good,
 //!     #[tag(axis = "moral", key = "evil")]
 //!     Evil,
 //! }
+//!
+//! assert_eq!(MyTag::Evil.axis(), "moral");
+//! assert_eq!(MyTag::Good.key(), "good");
 //! ```
 //!
 //! # `#[derive(FactValue)]`
@@ -99,6 +108,8 @@
 
 extern crate proc_macro;
 
+mod dialogue;
+
 use proc_macro::TokenStream;
 use proc_macro_crate::FoundCrate;
 use quote::quote;
@@ -106,6 +117,59 @@ use syn::{
     Data, DataEnum, DeriveInput, Fields, Meta, MetaNameValue, Token, parse_macro_input,
     punctuated::Punctuated,
 };
+
+/// Builds a dialogue graph from the token form of a dialogue.
+///
+/// The grammar is the token form of `dramaturge-syntax`
+/// (`dramaturge_syntax::tokens`), so the text is the same as in a
+/// `dialogue` block of a host macro. The macro returns a
+/// `dramaturge_syntax::Loaded`: the `graph`, its `symbols` and the
+/// `warnings` (always empty: the macro refuses a dialogue with a warning).
+///
+/// ```rust,ignore
+/// use dramaturge_macros::dialogue;
+///
+/// let loaded = dialogue! {
+///     with mara start [again, intro] {
+///         intro: "Hello, traveller." {
+///             set met_mara = true;
+///             "Who are you?" => names { relation trust += 1; }
+///             "Goodbye." => end;
+///         }
+///         again: "You again." {
+///             when met_mara and relation(trust) >= 1;
+///             "Goodbye." => end;
+///         }
+///         names {
+///             mara: "They call me Mara.";
+///             player: "Mara. I will remember.";
+///             -> end;
+///         }
+///     }
+/// };
+/// assert_eq!(loaded.graph.nodes.len(), 3);
+/// ```
+///
+/// # Compile errors
+///
+/// The macro reports these errors at the span of the token:
+///
+/// - a syntax error;
+/// - a `start`, `=>` or `->` target that names no node;
+/// - a duplicate node key, or the key `end` or `back`;
+/// - a node with no options and no `-> target;`;
+/// - a condition that the default condition language can not read.
+///
+/// The generated code builds a `dramaturge_syntax::Dialogue` and lowers it
+/// with `dramaturge_syntax::lower_plain`, as the YAML loader does. The
+/// calling crate needs `dramaturge-syntax`, or `dramaturge` with the
+/// `macros` feature.
+#[proc_macro]
+pub fn dialogue(input: TokenStream) -> TokenStream {
+    dialogue::expand(input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
 /// Derives the `DialogTag` trait for an enum.
 ///
@@ -185,17 +249,23 @@ pub fn derive_dialog_tag(input: TokenStream) -> TokenStream {
     output.into()
 }
 
-/// Resolves the path to the `dramaturge-model` crate using `proc_macro_crate`.
-/// Falls back to `::dramaturge_model` if resolution fails.
+/// The path of `dramaturge-model` in the calling crate: the crate itself,
+/// a direct dependency, or `dramaturge::model` through the facade.
 fn resolve_dramaturge_model_path() -> syn::Path {
+    let ident = |name: &str| syn::Ident::new(name, proc_macro2::Span::call_site());
     match proc_macro_crate::crate_name("dramaturge-model") {
-        Ok(FoundCrate::Itself) => syn::parse_quote! { crate },
+        Ok(FoundCrate::Itself) => return syn::parse_quote! { crate },
         Ok(FoundCrate::Name(name)) => {
-            let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
-            syn::parse_quote! { ::#ident }
+            let name = ident(&name);
+            return syn::parse_quote! { ::#name };
         }
-        Err(_) => syn::parse_quote! { ::dramaturge_model },
+        Err(_) => {}
     }
+    if let Ok(FoundCrate::Name(name)) = proc_macro_crate::crate_name("dramaturge") {
+        let name = ident(&name);
+        return syn::parse_quote! { ::#name::model };
+    }
+    syn::parse_quote! { ::dramaturge_model }
 }
 
 /// Parses `#[tag(key = "...")]` from variant attributes using `syn`'s proper parsing.

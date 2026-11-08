@@ -43,6 +43,7 @@ pub enum Confidence {
 
 /// Categorical tags describing the emotional/narrative significance of a memory.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum MemoryTag {
     /// This entity helped the character.
     HelpedMe,
@@ -68,7 +69,10 @@ pub enum MemoryTag {
 ///
 /// Multiple filters use **AND** semantics — all specified filters must match.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
+#[non_exhaustive]
 pub struct MemoryQuery {
+    /// Match the memory with this identifier.
+    pub id: Option<MemoryId>,
     /// Match memories that have this exact tag.
     pub tag: Option<MemoryTag>,
     /// Minimum confidence level required (inclusive).
@@ -87,6 +91,22 @@ impl MemoryQuery {
     /// Creates an empty query that matches all memories.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates a query that matches the memory with the given identifier.
+    ///
+    /// ```rust
+    /// use dramaturge_model::{Memory, MemoryId, MemoryQuery};
+    ///
+    /// let query = MemoryQuery::by_id(MemoryId::new(7));
+    /// assert!(query.matches(&Memory::new(MemoryId::new(7))));
+    /// assert!(!query.matches(&Memory::new(MemoryId::new(8))));
+    /// ```
+    pub fn by_id(id: MemoryId) -> Self {
+        Self {
+            id: Some(id),
+            ..Self::default()
+        }
     }
 
     /// Creates a query that matches memories with the given tag.
@@ -113,10 +133,51 @@ impl MemoryQuery {
         }
     }
 
+    /// Sets the required memory identifier and returns self.
+    pub fn with_id(mut self, id: MemoryId) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    /// Sets the required tag and returns self.
+    pub fn with_tag(mut self, tag: MemoryTag) -> Self {
+        self.tag = Some(tag);
+        self
+    }
+
+    /// Sets the minimum confidence and returns self.
+    pub fn with_min_confidence(mut self, confidence: Confidence) -> Self {
+        self.min_confidence = Some(confidence);
+        self
+    }
+
+    /// Sets the minimum emotional weight and returns self.
+    pub fn with_min_emotional_weight(mut self, weight: i32) -> Self {
+        self.min_emotional_weight = Some(weight);
+        self
+    }
+
+    /// Sets the required subject and returns self.
+    pub fn with_subject(mut self, subject: EntityId) -> Self {
+        self.subject = Some(subject);
+        self
+    }
+
+    /// Adds a fact to the "any of these facts" filter and returns self.
+    pub fn with_fact(mut self, fact: FactId) -> Self {
+        self.facts.push(fact);
+        self
+    }
+
     /// Checks if the given memory matches all filters in this query.
     ///
     /// Uses **AND** semantics — all specified filters must match.
     pub fn matches(&self, memory: &Memory) -> bool {
+        if let Some(id) = self.id
+            && memory.id != id
+        {
+            return false;
+        }
         if let Some(ref tag) = self.tag
             && !memory.tags.contains(tag)
         {
@@ -261,6 +322,7 @@ mod tests {
     #[test]
     fn memory_query_construction() {
         let q = MemoryQuery::new();
+        check!(q.id.is_none());
         check!(q.tag.is_none());
         check!(q.min_confidence.is_none());
         check!(q.subject.is_none());
@@ -409,10 +471,7 @@ mod tests {
 
     #[test]
     fn memory_query_matches_by_min_confidence() {
-        let q = MemoryQuery {
-            min_confidence: Some(Confidence::Known),
-            ..MemoryQuery::new()
-        };
+        let q = MemoryQuery::new().with_min_confidence(Confidence::Known);
         let m1 = Memory::new(MemoryId::new(1)).with_confidence(Confidence::Known);
         let m2 = Memory::new(MemoryId::new(2)).with_confidence(Confidence::Witnessed);
         let m3 = Memory::new(MemoryId::new(3)).with_confidence(Confidence::Believed);
@@ -423,10 +482,7 @@ mod tests {
 
     #[test]
     fn memory_query_matches_by_min_emotional_weight() {
-        let q = MemoryQuery {
-            min_emotional_weight: Some(50),
-            ..MemoryQuery::new()
-        };
+        let q = MemoryQuery::new().with_min_emotional_weight(50);
         let m1 = Memory::new(MemoryId::new(1)).with_emotional_weight(50);
         let m2 = Memory::new(MemoryId::new(2)).with_emotional_weight(100);
         let m3 = Memory::new(MemoryId::new(3)).with_emotional_weight(25);
@@ -459,6 +515,39 @@ mod tests {
     }
 
     #[test]
+    fn memory_query_builders() {
+        let q = MemoryQuery::new()
+            .with_tag(MemoryTag::SavedLife)
+            .with_min_confidence(Confidence::Known)
+            .with_min_emotional_weight(10)
+            .with_subject(EntityId::new(7))
+            .with_fact(FactId::new("a"))
+            .with_fact(FactId::new("b"));
+        check!(q.tag == Some(MemoryTag::SavedLife));
+        check!(q.min_confidence == Some(Confidence::Known));
+        check!(q.min_emotional_weight == Some(10));
+        check!(q.subject == Some(EntityId::new(7)));
+        check!(q.facts == vec![FactId::new("a"), FactId::new("b")]);
+    }
+
+    #[test]
+    fn memory_query_by_id() {
+        let q = MemoryQuery::by_id(MemoryId::new(3));
+        check!(q.id == Some(MemoryId::new(3)));
+        check!(q.tag.is_none());
+        check!(q.matches(&Memory::new(MemoryId::new(3))));
+        check!(!q.matches(&Memory::new(MemoryId::new(4))));
+    }
+
+    #[test]
+    fn memory_query_by_id_and_tag() {
+        let q = MemoryQuery::by_id(MemoryId::new(3)).with_tag(MemoryTag::HelpedMe);
+        check!(q.matches(&Memory::new(MemoryId::new(3)).with_tag(MemoryTag::HelpedMe)));
+        check!(!q.matches(&Memory::new(MemoryId::new(3))));
+        check!(!q.matches(&Memory::new(MemoryId::new(4)).with_tag(MemoryTag::HelpedMe)));
+    }
+
+    #[test]
     fn memory_query_no_filters_matches_all() {
         let q = MemoryQuery::new();
         let m1 = Memory::new(MemoryId::new(1));
@@ -474,11 +563,7 @@ mod tests {
 
     #[test]
     fn memory_query_multiple_filters_and_semantics() {
-        let q = MemoryQuery {
-            tag: Some(MemoryTag::HelpedMe),
-            min_confidence: Some(Confidence::Known),
-            ..MemoryQuery::new()
-        };
+        let q = MemoryQuery::by_tag(MemoryTag::HelpedMe).with_min_confidence(Confidence::Known);
         let m1 = Memory::new(MemoryId::new(1))
             .with_tag(MemoryTag::HelpedMe)
             .with_confidence(Confidence::Known);

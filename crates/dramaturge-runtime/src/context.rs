@@ -17,7 +17,8 @@
 //! # Fingerprints
 //!
 //! [`DialogWorldState::fingerprint`] hashes the *logical* state — facts,
-//! alignments, relationships, memories and available tags — and ignores the
+//! alignments, relationships, relationship defaults, memories and available
+//! tags — and ignores the
 //! event log, which is history rather than state. Two states with the same
 //! fingerprint are (with overwhelming probability) indistinguishable to
 //! conditions. Automated explorers use it to detect states they have
@@ -45,9 +46,12 @@ pub struct DialogWorldState {
     facts: BTreeMap<FactScope, BTreeMap<FactId, FactValue>>,
     alignments: BTreeMap<AlignmentAxisId, BTreeMap<AlignmentPoleId, i32>>,
     relationships: BTreeMap<(EntityId, EntityId), BTreeMap<RelationshipAxisId, i32>>,
+    relationship_defaults: BTreeMap<RelationshipAxisId, i32>,
     memories: BTreeMap<EntityId, Vec<Memory>>,
     available_tags: BTreeSet<DialogTagKind>,
     events: Vec<Event>,
+    /// Whether events are recorded. See [`with_event_log`](Self::with_event_log).
+    event_log: bool,
     /// Next event ID to allocate via [`emit_event`](Self::emit_event).
     ///
     /// Zero means the counter has wrapped around and the ID space is exhausted.
@@ -60,9 +64,11 @@ impl Default for DialogWorldState {
             facts: BTreeMap::new(),
             alignments: BTreeMap::new(),
             relationships: BTreeMap::new(),
+            relationship_defaults: BTreeMap::new(),
             memories: BTreeMap::new(),
             available_tags: BTreeSet::new(),
             events: Vec::new(),
+            event_log: true,
             event_id_counter: 1,
         }
     }
@@ -152,7 +158,11 @@ impl DialogWorldState {
             .flat_map(|(axis, poles)| poles.iter().map(move |(pole, v)| (axis, pole, *v)))
     }
 
-    /// Returns the relationship score, or `None` if untracked.
+    /// Returns the relationship score.
+    ///
+    /// For a pair that is not tracked on `axis`, returns the
+    /// [default of the axis](Self::set_relationship_default), or `None` if
+    /// the axis has no default.
     pub fn get_relationship(
         &self,
         source: EntityId,
@@ -160,13 +170,15 @@ impl DialogWorldState {
         axis: &RelationshipAxisId,
     ) -> Option<i32> {
         self.relationships
-            .get(&(source, target))?
-            .get(axis)
+            .get(&(source, target))
+            .and_then(|axes| axes.get(axis))
+            .or_else(|| self.relationship_defaults.get(axis))
             .copied()
     }
 
-    /// Increments an existing relationship score, or initializes it to
-    /// the given delta if not yet tracked.
+    /// Increments an existing relationship score. An untracked score starts
+    /// at the [default of the axis](Self::set_relationship_default), or at
+    /// zero if the axis has no default.
     pub fn add_relationship(
         &mut self,
         source: EntityId,
@@ -174,15 +186,60 @@ impl DialogWorldState {
         axis: RelationshipAxisId,
         delta: i32,
     ) {
-        *self
+        let start = self.relationship_default(&axis).unwrap_or(0);
+        let score = self
             .relationships
             .entry((source, target))
             .or_default()
             .entry(axis)
-            .or_insert(0) += delta;
+            .or_insert(start);
+        *score = score.saturating_add(delta);
     }
 
-    /// Iterates over all relationship scores as `(source, target, axis, value)`.
+    /// Sets a relationship score, tracked from now on.
+    pub fn set_relationship(
+        &mut self,
+        source: EntityId,
+        target: EntityId,
+        axis: RelationshipAxisId,
+        value: i32,
+    ) {
+        self.relationships
+            .entry((source, target))
+            .or_default()
+            .insert(axis, value);
+    }
+
+    /// Sets the score that untracked pairs have on `axis`.
+    ///
+    /// Without a default, a relationship that was never set reads as
+    /// missing, so `RelationshipAtLeast` and `RelationshipAtMost` are both
+    /// `false` for it. With a default, [`get_relationship`](Self::get_relationship)
+    /// returns the default and [`add_relationship`](Self::add_relationship)
+    /// starts from it. Tracked scores do not change.
+    pub fn set_relationship_default(&mut self, axis: RelationshipAxisId, value: i32) {
+        self.relationship_defaults.insert(axis, value);
+    }
+
+    /// Removes the default of `axis`. Returns the old default, if any.
+    pub fn remove_relationship_default(&mut self, axis: &RelationshipAxisId) -> Option<i32> {
+        self.relationship_defaults.remove(axis)
+    }
+
+    /// Returns the default score of `axis`, or `None` if it has none.
+    pub fn relationship_default(&self, axis: &RelationshipAxisId) -> Option<i32> {
+        self.relationship_defaults.get(axis).copied()
+    }
+
+    /// Iterates over all relationship defaults as `(axis, value)`, ordered by axis.
+    pub fn relationship_defaults(&self) -> impl Iterator<Item = (&RelationshipAxisId, i32)> {
+        self.relationship_defaults
+            .iter()
+            .map(|(axis, v)| (axis, *v))
+    }
+
+    /// Iterates over all tracked relationship scores as
+    /// `(source, target, axis, value)`. Defaults are not included.
     pub fn relationships(
         &self,
     ) -> impl Iterator<Item = (EntityId, EntityId, &RelationshipAxisId, i32)> {
@@ -226,12 +283,46 @@ impl DialogWorldState {
             .flat_map(|(owner, ms)| ms.iter().map(move |m| (*owner, m)))
     }
 
+    /// Switches the event log on or off and returns self.
+    ///
+    /// The log is on by default. With the log off, [`emit_event`](Self::emit_event)
+    /// and [`add_event`](Self::add_event) do nothing, so the log does not
+    /// grow. Use this for a state that a host clones often and whose events
+    /// nobody reads, such as an explorer that walks all paths of a talk.
+    ///
+    /// ```rust
+    /// use dramaturge_model::EventKind;
+    /// use dramaturge_runtime::DialogWorldState;
+    ///
+    /// let mut state = DialogWorldState::new().with_event_log(false);
+    /// assert!(state.emit_event(EventKind::Custom { kind: "x".into() }).is_none());
+    /// assert!(state.events().is_empty());
+    /// ```
+    pub fn with_event_log(mut self, enabled: bool) -> Self {
+        self.event_log = enabled;
+        self
+    }
+
+    /// Switches the event log on or off. Events already in the log stay.
+    pub fn set_event_log(&mut self, enabled: bool) {
+        self.event_log = enabled;
+    }
+
+    /// Returns `true` if events are recorded (the default).
+    pub fn event_log_enabled(&self) -> bool {
+        self.event_log
+    }
+
     /// Appends an event to the timeline.
     ///
     /// If the event's ID is at or above the current allocation counter, the
     /// counter is advanced past it so that subsequent [`emit_event`](Self::emit_event)
-    /// calls cannot produce a duplicate ID.
+    /// calls cannot produce a duplicate ID. Does nothing when the
+    /// [event log](Self::with_event_log) is off.
     pub fn add_event(&mut self, event: Event) {
+        if !self.event_log {
+            return;
+        }
         if event.id.0 >= self.event_id_counter {
             self.event_id_counter = event.id.0.wrapping_add(1);
         }
@@ -256,8 +347,13 @@ impl DialogWorldState {
 
     /// Allocates a new event ID and appends an event with the given kind.
     ///
-    /// Returns `None` when the event ID space is exhausted.
+    /// Returns `None` when the event ID space is exhausted, or when the
+    /// [event log](Self::with_event_log) is off. With the log off, no ID is
+    /// allocated.
     pub fn emit_event(&mut self, kind: EventKind) -> Option<&Event> {
+        if !self.event_log {
+            return None;
+        }
         let id = self.next_event_id()?;
         let event = Event::new(EventId::new(id), kind);
         self.events.push(event);
@@ -341,9 +437,13 @@ impl DialogWorldState {
 
     /// Hashes the logical state into a 64-bit fingerprint.
     ///
-    /// Covers facts, alignments, relationships, memories and available tags.
-    /// The event log and the event id counter are excluded: they record
-    /// history, not state.
+    /// Covers facts, alignments, relationships, relationship defaults,
+    /// memories and available tags. The event log, the event id counter and
+    /// the event log switch are excluded: they record history, not state.
+    ///
+    /// Defaults count as they are set, not per pair: a tracked score equal
+    /// to the default and an untracked pair are distinct, and two states
+    /// with different defaults differ even if no condition reads them.
     ///
     /// Floats are hashed by bit pattern after mapping `-0.0` to `0.0` and
     /// every NaN to one canonical NaN. Untracked and zero-valued scores are
@@ -375,6 +475,7 @@ impl DialogWorldState {
         }
         self.alignments.hash(hasher);
         self.relationships.hash(hasher);
+        self.relationship_defaults.hash(hasher);
         self.memories.hash(hasher);
         self.available_tags.hash(hasher);
     }
@@ -401,6 +502,7 @@ impl DialogWorldState {
                 })
             && self.alignments == other.alignments
             && self.relationships == other.relationships
+            && self.relationship_defaults == other.relationship_defaults
             && self.memories == other.memories
             && self.available_tags == other.available_tags
     }
@@ -490,6 +592,93 @@ mod tests {
             5,
         );
         state
+    }
+
+    #[test]
+    fn relationship_default_applies_to_untracked_pairs() {
+        use dramaturge_model::RelationshipAxisId;
+        let trust = RelationshipAxisId::new("trust");
+        let fear = RelationshipAxisId::new("fear");
+        let (a, b) = (EntityId::new(1), EntityId::new(2));
+        let mut state = DialogWorldState::new();
+        check!(state.get_relationship(a, b, &trust).is_none());
+
+        state.set_relationship_default(trust.clone(), 0);
+        check!(state.get_relationship(a, b, &trust) == Some(0));
+        check!(state.get_relationship(a, b, &fear).is_none());
+        check!(state.relationships().count() == 0);
+
+        state.set_relationship_default(trust.clone(), 10);
+        state.add_relationship(a, b, trust.clone(), 5);
+        check!(state.get_relationship(a, b, &trust) == Some(15));
+        check!(state.get_relationship(b, a, &trust) == Some(10));
+
+        state.set_relationship(b, a, trust.clone(), -3);
+        check!(state.get_relationship(b, a, &trust) == Some(-3));
+
+        check!(state.remove_relationship_default(&trust) == Some(10));
+        check!(state.get_relationship(a, b, &trust) == Some(15));
+        check!(
+            state
+                .get_relationship(EntityId::new(9), b, &trust)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn add_relationship_saturates() {
+        use dramaturge_model::RelationshipAxisId;
+        let trust = RelationshipAxisId::new("trust");
+        let (a, b) = (EntityId::new(1), EntityId::new(2));
+        let mut state = DialogWorldState::new();
+        state.set_relationship_default(trust.clone(), i32::MAX - 1);
+        state.add_relationship(a, b, trust.clone(), 5);
+        check!(state.get_relationship(a, b, &trust) == Some(i32::MAX));
+        state.add_relationship(b, a, trust.clone(), i32::MIN);
+        state.add_relationship(b, a, trust.clone(), i32::MIN);
+        check!(state.get_relationship(b, a, &trust) == Some(i32::MIN));
+    }
+
+    #[test]
+    fn relationship_defaults_count_in_fingerprint() {
+        use dramaturge_model::RelationshipAxisId;
+        let a = sample_state(false);
+        let mut b = sample_state(false);
+        b.set_relationship_default(RelationshipAxisId::new("trust"), 0);
+        check!(a.fingerprint() != b.fingerprint());
+        check!(!a.same_state(&b));
+    }
+
+    #[test]
+    fn event_log_off_stays_empty() {
+        let mut state = DialogWorldState::new().with_event_log(false);
+        check!(!state.event_log_enabled());
+        check!(
+            state
+                .emit_event(EventKind::Custom { kind: "x".into() })
+                .is_none()
+        );
+        state.add_event(Event::new(
+            EventId::new(7),
+            EventKind::Custom { kind: "y".into() },
+        ));
+        check!(state.events().is_empty());
+        check!(state.next_event_id() == Some(1));
+
+        state.set_event_log(true);
+        let id = state
+            .emit_event(EventKind::Custom { kind: "z".into() })
+            .map(|e| e.id);
+        check!(id == Some(EventId::new(1)));
+        check!(state.events().len() == 1);
+    }
+
+    #[test]
+    fn event_log_switch_does_not_change_fingerprint() {
+        let a = sample_state(false);
+        let b = sample_state(false).with_event_log(false);
+        check!(a.fingerprint() == b.fingerprint());
+        check!(a.same_state(&b));
     }
 
     #[test]
@@ -768,28 +957,16 @@ mod tests {
         let q_wrong_tag = MemoryQuery::by_tag(MemoryTag::BetrayedMe);
         check!(!state.matches_memory_query(owner, &q_wrong_tag));
 
-        let q_confidence = MemoryQuery {
-            min_confidence: Some(Confidence::Known),
-            ..MemoryQuery::new()
-        };
+        let q_confidence = MemoryQuery::new().with_min_confidence(Confidence::Known);
         check!(state.matches_memory_query(owner, &q_confidence));
 
-        let q_high_confidence = MemoryQuery {
-            min_confidence: Some(Confidence::Witnessed),
-            ..MemoryQuery::new()
-        };
+        let q_high_confidence = MemoryQuery::new().with_min_confidence(Confidence::Witnessed);
         check!(!state.matches_memory_query(owner, &q_high_confidence));
 
-        let q_weight = MemoryQuery {
-            min_emotional_weight: Some(50),
-            ..MemoryQuery::new()
-        };
+        let q_weight = MemoryQuery::new().with_min_emotional_weight(50);
         check!(state.matches_memory_query(owner, &q_weight));
 
-        let q_high_weight = MemoryQuery {
-            min_emotional_weight: Some(100),
-            ..MemoryQuery::new()
-        };
+        let q_high_weight = MemoryQuery::new().with_min_emotional_weight(100);
         check!(!state.matches_memory_query(owner, &q_high_weight));
 
         let q_subject = MemoryQuery::by_subject(EntityId::new(42));
@@ -842,7 +1019,7 @@ mod proptests {
     }
 
     fn arb_fact() -> impl Strategy<Value = Fact> {
-        (arb_fact_id(), arb_fact_value()).prop_map(|(id, value)| Fact { id, value })
+        (arb_fact_id(), arb_fact_value()).prop_map(|(id, value)| Fact::new(id, value))
     }
 
     fn arb_scoped_fact() -> impl Strategy<Value = dramaturge_model::ScopedFact> {
@@ -904,10 +1081,7 @@ mod proptests {
             ctx.set_fact(scoped.scope.clone(), scoped.fact.clone());
             ctx.set_fact(
                 scoped.scope.clone(),
-                Fact {
-                    id: scoped.fact.id.clone(),
-                    value: new_value.clone(),
-                },
+                Fact::new(scoped.fact.id.clone(), new_value.clone()),
             );
             let got = ctx.get_fact(&scoped.scope, &scoped.fact.id);
             prop_assert_eq!(got, Some(&new_value));

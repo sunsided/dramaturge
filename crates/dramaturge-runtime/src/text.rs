@@ -1,22 +1,38 @@
-//! Resolving state-dependent [`DialogText`] into the pieces to display.
+//! The text selection core, and resolving state-dependent [`DialogText`]
+//! into the pieces to display.
+//!
+//! # The core
+//!
+//! [`select`](fn@select) chooses what a text [`Pool`] shows for a [`Query`]: one
+//! candidate (`Pick::First`, `Pick::Best`) or all eligible candidates
+//! (`Pick::All`), by speaker, topic, perceiver and condition. It returns a
+//! [`Selection`] with a [`Trace`] and changes nothing. [`commit`] records the
+//! progress and hands each `learn` item to the host. See the [`select`
+//! module](mod@select) for the rules, the progress keys and the counts.
+//!
+//! # Fragment text
 //!
 //! [`resolve_text`] walks a [`DialogText::Fragments`] list, evaluates each
 //! fragment's condition, picks a variant according to its
-//! [`FragmentMode`], and records what it showed in a [`TextProgress`]. The
-//! progress belongs in the save state, next to the
-//! [`DialogWorldState`](crate::DialogWorldState).
+//! [`FragmentMode`](dramaturge_model::FragmentMode), and records what it
+//! showed in a [`TextProgress`]. The progress belongs in the save state,
+//! next to the [`DialogWorldState`](crate::DialogWorldState). It runs on the
+//! core: the fragment list is a `Pick::All` pool.
 //!
 //! Randomness comes from a [`TextRng`]. [`SplitMix64`] is a small seeded
 //! generator: the same seed and the same progress always give the same
 //! text, so tests and explorers can replay a run.
 //!
 //! Localization is left to the host: [`ResolvedText::Localized`] carries the
-//! key.
+//! key. Host text ([`DialogText::Host`]) is returned as it is, as
+//! [`ResolvedText::Host`]: fragment selection works for host text, but its
+//! content belongs to the host.
 //!
 //! ```rust
 //! use dramaturge_model::{Condition, DialogText, FactId, FactScope, Fact, FragmentMode, TextFragment};
 //! use dramaturge_runtime::{
-//!     DefaultConditionEvaluator, DialogWorldState, SplitMix64, TextProgress, resolve_text,
+//!     DefaultConditionEvaluator, DialogWorldState, ResolvedPiece, SplitMix64, TextProgress,
+//!     resolve_text,
 //! };
 //!
 //! let text = DialogText::fragments(vec![
@@ -37,20 +53,33 @@
 //! let mut rng = SplitMix64::new(7);
 //!
 //! let first = resolve_text(&text, "mara.intro", &state, &evaluator, &mut progress, &mut rng);
-//! assert_eq!(first.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(), ["Mara looks up.", "\"Again?\""]);
+//! let texts = |pieces: &[ResolvedPiece]| -> Vec<String> {
+//!     pieces.iter().filter_map(|p| p.text.as_str()).map(str::to_string).collect()
+//! };
+//! assert_eq!(texts(&first), ["Mara looks up.", "\"Again?\""]);
 //!
 //! state.set_fact(FactScope::World, Fact::bool("trusted", true));
 //! let second = resolve_text(&text, "mara.intro", &state, &evaluator, &mut progress, &mut rng);
-//! assert_eq!(second.iter().map(|p| p.text.as_str()).collect::<Vec<_>>(), ["Mara looks up.", "She smiles.", "\"You.\""]);
+//! assert_eq!(texts(&second), ["Mara looks up.", "She smiles.", "\"You.\""]);
 //! ```
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
+use std::marker::PhantomData;
 use std::sync::Arc;
 
-use dramaturge_model::{DialogText, FragmentMode, TextFragment};
+use dramaturge_model::{
+    Candidate, Condition, DialogText, Entry, Pick, Pool, Pools, TextFragment, TextTypes,
+};
 
 use crate::evaluation::ConditionEvaluator;
 use crate::state::NarrativeState;
+
+pub mod select;
+
+pub use select::{
+    Count, CountKey, DefaultJudge, Judge, ProgressStore, Query, Selection, Shown, Step, Trace,
+    TraceRow, Verdict, commit, select, select_named, world_learner,
+};
 
 /// Source of randomness for `Shuffle` and `Sticky` fragments.
 pub trait TextRng {
@@ -105,15 +134,25 @@ pub struct FragmentProgress {
     pub pick: Option<u32>,
 }
 
-/// What [`resolve_text`] has shown so far. Part of the save state.
+/// What [`resolve_text`] and [`commit`] have shown so far. Part of the save
+/// state.
 ///
 /// Fragment progress is keyed by `"{owner}/{fragment}"`, where `fragment` is
 /// the fragment's [`key`](TextFragment::key) or its index; nested fragment
-/// lists append further segments.
+/// lists append further segments. For a pool, the first segment is the pool
+/// id and the next is the candidate key or index.
+///
+/// Resolutions are counted in two separate maps (see [`Count`]): per owner
+/// for inline texts ([`resolutions`](Self::resolutions)), and per pool and
+/// caller for named pools ([`named_resolutions`](Self::named_resolutions)).
+/// A named pool never reads an owner count, even when its id is the same
+/// string as an owner.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct TextProgress {
     fragments: BTreeMap<Arc<str>, FragmentProgress>,
     owners: BTreeMap<Arc<str>, u32>,
+    /// Resolutions of named pools: pool id, then caller.
+    named: BTreeMap<Arc<str>, BTreeMap<Arc<str>, u32>>,
 }
 
 impl TextProgress {
@@ -152,37 +191,102 @@ impl TextProgress {
         self.owners.iter().map(|(k, c)| (&**k, *c))
     }
 
+    /// Returns how often the named pool `pool` was resolved for `caller`.
+    pub fn named_resolutions(&self, pool: &str, caller: &str) -> u32 {
+        self.named
+            .get(pool)
+            .and_then(|callers| callers.get(caller))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Sets how often the named pool `pool` was resolved for `caller`.
+    pub fn set_named_resolutions(
+        &mut self,
+        pool: impl Into<Arc<str>>,
+        caller: impl Into<Arc<str>>,
+        count: u32,
+    ) {
+        self.named
+            .entry(pool.into())
+            .or_default()
+            .insert(caller.into(), count);
+    }
+
+    /// Iterates over all named pools, callers and their resolution counts,
+    /// in key order.
+    pub fn named(&self) -> impl Iterator<Item = (&str, &str, u32)> {
+        self.named.iter().flat_map(|(pool, callers)| {
+            callers
+                .iter()
+                .map(move |(caller, count)| (&**pool, &**caller, *count))
+        })
+    }
+
     /// Forgets all progress.
     pub fn clear(&mut self) {
         self.fragments.clear();
         self.owners.clear();
+        self.named.clear();
     }
 }
 
-/// Resolved text: inline text or a localization key for the host.
+/// Resolved text: inline text, a localization key or host text.
+///
+/// `T` is the host text type (see [`DialogText::Host`]), default `()`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ResolvedText {
+#[non_exhaustive]
+pub enum ResolvedText<T = ()> {
     /// Text to show as is.
     Inline(String),
     /// A key the host looks up in its localization table.
     Localized(Arc<str>),
+    /// Host text, as it is in the graph. The host renders it.
+    Host(T),
+    /// The id of a named text pool ([`DialogText::Pool`]). The host
+    /// selects the pool with [`select_named`].
+    Pool(Arc<str>),
 }
 
-impl ResolvedText {
-    /// Returns the inline text, or the localization key.
-    pub fn as_str(&self) -> &str {
+impl<T> ResolvedText<T> {
+    /// Returns the inline text or the localization key, or `None` for host
+    /// text and pool references.
+    ///
+    /// Host text has no string form here. Use [`as_host`](Self::as_host)
+    /// for it. The `None` makes a renderer that only knows strings see the
+    /// host text, so it does not drop it in silence.
+    pub fn as_str(&self) -> Option<&str> {
         match self {
-            ResolvedText::Inline(s) => s,
-            ResolvedText::Localized(k) => k,
+            ResolvedText::Inline(s) => Some(s),
+            ResolvedText::Localized(k) => Some(k),
+            ResolvedText::Host(_) | ResolvedText::Pool(_) => None,
+        }
+    }
+
+    /// Returns the pool id of a pool reference, or `None`.
+    pub fn as_pool(&self) -> Option<&str> {
+        match self {
+            ResolvedText::Pool(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// Returns the host text, or `None` for inline and localized text.
+    pub fn as_host(&self) -> Option<&T> {
+        match self {
+            ResolvedText::Host(text) => Some(text),
+            _ => None,
         }
     }
 }
 
 /// One piece of resolved text and the fragment that produced it.
+///
+/// `T` is the host text type (see [`DialogText::Host`]), default `()`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ResolvedPiece {
+pub struct ResolvedPiece<T = ()> {
     /// The text.
-    pub text: ResolvedText,
+    pub text: ResolvedText<T>,
     /// Progress key of the fragment that produced it, or `None` for plain
     /// `Inline`/`LocalizedKey` text outside any fragment list.
     pub source: Option<Arc<str>>,
@@ -191,8 +295,17 @@ pub struct ResolvedPiece {
 /// Resolves `text` against `state` and records progress.
 ///
 /// `owner` identifies the text (typically the node or option key) and
-/// prefixes all progress keys. Plain `Inline` and `LocalizedKey` text
-/// resolves to one piece and records nothing.
+/// prefixes all progress keys. Plain `Inline`, `LocalizedKey` and `Host`
+/// text resolves to one piece and records nothing but the resolution of
+/// `owner`. Host text is cloned into a [`ResolvedText::Host`] piece;
+/// dramaturge does not look into it. A pool reference
+/// ([`DialogText::Pool`]) resolves to a [`ResolvedText::Pool`] piece: this
+/// function has no pools, so the host selects the pool with
+/// [`select_named`].
+///
+/// Every call clones the host text it selects, as it clones inline text.
+/// For large host text (for example compiled markup), use a type that is
+/// cheap to clone, such as `Arc<Markup>`.
 ///
 /// Rules for a fragment list, in order:
 ///
@@ -206,127 +319,112 @@ pub struct ResolvedPiece {
 /// - Variants may themselves be fragment lists; they are resolved recursively.
 ///
 /// The result is deterministic for a given `progress`, `state` and `rng` state.
-pub fn resolve_text<S, E, R>(
-    text: &DialogText,
+///
+/// `resolve_text` runs on the [text selection core](mod@select): the fragment
+/// list is a [`Pick::All`] pool with the id `owner`, which [`select`](fn@select)
+/// resolves and [`commit`] records. `replaces` is the only rule of its own.
+pub fn resolve_text<T, S, E, R>(
+    text: &DialogText<T>,
     owner: &str,
     state: &S,
     evaluator: &E,
     progress: &mut TextProgress,
     rng: &mut R,
-) -> Vec<ResolvedPiece>
+) -> Vec<ResolvedPiece<T>>
 where
+    T: Clone,
     S: NarrativeState + ?Sized,
     E: ConditionEvaluator<S> + ?Sized,
     R: TextRng + ?Sized,
 {
-    let first_time = progress.resolutions(owner) == 0;
-    let mut out = Vec::new();
-    let mut resolver = Resolver {
-        state,
-        evaluator,
-        progress,
-        rng,
-        first_time,
+    let DialogText::Fragments(fragments) = text else {
+        progress.count_resolution(Count::Inline { owner });
+        return piece(text, None).into_iter().collect();
     };
-    resolver.resolve(text, owner, None, &mut out);
-    let count = resolver.progress.resolutions(owner).saturating_add(1);
-    resolver.progress.set_resolutions(owner, count);
-    out
+    let mut replacing = HashSet::new();
+    let pool = fragment_pool(owner, fragments, owner, &mut replacing);
+    let judge = |cond: &&Condition, _: &Query<Fragments<'_, T>>| evaluator.evaluate(cond, state);
+    let query = Query::new();
+    let pools = Pools::new();
+    let selection = select(&pool, &pools, owner, &query, &judge, &*progress, rng);
+    commit(&selection, &query, progress, &mut |_, _| {});
+
+    // A shown fragment with `replaces` discards the leaves before it.
+    let start = selection
+        .steps
+        .iter()
+        .filter(|step| replacing.contains(&*step.progress_key))
+        .map(|step| step.leaves.start)
+        .max()
+        .unwrap_or(0);
+    selection.shown[start..]
+        .iter()
+        .filter_map(|shown| piece(shown.leaf, Some(&shown.progress_key)))
+        .collect()
 }
 
-struct Resolver<'a, S: ?Sized, E: ?Sized, R: ?Sized> {
-    state: &'a S,
-    evaluator: &'a E,
-    progress: &'a mut TextProgress,
-    rng: &'a mut R,
-    first_time: bool,
+/// The [`TextTypes`] of [`resolve_text`]: borrowed fragment text and
+/// conditions.
+struct Fragments<'a, T>(PhantomData<&'a T>);
+
+impl<'a, T> TextTypes for Fragments<'a, T> {
+    type Leaf = &'a DialogText<T>;
+    type Cond = &'a Condition;
+    type Learn = ();
+    type Actor = ();
+    type Topic = ();
 }
 
-impl<S, E, R> Resolver<'_, S, E, R>
-where
-    S: NarrativeState + ?Sized,
-    E: ConditionEvaluator<S> + ?Sized,
-    R: TextRng + ?Sized,
-{
-    fn resolve(
-        &mut self,
-        text: &DialogText,
-        path: &str,
-        source: Option<&Arc<str>>,
-        out: &mut Vec<ResolvedPiece>,
-    ) {
-        match text {
-            DialogText::Inline(s) => out.push(ResolvedPiece {
-                text: ResolvedText::Inline(s.clone()),
-                source: source.cloned(),
-            }),
-            DialogText::LocalizedKey(k) => out.push(ResolvedPiece {
-                text: ResolvedText::Localized(k.clone()),
-                source: source.cloned(),
-            }),
-            DialogText::Fragments(fragments) => {
-                for (index, fragment) in fragments.iter().enumerate() {
-                    self.fragment(fragment, path, index, out);
+/// Builds the pool of a fragment list. `path` is the progress key of the
+/// list; the progress keys of fragments with `replaces` go into `replacing`.
+fn fragment_pool<'a, T>(
+    id: &str,
+    fragments: &'a [TextFragment<T>],
+    path: &str,
+    replacing: &mut HashSet<String>,
+) -> Pool<Fragments<'a, T>> {
+    let mut pool = Pool::new(id, Pick::All);
+    for (index, fragment) in fragments.iter().enumerate() {
+        let key = match &fragment.key {
+            Some(k) => format!("{path}/{k}"),
+            None => format!("{path}/{index}"),
+        };
+        let variants = fragment
+            .variants
+            .iter()
+            .map(|variant| match variant {
+                DialogText::Fragments(inner) => {
+                    Entry::Pool(fragment_pool(&key, inner, &key, replacing))
                 }
-            }
-        }
-    }
-
-    fn fragment(
-        &mut self,
-        fragment: &TextFragment,
-        path: &str,
-        index: usize,
-        out: &mut Vec<ResolvedPiece>,
-    ) {
-        let key: Arc<str> = match &fragment.key {
-            Some(k) => format!("{path}/{k}").into(),
-            None => format!("{path}/{index}").into(),
-        };
-        if fragment.variants.is_empty() {
-            return;
-        }
-        if let Some(condition) = &fragment.condition
-            && !self.evaluator.evaluate(condition, self.state)
-        {
-            return;
-        }
-
-        let mut p = self.progress.fragment(&key).unwrap_or_default();
-        let len = fragment.variants.len() as u32;
-        let pick = match fragment.mode {
-            FragmentMode::Always => Some(0),
-            FragmentMode::FirstTime => self.first_time.then_some(0),
-            FragmentMode::Once => (p.shown == 0).then_some(0),
-            FragmentMode::Cycle => Some(p.shown % len),
-            FragmentMode::Shuffle => Some(match p.pick {
-                Some(last) if len > 1 => {
-                    // Draw from the other len - 1 variants.
-                    let r = self.rng.below(len - 1);
-                    if r >= last { r + 1 } else { r }
-                }
-                _ => self.rng.below(len),
-            }),
-            FragmentMode::Sticky => Some(match p.pick {
-                Some(chosen) if chosen < len => chosen,
-                _ => self.rng.below(len),
-            }),
-        };
-        let Some(pick) = pick else {
-            return;
-        };
-
-        p.shown = p.shown.saturating_add(1);
-        if matches!(fragment.mode, FragmentMode::Shuffle | FragmentMode::Sticky) {
-            p.pick = Some(pick);
-        }
-        self.progress.set_fragment(key.clone(), p);
-
+                other => Entry::Leaf(other),
+            })
+            .collect();
+        let mut candidate = Candidate::new(variants).mode(fragment.mode);
+        candidate.key = fragment.key.clone();
+        candidate.when = fragment.condition.as_ref();
+        pool.candidates.push(candidate);
         if fragment.replaces {
-            out.clear();
+            replacing.insert(key);
         }
-        self.resolve(&fragment.variants[pick as usize], &key, Some(&key), out);
     }
+    pool
+}
+
+/// The piece of a text leaf.
+fn piece<T: Clone>(text: &DialogText<T>, source: Option<&Arc<str>>) -> Option<ResolvedPiece<T>> {
+    let text = match text {
+        DialogText::Inline(s) => ResolvedText::Inline(s.clone()),
+        DialogText::LocalizedKey(k) => ResolvedText::Localized(k.clone()),
+        DialogText::Host(t) => ResolvedText::Host(t.clone()),
+        DialogText::Pool(id) => ResolvedText::Pool(id.clone()),
+        // `DialogText` is non-exhaustive; text kinds this resolver does
+        // not know produce no pieces.
+        _ => return None,
+    };
+    Some(ResolvedPiece {
+        text,
+        source: source.cloned(),
+    })
 }
 
 #[cfg(test)]
@@ -334,10 +432,13 @@ mod tests {
     use super::*;
     use crate::{DefaultConditionEvaluator, DialogWorldState};
     use assert2::check;
-    use dramaturge_model::{Condition, Fact, FactId, FactScope};
+    use dramaturge_model::{Condition, Fact, FactId, FactScope, FragmentMode};
 
     fn texts(pieces: &[ResolvedPiece]) -> Vec<&str> {
-        pieces.iter().map(|p| p.text.as_str()).collect()
+        pieces
+            .iter()
+            .map(|p| p.text.as_str().expect("plain text"))
+            .collect()
     }
 
     fn run(text: &DialogText, n: usize, seed: u64) -> Vec<Vec<String>> {
@@ -349,7 +450,7 @@ mod tests {
             .map(|_| {
                 resolve_text(text, "owner", &state, &evaluator, &mut progress, &mut rng)
                     .into_iter()
-                    .map(|p| p.text.as_str().to_string())
+                    .map(|p| p.text.as_str().expect("plain text").to_string())
                     .collect()
             })
             .collect()
@@ -442,6 +543,41 @@ mod tests {
             TextFragment::always(inline("c")),
         ]);
         check!(run(&text, 1, 0)[0] == ["b", "c"]);
+    }
+
+    #[test]
+    fn host_text_resolves_as_it_is() {
+        #[derive(Debug, Clone, PartialEq)]
+        struct Markup(&'static str);
+
+        let state = DialogWorldState::new();
+        let evaluator = DefaultConditionEvaluator::new();
+        let mut progress = TextProgress::new();
+        let mut rng = SplitMix64::new(0);
+
+        let plain = DialogText::host(Markup("*Hi.*"));
+        let out = resolve_text(&plain, "n", &state, &evaluator, &mut progress, &mut rng);
+        check!(out.len() == 1);
+        check!(out[0].text == ResolvedText::Host(Markup("*Hi.*")));
+        check!(out[0].text.as_host() == Some(&Markup("*Hi.*")));
+        check!(out[0].text.as_str().is_none());
+        check!(out[0].source.is_none());
+
+        // Fragment selection works for host text, too.
+        let text = DialogText::Fragments(vec![
+            TextFragment::always(DialogText::Inline("Mara: ".into())),
+            TextFragment::with_mode(
+                FragmentMode::Cycle,
+                vec![DialogText::host(Markup("a")), DialogText::host(Markup("b"))],
+            )
+            .keyed("line"),
+        ]);
+        let first = resolve_text(&text, "n", &state, &evaluator, &mut progress, &mut rng);
+        let second = resolve_text(&text, "n", &state, &evaluator, &mut progress, &mut rng);
+        check!(first[0].text == ResolvedText::Inline("Mara: ".into()));
+        check!(first[1].text.as_host() == Some(&Markup("a")));
+        check!(second[1].text.as_host() == Some(&Markup("b")));
+        check!(first[1].source.as_deref() == Some("n/line"));
     }
 
     #[test]

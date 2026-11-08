@@ -26,6 +26,7 @@ Most projects should depend on `dramaturge` (the facade crate) instead. Depend o
 | `DialogueGraph` | Pure data structure holding nodes and options - no evaluation logic |
 | `AlignmentAxis` / `AlignmentScore` | Named moral/political dimensions with named poles |
 | `RelationshipScore` | Directional, named relationship strength between entities |
+| `SymbolTable` | Maps author keys to dense ids; `SymbolTable::player()` gives the player an entity id under the reserved key `@player` |
 
 ## Serialization
 

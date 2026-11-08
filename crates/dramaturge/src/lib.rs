@@ -27,7 +27,8 @@
 //! │  dramaturge-model     pure domain types, no I/O      │
 //! │  dramaturge-runtime   evaluation traits + defaults   │
 //! │  dramaturge-authoring validation, graph checks       │
-//! │  dramaturge-macros    derive macros for ergonomics   │
+//! │  dramaturge-syntax    dialogue AST, parsers, lowering│
+//! │  dramaturge-macros    dialogue! and derive macros    │
 //! │  dramaturge-serde     optional serde / YAML support  │
 //! └──────────────────────────────────────────────────────┘
 //! ```
@@ -51,6 +52,29 @@
 //!   [`CustomDialogTag`] directly. See [`dramaturge_model::tag`] for details.
 //! - **Custom outcomes** — handle `Outcome::Custom` in the same
 //!   [`CustomHandler`], passed to [`DefaultOutcomeApplier::with_custom`].
+//! - **Host outcomes** — put typed host effects in `Outcome::Host(H)`
+//!   (`Outcome<H>`, `DialogueGraph<H>`; `H` defaults to `()`) and apply
+//!   them with a [`HostHandler`] on the same handler type.
+//! - **Scripted exchanges** — give a node more [`DialogLine`]s with their
+//!   own speakers and a `next` target; [`DialogueRuntime::advance`] enters
+//!   such nodes one after the other until a node offers a choice. See the
+//!   `exchange` example.
+//! - **One dialogue format** — write a dialogue as YAML (feature `yaml`,
+//!   `dramaturge::serialization::loader::load_yaml`) or as Rust tokens with
+//!   `dialogue!` (feature `macros`). Both read into the AST of
+//!   `dramaturge::syntax` (feature `syntax`) and make the same graph. A host
+//!   with its own conditions, text or effects lowers the AST through its
+//!   own `syntax::Lower` hooks. See the `dialogue_macro` example.
+//! - **Host text** — put text in your own format (for example compiled
+//!   markup) in `DialogText::Host(T)` (`DialogText<T>`,
+//!   `DialogueGraph<H, T>`; `T` defaults to `()`). `resolve_text` returns
+//!   it as it is, and the validator does not check it.
+//! - **Text selection** — put lines in a text [`Pool`] with a [`Pick`] rule
+//!   (`all`, `first`, `best`), tuple keys (speaker, topic) and a perceiver
+//!   test ([`Condition::SeenBy`]). [`select`](fn@select) chooses with no side effect
+//!   and returns a [`Selection`] with a [`Trace`]; [`commit`] records the progress and the
+//!   `learn` items. The pool types are generic over the host text leaf
+//!   ([`TextTypes`]). See the `text_selection` example.
 //!
 //! # Example
 //!
@@ -64,21 +88,48 @@
 //! assert!(graph.nodes.is_empty());
 //! ```
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
+/// All domain types (the `dramaturge-model` crate). The derive macros
+/// reach the model through this path when it is the only dependency.
+pub use dramaturge_model as model;
+
 pub use dramaturge_model::{
-    AlignmentAxis, AlignmentAxisId, AlignmentPole, AlignmentPoleId, AlignmentScore, Character,
-    CharacterId, CharacterKey, CharacterTrait, Condition, Confidence, CustomDialogTag,
-    DialogIntentions, DialogTag, DialogTagKind, DialogTarget, DialogText, DialogueGraph,
-    DialogueNode, DialogueNodeId, DialogueOption, DialogueOptionId, EntityId, Event, EventContext,
-    EventId, EventKind, Fact, FactId, FactScope, FactValue, FragmentMode, Intention, Memory,
-    MemoryId, MemoryQuery, MemoryTag, Outcome, RelationshipAxisId, RelationshipScore, ScopedFact,
-    SymbolTable, TextFragment,
+    AlignmentAxis, AlignmentAxisId, AlignmentPole, AlignmentPoleId, AlignmentScore, Candidate,
+    Character, CharacterId, CharacterKey, CharacterTrait, Condition, Confidence, CustomDialogTag,
+    DialogIntentions, DialogLine, DialogTag, DialogTagKind, DialogTarget, DialogText, DialogTypes,
+    DialogueGraph, DialogueNode, DialogueNodeId, DialogueOption, DialogueOptionId, EntityId, Entry,
+    Event, EventContext, EventId, EventKind, Fact, FactId, FactScope, FactValue, FragmentMode,
+    Intention, Memory, MemoryId, MemoryQuery, MemoryTag, Outcome, Pick, Pool, Pools,
+    RelationshipAxisId, RelationshipScore, ScopedFact, Specificity, SymbolTable, TextFragment,
+    TextTypes,
 };
 pub use dramaturge_runtime::{
-    ConditionEvaluator, CustomHandler, DefaultConditionEvaluator, DefaultOutcomeApplier,
-    DefaultRuntime, DialogWorldState, DialogueRuntime, EvaluationContext, EvaluationResult,
-    FragmentProgress, HasDialogWorldState, NarrativeState, NoCustom, OutcomeApplier, ResolvedPiece,
-    ResolvedText, SplitMix64, TextProgress, TextRng, resolve_text,
+    ADVANCE_LIMIT, Advance, AdvanceStop, ConditionEvaluator, Count, CountKey, CustomHandler,
+    DefaultConditionEvaluator, DefaultJudge, DefaultOutcomeApplier, DefaultRuntime, DialogCursor,
+    DialogWorldState, DialogueRuntime, EnterResult, EvaluationContext, EvaluationResult,
+    FragmentProgress, HasDialogWorldState, HostHandler, Judge, NarrativeState, NoCustom,
+    OutcomeApplier, ProgressStore, Query, ResolvedPiece, ResolvedText, Selection, Shown,
+    SplitMix64, Step, TextProgress, TextRng, Trace, TraceRow, Verdict, commit, resolve_text,
+    select, select_entry, select_named, world_learner,
 };
+
+/// The dialogue AST, its serde shape and its lowering to a
+/// [`DialogueGraph`] (the `dramaturge-syntax` crate).
+#[cfg(feature = "syntax")]
+#[cfg_attr(docsrs, doc(cfg(feature = "syntax")))]
+pub use dramaturge_syntax as syntax;
+
+/// The YAML loader and the serde shapes (the `dramaturge-serde` crate).
+#[cfg(feature = "serde")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
+// Not `serde`: after `use dramaturge::*` that would clash with the `serde` crate.
+pub use dramaturge_serde as serialization;
+
+/// The macros: [`dialogue!`] builds a dialogue graph from Rust tokens.
+#[cfg(feature = "macros")]
+#[cfg_attr(docsrs, doc(cfg(feature = "macros")))]
+pub use dramaturge_macros::{ConditionBuilder, DialogTag, FactValue, dialogue};
 
 #[cfg(test)]
 mod tests {
@@ -101,3 +152,12 @@ mod tests {
         let _: Intention = Intention::Persuade;
     }
 }
+
+/// Compiles and runs the Rust snippets of the workspace README as doctests.
+/// They need the features `macros` and `yaml`: run
+/// `cargo test -p dramaturge --all-features --doc` (CI does).
+/// `README.md` in this crate is a symlink to the workspace README, so the
+/// path also resolves in the packaged crate.
+#[cfg(all(doctest, feature = "macros", feature = "yaml"))]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;

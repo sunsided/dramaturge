@@ -4,8 +4,12 @@
 //! `dramaturge-model` has no serde dependency (see ADR 0002). Each model
 //! type `T` has a mirror `TDto` here with `Serialize`/`Deserialize`, a
 //! `From<&T>` conversion into the DTO, and an [`IntoModel`] conversion back.
-//! Conversions destructure the model types exhaustively, so adding a field
-//! to a model type is a compile error here until the DTO follows.
+//! Conversions destructure the model types, so adding a field to an
+//! exhaustive model type is a compile error here until the DTO follows.
+//! Most model enums and some structs are `#[non_exhaustive]`; for those the
+//! compiler does not check this, and a new variant or field must be added
+//! here in the same release. A model variant that this crate does not know
+//! panics in the `From` conversion (only possible with mixed crate versions).
 //!
 //! # Format
 //!
@@ -107,6 +111,21 @@ fn dtos<'a, T: 'a, D: From<&'a T>>(items: impl IntoIterator<Item = &'a T>) -> Ve
 
 fn arc(s: String) -> Arc<str> {
     Arc::from(s)
+}
+
+/// Called for a variant of a `#[non_exhaustive]` model enum that this crate
+/// does not know.
+///
+/// All dramaturge crates are released together with one version, so this
+/// happens only when `dramaturge-serde` and `dramaturge-model` have
+/// different versions.
+#[cold]
+#[track_caller]
+fn unknown_variant<T>(ty: &str) -> T {
+    panic!(
+        "dramaturge-serde does not know this {ty} variant; \
+         use the same version for all dramaturge crates"
+    )
 }
 
 /// Implements `IntoModel` for DTOs without ids (plain field-by-field copies).
@@ -266,6 +285,7 @@ impl From<&model::FactScope> for FactScopeDto {
             S::Character(c) => Self::Character(c.0.0),
             S::Faction(f) => Self::Faction(f.to_string()),
             S::Party => Self::Party,
+            _ => unknown_variant("FactScope"),
         }
     }
 }
@@ -295,7 +315,8 @@ pub struct FactDto {
 
 impl From<&model::Fact> for FactDto {
     fn from(f: &model::Fact) -> Self {
-        let model::Fact { id, value } = f;
+        // `Fact` is `#[non_exhaustive]`; a new field must be added here too.
+        let model::Fact { id, value, .. } = f;
         Self {
             id: id.0.to_string(),
             value: value.into(),
@@ -306,10 +327,7 @@ impl From<&model::Fact> for FactDto {
 impl IntoModel for FactDto {
     type Model = model::Fact;
     fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::Fact {
-        model::Fact {
-            id: model::FactId::new(self.id),
-            value: self.value.into_model_with(ids),
-        }
+        model::Fact::new(self.id, self.value.into_model_with(ids))
     }
 }
 
@@ -340,10 +358,7 @@ impl IntoModel for ScopedFactDto {
     fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::ScopedFact {
         model::ScopedFact {
             scope: self.scope.into_model_with(ids),
-            fact: model::Fact {
-                id: model::FactId::new(self.id),
-                value: self.value.into_model_with(ids),
-            },
+            fact: model::Fact::new(self.id, self.value.into_model_with(ids)),
         }
     }
 }
@@ -576,6 +591,7 @@ impl From<&model::Intention> for IntentionDto {
             I::Romance => Self::Romance,
             I::Exit => Self::Exit,
             I::Custom(c) => Self::Custom(c.to_string()),
+            _ => unknown_variant("Intention"),
         }
     }
 }
@@ -696,6 +712,7 @@ impl From<&model::MemoryTag> for MemoryTagDto {
             T::KilledSomeone => Self::KilledSomeone,
             T::RevealedSecret => Self::RevealedSecret,
             T::Custom(c) => Self::Custom(c.to_string()),
+            _ => unknown_variant("MemoryTag"),
         }
     }
 }
@@ -718,6 +735,9 @@ no_ids!(MemoryTagDto => model::MemoryTag, |d| {
 /// DTO for [`model::MemoryQuery`].
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryQueryDto {
+    /// Required memory id (raw).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<u64>,
     /// Required tag.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<MemoryTagDto>,
@@ -737,14 +757,18 @@ pub struct MemoryQueryDto {
 
 impl From<&model::MemoryQuery> for MemoryQueryDto {
     fn from(q: &model::MemoryQuery) -> Self {
+        // `MemoryQuery` is `#[non_exhaustive]`; a new field must be added here too.
         let model::MemoryQuery {
+            id,
             tag,
             min_confidence,
             min_emotional_weight,
             subject,
             facts,
+            ..
         } = q;
         Self {
+            id: id.map(|m| m.0),
             tag: tag.as_ref().map(Into::into),
             min_confidence: min_confidence.as_ref().map(Into::into),
             min_emotional_weight: *min_emotional_weight,
@@ -757,13 +781,14 @@ impl From<&model::MemoryQuery> for MemoryQueryDto {
 impl IntoModel for MemoryQueryDto {
     type Model = model::MemoryQuery;
     fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::MemoryQuery {
-        model::MemoryQuery {
-            tag: self.tag.into_model_with(ids),
-            min_confidence: self.min_confidence.into_model_with(ids),
-            min_emotional_weight: self.min_emotional_weight,
-            subject: self.subject.map(|s| ids.entity(s)),
-            facts: self.facts.into_iter().map(model::FactId::new).collect(),
-        }
+        let mut query = model::MemoryQuery::new();
+        query.id = self.id.map(|m| ids.memory(m));
+        query.tag = self.tag.into_model_with(ids);
+        query.min_confidence = self.min_confidence.into_model_with(ids);
+        query.min_emotional_weight = self.min_emotional_weight;
+        query.subject = self.subject.map(|s| ids.entity(s));
+        query.facts = self.facts.into_iter().map(model::FactId::new).collect();
+        query
     }
 }
 
@@ -909,6 +934,7 @@ impl From<&model::EventKind> for EventKindDto {
             K::Custom { kind } => Self::Custom {
                 kind: kind.to_string(),
             },
+            _ => unknown_variant("EventKind"),
         }
     }
 }
@@ -1060,6 +1086,8 @@ pub enum ConditionDto {
     HasTagAvailable {
         tag: DialogTagDto,
     },
+    /// The perceiver is this character (raw entity id).
+    SeenBy(u64),
     Custom {
         key: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1144,10 +1172,12 @@ impl From<&model::Condition> for ConditionDto {
                 query: query.into(),
             },
             C::HasTagAvailable { tag } => Self::HasTagAvailable { tag: tag.into() },
+            C::SeenBy(who) => Self::SeenBy(who.0.0),
             C::Custom { key, args } => Self::Custom {
                 key: key.clone(),
                 args: dtos(args),
             },
+            _ => unknown_variant("Condition"),
         }
     }
 }
@@ -1232,6 +1262,7 @@ impl IntoModel for ConditionDto {
             Self::HasTagAvailable { tag } => C::HasTagAvailable {
                 tag: tag.into_model_with(ids),
             },
+            Self::SeenBy(who) => C::SeenBy(model::CharacterId::new(ids.entity(who))),
             Self::Custom { key, args } => C::Custom {
                 key,
                 args: args.into_model_with(ids),
@@ -1241,10 +1272,17 @@ impl IntoModel for ConditionDto {
 }
 
 /// DTO for [`model::Outcome`].
+///
+/// `H` is the host outcome type of [`model::Outcome::Host`] (default `()`).
+/// The DTO stores the host value as it is: it serializes when `H` does
+/// (the variant `host`), and [`IntoModel`] does not map ids inside it.
+///
+/// The conversion from `&model::Outcome<H>` clones the host value, so it
+/// needs `H: Clone`. The same holds for the option, node and graph DTOs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[allow(missing_docs)]
-pub enum OutcomeDto {
+pub enum OutcomeDto<H = ()> {
     SetFact {
         scope: FactScopeDto,
         fact: FactDto,
@@ -1252,6 +1290,11 @@ pub enum OutcomeDto {
     RemoveFact {
         scope: FactScopeDto,
         fact_id: String,
+    },
+    AddFact {
+        scope: FactScopeDto,
+        fact_id: String,
+        delta: i64,
     },
     AddAlignment {
         axis: String,
@@ -1287,10 +1330,11 @@ pub enum OutcomeDto {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         args: Vec<FactValueDto>,
     },
+    Host(H),
 }
 
-impl From<&model::Outcome> for OutcomeDto {
-    fn from(o: &model::Outcome) -> Self {
+impl<H: Clone> From<&model::Outcome<H>> for OutcomeDto<H> {
+    fn from(o: &model::Outcome<H>) -> Self {
         use model::Outcome as O;
         match o {
             O::SetFact { scope, fact } => Self::SetFact {
@@ -1300,6 +1344,15 @@ impl From<&model::Outcome> for OutcomeDto {
             O::RemoveFact { scope, fact_id } => Self::RemoveFact {
                 scope: scope.into(),
                 fact_id: fact_id.0.to_string(),
+            },
+            O::AddFact {
+                scope,
+                fact_id,
+                delta,
+            } => Self::AddFact {
+                scope: scope.into(),
+                fact_id: fact_id.0.to_string(),
+                delta: *delta,
             },
             O::AddAlignment { axis, pole, delta } => Self::AddAlignment {
                 axis: axis.0.to_string(),
@@ -1337,13 +1390,15 @@ impl From<&model::Outcome> for OutcomeDto {
                 key: key.clone(),
                 args: dtos(args),
             },
+            O::Host(host) => Self::Host(host.clone()),
+            _ => unknown_variant("Outcome"),
         }
     }
 }
 
-impl IntoModel for OutcomeDto {
-    type Model = model::Outcome;
-    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::Outcome {
+impl<H> IntoModel for OutcomeDto<H> {
+    type Model = model::Outcome<H>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::Outcome<H> {
         use model::Outcome as O;
         match self {
             Self::SetFact { scope, fact } => O::SetFact {
@@ -1353,6 +1408,15 @@ impl IntoModel for OutcomeDto {
             Self::RemoveFact { scope, fact_id } => O::RemoveFact {
                 scope: scope.into_model_with(ids),
                 fact_id: model::FactId::new(fact_id),
+            },
+            Self::AddFact {
+                scope,
+                fact_id,
+                delta,
+            } => O::AddFact {
+                scope: scope.into_model_with(ids),
+                fact_id: model::FactId::new(fact_id),
+                delta,
             },
             Self::AddAlignment { axis, pole, delta } => O::AddAlignment {
                 axis: model::AlignmentAxisId::new(axis),
@@ -1387,6 +1451,7 @@ impl IntoModel for OutcomeDto {
                 key,
                 args: args.into_model_with(ids),
             },
+            Self::Host(host) => O::Host(host),
         }
     }
 }
@@ -1396,36 +1461,58 @@ impl IntoModel for OutcomeDto {
 // ---------------------------------------------------------------------------
 
 /// DTO for [`model::DialogText`].
+///
+/// `T` is the host text type of [`model::DialogText::Host`] (default `()`).
+/// The DTO stores the host text as it is: it serializes when `T` does
+/// (the variant `host`, JSON `{"host": ...}`), and [`IntoModel`] does not
+/// map ids inside it. dramaturge does not know the structure of `T`. A
+/// host that keeps entity, node or option ids in its text maps them
+/// itself after the conversion, for example with
+/// [`DialogueGraph::map_text`](model::DialogueGraph::map_text).
+///
+/// The conversion from `&model::DialogText<T>` clones the host text, so it
+/// needs `T: Clone`. The same holds for the fragment, option, node and
+/// graph DTOs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum DialogTextDto {
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub enum DialogTextDto<T = ()> {
     /// Inline text.
     Inline(String),
     /// Localization key.
     LocalizedKey(String),
     /// Fragment list.
-    Fragments(Vec<TextFragmentDto>),
+    Fragments(Vec<TextFragmentDto<T>>),
+    /// Host text, as it is.
+    Host(T),
+    /// The id of a named text pool.
+    Pool(String),
 }
 
-impl From<&model::DialogText> for DialogTextDto {
-    fn from(t: &model::DialogText) -> Self {
-        use model::DialogText as T;
+impl<T: Clone> From<&model::DialogText<T>> for DialogTextDto<T> {
+    fn from(t: &model::DialogText<T>) -> Self {
+        use model::DialogText as D;
         match t {
-            T::Inline(s) => Self::Inline(s.clone()),
-            T::LocalizedKey(k) => Self::LocalizedKey(k.to_string()),
-            T::Fragments(fs) => Self::Fragments(dtos(fs)),
+            D::Inline(s) => Self::Inline(s.clone()),
+            D::LocalizedKey(k) => Self::LocalizedKey(k.to_string()),
+            D::Fragments(fs) => Self::Fragments(dtos(fs)),
+            D::Host(h) => Self::Host(h.clone()),
+            D::Pool(id) => Self::Pool(id.to_string()),
+            _ => unknown_variant("DialogText"),
         }
     }
 }
 
-impl IntoModel for DialogTextDto {
-    type Model = model::DialogText;
-    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogText {
-        use model::DialogText as T;
+impl<T> IntoModel for DialogTextDto<T> {
+    type Model = model::DialogText<T>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogText<T> {
+        use model::DialogText as D;
         match self {
-            Self::Inline(s) => T::Inline(s),
-            Self::LocalizedKey(k) => T::LocalizedKey(arc(k)),
-            Self::Fragments(fs) => T::Fragments(fs.into_model_with(ids)),
+            Self::Inline(s) => D::Inline(s),
+            Self::LocalizedKey(k) => D::LocalizedKey(arc(k)),
+            Self::Fragments(fs) => D::Fragments(fs.into_model_with(ids)),
+            Self::Host(h) => D::Host(h),
+            Self::Pool(id) => D::Pool(arc(id)),
         }
     }
 }
@@ -1454,6 +1541,7 @@ impl From<&model::FragmentMode> for FragmentModeDto {
             F::Cycle => Self::Cycle,
             F::Shuffle => Self::Shuffle,
             F::Sticky => Self::Sticky,
+            _ => unknown_variant("FragmentMode"),
         }
     }
 }
@@ -1470,14 +1558,16 @@ no_ids!(FragmentModeDto => model::FragmentMode, |d| {
     }
 });
 
-/// DTO for [`model::TextFragment`].
+/// DTO for [`model::TextFragment`]. `T` is the host text type (see
+/// [`DialogTextDto`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TextFragmentDto {
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub struct TextFragmentDto<T = ()> {
     /// Stable progress key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
     /// Variants.
-    pub variants: Vec<DialogTextDto>,
+    pub variants: Vec<DialogTextDto<T>>,
     /// Condition.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub condition: Option<ConditionDto>,
@@ -1489,8 +1579,8 @@ pub struct TextFragmentDto {
     pub replaces: bool,
 }
 
-impl From<&model::TextFragment> for TextFragmentDto {
-    fn from(f: &model::TextFragment) -> Self {
+impl<T: Clone> From<&model::TextFragment<T>> for TextFragmentDto<T> {
+    fn from(f: &model::TextFragment<T>) -> Self {
         let model::TextFragment {
             key,
             variants,
@@ -1508,9 +1598,9 @@ impl From<&model::TextFragment> for TextFragmentDto {
     }
 }
 
-impl IntoModel for TextFragmentDto {
-    type Model = model::TextFragment;
-    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::TextFragment {
+impl<T> IntoModel for TextFragmentDto<T> {
+    type Model = model::TextFragment<T>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::TextFragment<T> {
         model::TextFragment {
             key: self.key.map(arc),
             variants: self.variants.into_model_with(ids),
@@ -1518,6 +1608,161 @@ impl IntoModel for TextFragmentDto {
             mode: self.mode.into_model_with(ids),
             replaces: self.replaces,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Text pools
+// ---------------------------------------------------------------------------
+
+/// DTO for [`model::Pick`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(missing_docs)]
+pub enum PickDto {
+    All,
+    #[default]
+    First,
+    Best,
+}
+
+impl From<&model::Pick> for PickDto {
+    fn from(p: &model::Pick) -> Self {
+        match p {
+            model::Pick::All => Self::All,
+            model::Pick::First => Self::First,
+            model::Pick::Best => Self::Best,
+            _ => unknown_variant("Pick"),
+        }
+    }
+}
+
+no_ids!(PickDto => model::Pick, |d| match d {
+    PickDto::All => model::Pick::All,
+    PickDto::First => model::Pick::First,
+    PickDto::Best => model::Pick::Best,
+});
+
+/// DTO for [`model::Entry`] of [`model::DialogTypes<T>`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub enum EntryDto<T = ()> {
+    /// A text leaf.
+    Leaf(DialogTextDto<T>),
+    /// An inline pool.
+    Pool(PoolDto<T>),
+    /// The id of a named pool.
+    Named(String),
+}
+
+impl<T: Clone> From<&model::Entry<model::DialogTypes<T>>> for EntryDto<T> {
+    fn from(e: &model::Entry<model::DialogTypes<T>>) -> Self {
+        match e {
+            model::Entry::Leaf(t) => Self::Leaf(t.into()),
+            model::Entry::Pool(p) => Self::Pool(p.into()),
+            model::Entry::Named(id) => Self::Named(id.to_string()),
+            _ => unknown_variant("Entry"),
+        }
+    }
+}
+
+impl<T> IntoModel for EntryDto<T> {
+    type Model = model::Entry<model::DialogTypes<T>>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> Self::Model {
+        match self {
+            Self::Leaf(t) => model::Entry::Leaf(t.into_model_with(ids)),
+            Self::Pool(p) => model::Entry::Pool(p.into_model_with(ids)),
+            Self::Named(id) => model::Entry::Named(arc(id)),
+        }
+    }
+}
+
+/// DTO for [`model::Candidate`] of [`model::DialogTypes<T>`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub struct CandidateDto<T = ()> {
+    /// Progress key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// Speaker key (raw entity id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<u64>,
+    /// Topic key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    /// Condition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<ConditionDto>,
+    /// Mode.
+    #[serde(default)]
+    pub mode: FragmentModeDto,
+    /// Variants.
+    pub variants: Vec<EntryDto<T>>,
+    /// Facts the perceiver learns.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub learn: Vec<FactDto>,
+}
+
+impl<T: Clone> From<&model::Candidate<model::DialogTypes<T>>> for CandidateDto<T> {
+    fn from(c: &model::Candidate<model::DialogTypes<T>>) -> Self {
+        // `Candidate` is `#[non_exhaustive]`; a new field must be added here too.
+        Self {
+            key: c.key.as_deref().map(str::to_string),
+            speaker: c.speaker.map(|s| s.0.0),
+            topic: c.topic.as_deref().map(str::to_string),
+            when: c.when.as_ref().map(Into::into),
+            mode: (&c.mode).into(),
+            variants: dtos(&c.variants),
+            learn: dtos(&c.learn),
+        }
+    }
+}
+
+impl<T> IntoModel for CandidateDto<T> {
+    type Model = model::Candidate<model::DialogTypes<T>>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> Self::Model {
+        let mut c = model::Candidate::new(self.variants.into_model_with(ids))
+            .mode(self.mode.into_model_with(ids));
+        c.key = self.key.map(arc);
+        c.speaker = self.speaker.map(|s| model::CharacterId::new(ids.entity(s)));
+        c.topic = self.topic.map(arc);
+        c.when = self.when.into_model_with(ids);
+        c.learn = self.learn.into_model_with(ids);
+        c
+    }
+}
+
+/// DTO for [`model::Pool`] of [`model::DialogTypes<T>`]. `T` is the host
+/// text type (see [`DialogTextDto`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub struct PoolDto<T = ()> {
+    /// Pool id.
+    pub id: String,
+    /// Pick rule.
+    #[serde(default)]
+    pub pick: PickDto,
+    /// Candidates, in file order.
+    pub candidates: Vec<CandidateDto<T>>,
+}
+
+impl<T: Clone> From<&model::Pool<model::DialogTypes<T>>> for PoolDto<T> {
+    fn from(p: &model::Pool<model::DialogTypes<T>>) -> Self {
+        Self {
+            id: p.id.to_string(),
+            pick: (&p.pick).into(),
+            candidates: dtos(&p.candidates),
+        }
+    }
+}
+
+impl<T> IntoModel for PoolDto<T> {
+    type Model = model::Pool<model::DialogTypes<T>>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> Self::Model {
+        let mut pool = model::Pool::new(self.id, self.pick.into_model_with(ids));
+        pool.candidates = self.candidates.into_model_with(ids);
+        pool
     }
 }
 
@@ -1543,6 +1788,7 @@ impl From<&model::DialogTarget> for DialogTargetDto {
             T::End => Self::End,
             T::Return => Self::Return,
             T::Custom(c) => Self::Custom(c.to_string()),
+            _ => unknown_variant("DialogTarget"),
         }
     }
 }
@@ -1583,6 +1829,7 @@ impl From<&model::NavigationHint> for NavigationHintDto {
             H::End => Self::End,
             H::Return => Self::Return,
             H::Custom(c) => Self::Custom(c.clone()),
+            _ => unknown_variant("NavigationHint"),
         }
     }
 }
@@ -1599,13 +1846,15 @@ no_ids!(NavigationHintDto => model::NavigationHint, |d| {
     }
 });
 
-/// DTO for [`model::DialogueOption`].
+/// DTO for [`model::DialogueOption`]. `H` is the host outcome type (see
+/// [`OutcomeDto`]) and `T` the host text type (see [`DialogTextDto`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DialogueOptionDto {
+#[serde(bound(deserialize = "H: Deserialize<'de>, T: Deserialize<'de>"))]
+pub struct DialogueOptionDto<H = (), T = ()> {
     /// Option id (raw).
     pub id: u64,
     /// Option text.
-    pub text: DialogTextDto,
+    pub text: DialogTextDto<T>,
     /// Tags.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<DialogTagDto>,
@@ -1617,7 +1866,7 @@ pub struct DialogueOptionDto {
     pub conditions: Vec<ConditionDto>,
     /// Outcomes when chosen.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub outcomes: Vec<OutcomeDto>,
+    pub outcomes: Vec<OutcomeDto<H>>,
     /// Where the option leads.
     pub target: DialogTargetDto,
     /// Parent node (raw id).
@@ -1627,8 +1876,8 @@ pub struct DialogueOptionDto {
     pub navigation_hint: Option<NavigationHintDto>,
 }
 
-impl From<&model::DialogueOption> for DialogueOptionDto {
-    fn from(o: &model::DialogueOption) -> Self {
+impl<H: Clone, T: Clone> From<&model::DialogueOption<H, T>> for DialogueOptionDto<H, T> {
+    fn from(o: &model::DialogueOption<H, T>) -> Self {
         let model::DialogueOption {
             id,
             text,
@@ -1654,9 +1903,9 @@ impl From<&model::DialogueOption> for DialogueOptionDto {
     }
 }
 
-impl IntoModel for DialogueOptionDto {
-    type Model = model::DialogueOption;
-    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueOption {
+impl<H, T> IntoModel for DialogueOptionDto<H, T> {
+    type Model = model::DialogueOption<H, T>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueOption<H, T> {
         model::DialogueOption {
             id: ids.option(self.id),
             text: self.text.into_model_with(ids),
@@ -1671,28 +1920,66 @@ impl IntoModel for DialogueOptionDto {
     }
 }
 
-/// DTO for [`model::DialogueNode`].
+/// DTO for [`model::DialogLine`]. `T` is the host text type (see
+/// [`DialogTextDto`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DialogueNodeDto {
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+pub struct DialogLineDto<T = ()> {
+    /// Speaker (raw entity id).
+    pub speaker: u64,
+    /// Spoken text.
+    pub text: DialogTextDto<T>,
+}
+
+impl<T: Clone> From<&model::DialogLine<T>> for DialogLineDto<T> {
+    fn from(l: &model::DialogLine<T>) -> Self {
+        Self {
+            speaker: l.speaker.0.0,
+            text: (&l.text).into(),
+        }
+    }
+}
+
+impl<T> IntoModel for DialogLineDto<T> {
+    type Model = model::DialogLine<T>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogLine<T> {
+        model::DialogLine::new(
+            model::CharacterId::new(ids.entity(self.speaker)),
+            self.text.into_model_with(ids),
+        )
+    }
+}
+
+/// DTO for [`model::DialogueNode`]. `H` is the host outcome type (see
+/// [`OutcomeDto`]) and `T` the host text type (see [`DialogTextDto`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound(deserialize = "H: Deserialize<'de>, T: Deserialize<'de>"))]
+pub struct DialogueNodeDto<H = (), T = ()> {
     /// Node id (raw).
     pub id: u64,
     /// Speaker (raw entity id).
     pub speaker: u64,
     /// Spoken text.
-    pub text: DialogTextDto,
+    pub text: DialogTextDto<T>,
     /// Entry conditions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conditions: Vec<ConditionDto>,
     /// Outcomes on entry.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub outcomes_on_enter: Vec<OutcomeDto>,
+    pub outcomes_on_enter: Vec<OutcomeDto<H>>,
     /// Options.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub options: Vec<DialogueOptionDto>,
+    pub options: Vec<DialogueOptionDto<H, T>>,
+    /// Further lines, each with its own speaker.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lines: Vec<DialogLineDto<T>>,
+    /// Where the talk goes on without a choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<DialogTargetDto>,
 }
 
-impl From<&model::DialogueNode> for DialogueNodeDto {
-    fn from(n: &model::DialogueNode) -> Self {
+impl<H: Clone, T: Clone> From<&model::DialogueNode<H, T>> for DialogueNodeDto<H, T> {
+    fn from(n: &model::DialogueNode<H, T>) -> Self {
         let model::DialogueNode {
             id,
             speaker,
@@ -1700,6 +1987,8 @@ impl From<&model::DialogueNode> for DialogueNodeDto {
             conditions,
             outcomes_on_enter,
             options,
+            lines,
+            next,
         } = n;
         Self {
             id: id.0,
@@ -1708,13 +1997,15 @@ impl From<&model::DialogueNode> for DialogueNodeDto {
             conditions: dtos(conditions),
             outcomes_on_enter: dtos(outcomes_on_enter),
             options: dtos(options),
+            lines: dtos(lines),
+            next: next.as_ref().map(Into::into),
         }
     }
 }
 
-impl IntoModel for DialogueNodeDto {
-    type Model = model::DialogueNode;
-    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueNode {
+impl<H, T> IntoModel for DialogueNodeDto<H, T> {
+    type Model = model::DialogueNode<H, T>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueNode<H, T> {
         model::DialogueNode {
             id: ids.node(self.id),
             speaker: model::CharacterId::new(ids.entity(self.speaker)),
@@ -1722,36 +2013,75 @@ impl IntoModel for DialogueNodeDto {
             conditions: self.conditions.into_model_with(ids),
             outcomes_on_enter: self.outcomes_on_enter.into_model_with(ids),
             options: self.options.into_model_with(ids),
+            lines: self.lines.into_model_with(ids),
+            next: self.next.into_model_with(ids),
         }
     }
 }
 
-/// DTO for [`model::DialogueGraph`].
+/// DTO for [`model::DialogueGraph`]. `H` is the host outcome type (see
+/// [`OutcomeDto`]) and `T` the host text type (see [`DialogTextDto`]).
+///
+/// Reads the field `entry_node` (one raw id) of DTOs written before 0.3 as
+/// the first entry node.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DialogueGraphDto {
+#[serde(
+    from = "DialogueGraphDtoRepr<H, T>",
+    bound(deserialize = "H: Deserialize<'de>, T: Deserialize<'de>")
+)]
+pub struct DialogueGraphDto<H = (), T = ()> {
     /// Nodes.
-    pub nodes: Vec<DialogueNodeDto>,
-    /// Entry node (raw id).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub entry_node: Option<u64>,
+    pub nodes: Vec<DialogueNodeDto<H, T>>,
+    /// Entry nodes (raw ids), in priority order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entry_nodes: Vec<u64>,
 }
 
-impl From<&model::DialogueGraph> for DialogueGraphDto {
-    fn from(g: &model::DialogueGraph) -> Self {
-        let model::DialogueGraph { nodes, entry_node } = g;
+/// The serialized form of [`DialogueGraphDto`], with the old single
+/// `entry_node` field.
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "H: Deserialize<'de>, T: Deserialize<'de>"))]
+struct DialogueGraphDtoRepr<H, T> {
+    nodes: Vec<DialogueNodeDto<H, T>>,
+    /// `None` when the field is absent, so that an explicit empty list
+    /// still wins over the old field.
+    #[serde(default)]
+    entry_nodes: Option<Vec<u64>>,
+    #[serde(default)]
+    entry_node: Option<u64>,
+}
+
+impl<H, T> From<DialogueGraphDtoRepr<H, T>> for DialogueGraphDto<H, T> {
+    fn from(repr: DialogueGraphDtoRepr<H, T>) -> Self {
+        // The old field counts only for an old DTO: when `entry_nodes` is
+        // present (also as an empty list), it decides alone.
+        let entry_nodes = match repr.entry_nodes {
+            Some(entry_nodes) => entry_nodes,
+            None => repr.entry_node.into_iter().collect(),
+        };
+        Self {
+            nodes: repr.nodes,
+            entry_nodes,
+        }
+    }
+}
+
+impl<H: Clone, T: Clone> From<&model::DialogueGraph<H, T>> for DialogueGraphDto<H, T> {
+    fn from(g: &model::DialogueGraph<H, T>) -> Self {
+        let model::DialogueGraph { nodes, entry_nodes } = g;
         Self {
             nodes: dtos(nodes),
-            entry_node: entry_node.map(|n| n.0),
+            entry_nodes: entry_nodes.iter().map(|n| n.0).collect(),
         }
     }
 }
 
-impl IntoModel for DialogueGraphDto {
-    type Model = model::DialogueGraph;
-    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueGraph {
+impl<H, T> IntoModel for DialogueGraphDto<H, T> {
+    type Model = model::DialogueGraph<H, T>;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> model::DialogueGraph<H, T> {
         model::DialogueGraph {
             nodes: self.nodes.into_model_with(ids),
-            entry_node: self.entry_node.map(|n| ids.node(n)),
+            entry_nodes: self.entry_nodes.into_iter().map(|n| ids.node(n)).collect(),
         }
     }
 }
@@ -1828,11 +2158,24 @@ pub struct OwnedMemoryDto {
     pub memory: MemoryDto,
 }
 
+/// The default score of one relationship axis.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelationshipDefaultDto {
+    /// Axis.
+    pub axis: String,
+    /// Score of untracked pairs.
+    pub value: i32,
+}
+
 /// DTO for [`DialogWorldState`].
 ///
 /// Lists are in the state's deterministic iteration order, so the same
 /// state always serializes to the same bytes.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+///
+/// The struct is `#[non_exhaustive]`: build it with `From<&DialogWorldState>`
+/// or `Default`, or deserialize it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct WorldStateDto {
     /// Facts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1843,6 +2186,9 @@ pub struct WorldStateDto {
     /// Relationship scores.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub relationships: Vec<RelationshipScoreDto>,
+    /// Scores of untracked relationship pairs, per axis.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relationship_defaults: Vec<RelationshipDefaultDto>,
     /// Memories with their owners.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub memories: Vec<OwnedMemoryDto>,
@@ -1854,6 +2200,24 @@ pub struct WorldStateDto {
     pub events: Vec<EventDto>,
     /// Next event id to allocate; `None` once the id space is exhausted.
     pub next_event_id: Option<u64>,
+    /// Whether the event log is on. Defaults to `true` when absent.
+    #[serde(default = "event_log_default", skip_serializing_if = "is_true")]
+    pub event_log: bool,
+}
+
+fn event_log_default() -> bool {
+    true
+}
+
+impl Default for WorldStateDto {
+    /// The DTO of an empty [`DialogWorldState`].
+    fn default() -> Self {
+        Self::from(&DialogWorldState::new())
+    }
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 impl From<&DialogWorldState> for WorldStateDto {
@@ -1884,6 +2248,13 @@ impl From<&DialogWorldState> for WorldStateDto {
                     value,
                 })
                 .collect(),
+            relationship_defaults: s
+                .relationship_defaults()
+                .map(|(axis, value)| RelationshipDefaultDto {
+                    axis: axis.0.to_string(),
+                    value,
+                })
+                .collect(),
             memories: s
                 .memories()
                 .map(|(owner, memory)| OwnedMemoryDto {
@@ -1894,6 +2265,7 @@ impl From<&DialogWorldState> for WorldStateDto {
             available_tags: dtos(s.available_tags()),
             events: dtos(s.events()),
             next_event_id: s.next_event_id(),
+            event_log: s.event_log_enabled(),
         }
     }
 }
@@ -1912,7 +2284,10 @@ impl IntoModel for WorldStateDto {
         }
         for r in self.relationships {
             let r = r.into_model_with(ids);
-            s.add_relationship(r.source, r.target, r.axis, r.value);
+            s.set_relationship(r.source, r.target, r.axis, r.value);
+        }
+        for d in self.relationship_defaults {
+            s.set_relationship_default(model::RelationshipAxisId::new(d.axis), d.value);
         }
         for m in self.memories {
             let owner = ids.entity(m.owner);
@@ -1925,6 +2300,9 @@ impl IntoModel for WorldStateDto {
             s.add_event(e.into_model_with(ids));
         }
         s.set_next_event_id(self.next_event_id);
+        // After the events, so that a saved log is restored even when the
+        // log was switched off later.
+        s.set_event_log(self.event_log);
         s
     }
 }
@@ -1950,18 +2328,36 @@ pub struct OwnerResolutionsDto {
     pub resolutions: u32,
 }
 
+/// How often one named text pool was resolved for one caller.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NamedResolutionsDto {
+    /// Pool id.
+    pub pool: String,
+    /// Caller (the scope of `first_time`).
+    pub caller: String,
+    /// Resolution count.
+    pub resolutions: u32,
+}
+
 /// DTO for [`TextProgress`](dramaturge_runtime::TextProgress).
 ///
 /// Progress keys are author keys (owner and fragment keys), not ids, so
 /// text progress stays valid across content changes without remapping.
+///
+/// `named` (the counts of named text pools, per caller) has a serde
+/// default. A save from before named pools loads: its `owners` counts keep
+/// their meaning for inline texts, and named pools start with no counts.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TextProgressDto {
     /// Fragment progress.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fragments: Vec<FragmentProgressDto>,
-    /// Owner resolution counts.
+    /// Owner resolution counts (inline texts).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub owners: Vec<OwnerResolutionsDto>,
+    /// Named pool resolution counts, per caller.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub named: Vec<NamedResolutionsDto>,
 }
 
 impl From<&dramaturge_runtime::TextProgress> for TextProgressDto {
@@ -1979,6 +2375,14 @@ impl From<&dramaturge_runtime::TextProgress> for TextProgressDto {
                 .owners()
                 .map(|(owner, resolutions)| OwnerResolutionsDto {
                     owner: owner.to_string(),
+                    resolutions,
+                })
+                .collect(),
+            named: p
+                .named()
+                .map(|(pool, caller, resolutions)| NamedResolutionsDto {
+                    pool: pool.to_string(),
+                    caller: caller.to_string(),
                     resolutions,
                 })
                 .collect(),
@@ -2000,5 +2404,44 @@ no_ids!(TextProgressDto => dramaturge_runtime::TextProgress, |d| {
     for o in d.owners {
         p.set_resolutions(o.owner, o.resolutions);
     }
+    for n in d.named {
+        p.set_named_resolutions(n.pool, n.caller, n.resolutions);
+    }
     p
 });
+
+// ---------------------------------------------------------------------------
+// Dialogue cursor
+// ---------------------------------------------------------------------------
+
+/// DTO for [`DialogCursor`](dramaturge_runtime::DialogCursor).
+///
+/// Stores raw node ids. [`IntoModel::into_model_with`] maps them through
+/// the [`IdMap`]. For a save that re-resolves the ids by key, use
+/// [`SavedDialogCursor`](crate::save::SavedDialogCursor).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DialogCursorDto {
+    /// The current node (raw id).
+    pub current: u64,
+    /// The return stack (raw ids), the most recent last.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub back: Vec<u64>,
+}
+
+impl From<&dramaturge_runtime::DialogCursor> for DialogCursorDto {
+    fn from(c: &dramaturge_runtime::DialogCursor) -> Self {
+        Self {
+            current: c.current.0,
+            back: c.back.iter().map(|n| n.0).collect(),
+        }
+    }
+}
+
+impl IntoModel for DialogCursorDto {
+    type Model = dramaturge_runtime::DialogCursor;
+    fn into_model_with<M: IdMap + ?Sized>(self, ids: &mut M) -> dramaturge_runtime::DialogCursor {
+        let mut cursor = dramaturge_runtime::DialogCursor::new(ids.node(self.current));
+        cursor.back = self.back.into_iter().map(|n| ids.node(n)).collect();
+        cursor
+    }
+}

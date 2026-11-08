@@ -1,0 +1,5 @@
+error: expected `=> target` after the option
+ --> tests/ui/syntax.rs:7:28
+  |
+7 |                 "Goodbye." end;
+  |                            ^^^

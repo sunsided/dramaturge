@@ -38,6 +38,7 @@ pub struct EventContext;
 /// Each variant captures a different type of narrative occurrence,
 /// from player choices to state mutations.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum EventKind {
     /// A dialogue option was chosen by the player.
     DialogOptionChosen {

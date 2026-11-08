@@ -1,0 +1,35 @@
+[package]
+name = "dramaturge-syntax"
+description = "One dialogue AST for the dramaturge toolkit, with serde and syn parsers and lowering to a dialogue graph."
+readme = "README.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+# serde Serialize and Deserialize for the AST (the YAML and JSON shape).
+serde = ["dep:serde"]
+# syn parsers for the token form (`dialogue!`, `world!` blocks).
+syn = ["dep:syn", "dep:proc-macro2"]
+
+[dependencies]
+dramaturge-model = { workspace = true }
+proc-macro2 = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+syn = { workspace = true, optional = true }
+
+[dev-dependencies]
+assert2 = { workspace = true }
+dramaturge-authoring = { workspace = true }
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+serde = { workspace = true }
+serde_json = "1"
+serde-saphyr = { version = "2", default-features = false, features = ["deserialize", "serialize"] }

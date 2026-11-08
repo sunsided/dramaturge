@@ -3,16 +3,18 @@
 use assert2::check;
 use dramaturge_model::{
     AlignmentAxisId, AlignmentPoleId, CharacterId, Condition, Confidence, CustomDialogTag,
-    DialogIntentions, DialogTarget, DialogText, DialogueGraph, DialogueNode, DialogueNodeId,
-    DialogueOption, DialogueOptionId, EntityId, EventKind, Fact, FactId, FactScope, FactValue,
-    FragmentMode, Intention, Memory, MemoryId, MemoryQuery, MemoryTag, NavigationHint, Outcome,
-    RelationshipAxisId, SymbolTable, TextFragment,
+    DialogIntentions, DialogLine, DialogTarget, DialogText, DialogueGraph, DialogueNode,
+    DialogueNodeId, DialogueOption, DialogueOptionId, EntityId, EventKind, Fact, FactId, FactScope,
+    FactValue, FragmentMode, Intention, Memory, MemoryId, MemoryQuery, MemoryTag, NavigationHint,
+    Outcome, RelationshipAxisId, SymbolTable, TextFragment,
 };
-use dramaturge_runtime::{DialogWorldState, FragmentProgress, TextProgress};
+use dramaturge_model::{Candidate, DialogTypes, Entry, Pick, Pool};
+use dramaturge_runtime::{DialogCursor, DialogWorldState, FragmentProgress, TextProgress};
 use dramaturge_serde::dto::{
-    ConditionDto, DialogueGraphDto, IntoModel, OutcomeDto, TextProgressDto, WorldStateDto,
+    ConditionDto, DialogCursorDto, DialogTextDto, DialogueGraphDto, DialogueNodeDto, IntoModel,
+    OutcomeDto, PoolDto, TextProgressDto, WorldStateDto,
 };
-use dramaturge_serde::save::{OrphanedKey, SavedWorldState, SymbolKind};
+use dramaturge_serde::save::{OrphanedKey, SavedDialogCursor, SavedWorldState, SymbolKind};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -78,6 +80,7 @@ fn confidence() -> impl Strategy<Value = Confidence> {
 
 fn memory_query() -> impl Strategy<Value = MemoryQuery> {
     (
+        proptest::option::of(0u64..16),
         proptest::option::of(memory_tag()),
         proptest::option::of(confidence()),
         proptest::option::of(any::<i32>()),
@@ -85,12 +88,15 @@ fn memory_query() -> impl Strategy<Value = MemoryQuery> {
         vec(key().prop_map(FactId::new), 0..3),
     )
         .prop_map(
-            |(tag, min_confidence, min_emotional_weight, subject, facts)| MemoryQuery {
-                tag,
-                min_confidence,
-                min_emotional_weight,
-                subject,
-                facts,
+            |(id, tag, min_confidence, min_emotional_weight, subject, facts)| {
+                let mut query = MemoryQuery::new();
+                query.id = id.map(MemoryId::new);
+                query.tag = tag;
+                query.min_confidence = min_confidence;
+                query.min_emotional_weight = min_emotional_weight;
+                query.subject = subject;
+                query.facts = facts;
+                query
             },
         )
 }
@@ -189,6 +195,7 @@ fn condition() -> impl Strategy<Value = Condition> {
         }),
         (entity(), memory_query()).prop_map(|(owner, query)| Condition::HasMemory { owner, query }),
         tag().prop_map(|tag| Condition::HasTagAvailable { tag }),
+        entity().prop_map(|who| Condition::SeenBy(CharacterId::new(who))),
         (key(), vec(fact_value(), 0..3)).prop_map(|(key, args)| Condition::Custom { key, args }),
     ];
     leaf.prop_recursive(3, 24, 4, |inner| {
@@ -204,14 +211,16 @@ fn outcome() -> impl Strategy<Value = Outcome> {
     prop_oneof![
         (fact_scope(), key(), fact_value()).prop_map(|(scope, id, value)| Outcome::SetFact {
             scope,
-            fact: Fact {
-                id: FactId::new(id),
-                value,
-            },
+            fact: Fact::new(id, value),
         }),
         (fact_scope(), key()).prop_map(|(scope, f)| Outcome::RemoveFact {
             scope,
             fact_id: FactId::new(f),
+        }),
+        (fact_scope(), key(), any::<i64>()).prop_map(|(scope, f, delta)| Outcome::AddFact {
+            scope,
+            fact_id: FactId::new(f),
+            delta,
         }),
         (key(), key(), any::<i32>()).prop_map(|(a, p, delta)| Outcome::AddAlignment {
             axis: AlignmentAxisId::new(a),
@@ -235,6 +244,7 @@ fn outcome() -> impl Strategy<Value = Outcome> {
         key().prop_map(|quest_id| Outcome::StartQuest { quest_id }),
         (key(), key()).prop_map(|(quest_id, stage)| Outcome::AdvanceQuest { quest_id, stage }),
         (key(), vec(fact_value(), 0..3)).prop_map(|(key, args)| Outcome::Custom { key, args }),
+        Just(Outcome::Host(())),
     ]
 }
 
@@ -253,6 +263,7 @@ fn text() -> impl Strategy<Value = DialogText> {
     let leaf = prop_oneof![
         ".{0,16}".prop_map(DialogText::Inline),
         key().prop_map(DialogText::localized),
+        key().prop_map(DialogText::pool),
     ];
     leaf.prop_recursive(2, 12, 3, |inner| {
         vec(
@@ -273,6 +284,49 @@ fn text() -> impl Strategy<Value = DialogText> {
             0..3,
         )
         .prop_map(DialogText::Fragments)
+    })
+}
+
+fn pick() -> impl Strategy<Value = Pick> {
+    prop_oneof![Just(Pick::All), Just(Pick::First), Just(Pick::Best)]
+}
+
+fn candidate(
+    entry: impl Strategy<Value = Entry<DialogTypes>>,
+) -> impl Strategy<Value = Candidate<DialogTypes>> {
+    (
+        proptest::option::of(key()),
+        proptest::option::of(entity()),
+        proptest::option::of(key()),
+        proptest::option::of(condition()),
+        fragment_mode(),
+        vec(entry, 0..3),
+        vec((key(), any::<bool>()), 0..2),
+    )
+        .prop_map(|(k, speaker, topic, when, mode, variants, learn)| {
+            let mut c = Candidate::new(variants).mode(mode);
+            c.key = k.map(Into::into);
+            c.speaker = speaker.map(CharacterId::new);
+            c.topic = topic.map(Into::into);
+            c.when = when;
+            c.learn = learn.into_iter().map(|(n, v)| Fact::bool(n, v)).collect();
+            c
+        })
+}
+
+fn pool() -> impl Strategy<Value = Pool<DialogTypes>> {
+    let leaf = prop_oneof![text().prop_map(Entry::Leaf), key().prop_map(Entry::named),];
+    let entry = leaf.prop_recursive(2, 8, 2, |inner| {
+        (key(), pick(), vec(candidate(inner), 0..3)).prop_map(|(id, pick, candidates)| {
+            let mut p = Pool::new(id, pick);
+            p.candidates = candidates;
+            Entry::Pool(p)
+        })
+    });
+    (key(), pick(), vec(candidate(entry), 0..4)).prop_map(|(id, pick, candidates)| {
+        let mut p = Pool::new(id, pick);
+        p.candidates = candidates;
+        p
     })
 }
 
@@ -330,24 +384,31 @@ fn node() -> impl Strategy<Value = DialogueNode> {
             vec(condition(), 0..2),
             vec(outcome(), 0..2),
             vec(option(id), 0..3),
+            vec((entity(), text()), 0..3),
+            proptest::option::of(target()),
         )
             .prop_map(
-                move |(speaker, text, conditions, outcomes, options)| DialogueNode {
+                move |(speaker, text, conditions, outcomes, options, lines, next)| DialogueNode {
                     id: DialogueNodeId::new(id),
                     speaker: CharacterId::new(speaker),
                     text,
                     conditions,
                     outcomes_on_enter: outcomes,
                     options,
+                    lines: lines
+                        .into_iter()
+                        .map(|(speaker, text)| DialogLine::new(CharacterId::new(speaker), text))
+                        .collect(),
+                    next,
                 },
             )
     })
 }
 
 fn graph() -> impl Strategy<Value = DialogueGraph> {
-    (vec(node(), 0..4), proptest::option::of(0u64..8)).prop_map(|(nodes, entry)| DialogueGraph {
+    (vec(node(), 0..4), vec(0u64..8, 0..3)).prop_map(|(nodes, entries)| DialogueGraph {
         nodes,
-        entry_node: entry.map(DialogueNodeId::new),
+        entry_nodes: entries.into_iter().map(DialogueNodeId::new).collect(),
     })
 }
 
@@ -356,42 +417,46 @@ fn world_state() -> impl Strategy<Value = DialogWorldState> {
         vec((fact_scope(), key(), fact_value()), 0..8),
         vec((key(), key(), any::<i16>()), 0..4),
         vec((entity(), entity(), key(), any::<i16>()), 0..4),
+        vec((key(), any::<i16>()), 0..3),
         vec((entity(), memory()), 0..4),
         vec(tag(), 0..3),
         vec(event_kind(), 0..4),
         any::<bool>(),
+        any::<bool>(),
     )
-        .prop_map(|(facts, aligns, rels, mems, tags, events, drain)| {
-            let mut s = DialogWorldState::new();
-            for (scope, id, value) in facts {
-                s.set_fact(
-                    scope,
-                    Fact {
-                        id: FactId::new(id),
-                        value,
-                    },
-                );
-            }
-            for (a, p, v) in aligns {
-                s.add_alignment(AlignmentAxisId::new(a), AlignmentPoleId::new(p), v.into());
-            }
-            for (a, b, axis, v) in rels {
-                s.add_relationship(a, b, RelationshipAxisId::new(axis), v.into());
-            }
-            for (owner, m) in mems {
-                s.add_memory(owner, m);
-            }
-            for t in tags {
-                s.add_available_tag(t);
-            }
-            for k in events {
-                s.emit_event(k);
-            }
-            if drain {
-                s.drain_events();
-            }
-            s
-        })
+        .prop_map(
+            |(facts, aligns, rels, defaults, mems, tags, events, drain, log_off)| {
+                let mut s = DialogWorldState::new();
+                for (scope, id, value) in facts {
+                    s.set_fact(scope, Fact::new(id, value));
+                }
+                for (a, p, v) in aligns {
+                    s.add_alignment(AlignmentAxisId::new(a), AlignmentPoleId::new(p), v.into());
+                }
+                // Defaults first, so that scores added afterwards start from them.
+                for (axis, v) in defaults {
+                    s.set_relationship_default(RelationshipAxisId::new(axis), v.into());
+                }
+                for (a, b, axis, v) in rels {
+                    s.add_relationship(a, b, RelationshipAxisId::new(axis), v.into());
+                }
+                for (owner, m) in mems {
+                    s.add_memory(owner, m);
+                }
+                for t in tags {
+                    s.add_available_tag(t);
+                }
+                for k in events {
+                    s.emit_event(k);
+                }
+                if drain {
+                    s.drain_events();
+                }
+                // Last, so that the log may hold events from before.
+                s.set_event_log(!log_off);
+                s
+            },
+        )
 }
 
 fn json_roundtrip<D: Serialize + for<'de> Deserialize<'de>>(dto: &D) -> D {
@@ -429,6 +494,7 @@ proptest! {
     fn text_progress_roundtrips(
         fragments in vec((key(), any::<u32>(), proptest::option::of(any::<u32>())), 0..6),
         owners in vec((key(), any::<u32>()), 0..4),
+        named in vec((key(), key(), any::<u32>()), 0..4),
     ) {
         let mut p = TextProgress::new();
         for (k, shown, pick) in fragments {
@@ -437,7 +503,16 @@ proptest! {
         for (o, n) in owners {
             p.set_resolutions(o, n);
         }
+        for (pool, caller, n) in named {
+            p.set_named_resolutions(pool, caller, n);
+        }
         let back = json_roundtrip(&TextProgressDto::from(&p)).into_model();
+        prop_assert_eq!(back, p);
+    }
+
+    #[test]
+    fn pool_roundtrips(p in pool()) {
+        let back = json_roundtrip(&PoolDto::from(&p)).into_model();
         prop_assert_eq!(back, p);
     }
 
@@ -447,6 +522,239 @@ proptest! {
         let b = serde_json::to_string(&WorldStateDto::from(&s.clone())).unwrap();
         prop_assert_eq!(a, b);
     }
+}
+
+#[test]
+fn world_state_without_event_log_field_keeps_the_log_on() {
+    let dto: WorldStateDto = serde_json::from_str(r#"{"next_event_id":1}"#).unwrap();
+    check!(dto.event_log);
+    check!(dto == WorldStateDto::default());
+    check!(dto.into_model().event_log_enabled());
+
+    let off = DialogWorldState::new().with_event_log(false);
+    let json = serde_json::to_string(&WorldStateDto::from(&off)).unwrap();
+    check!(json.contains(r#""event_log":false"#), "{json}");
+    let back: WorldStateDto = serde_json::from_str(&json).unwrap();
+    check!(!back.into_model().event_log_enabled());
+}
+
+proptest! {
+    #[test]
+    fn dialog_cursor_roundtrips(current in 0u64..8, targets in vec(proptest::option::of(0u64..8), 0..8)) {
+        let mut cursor = DialogCursor::new(DialogueNodeId::new(current));
+        for target in targets {
+            match target {
+                Some(n) => cursor.follow(&DialogTarget::node(n)),
+                None => cursor.follow(&DialogTarget::Return),
+            };
+        }
+        let back = json_roundtrip(&DialogCursorDto::from(&cursor)).into_model();
+        prop_assert_eq!(back, cursor);
+    }
+}
+
+#[test]
+fn dialog_cursor_json_shape() {
+    let mut cursor = DialogCursor::new(DialogueNodeId::new(1));
+    check!(serde_json::to_string(&DialogCursorDto::from(&cursor)).unwrap() == r#"{"current":1}"#);
+    cursor.follow(&DialogTarget::node(4));
+    check!(
+        serde_json::to_string(&DialogCursorDto::from(&cursor)).unwrap()
+            == r#"{"current":4,"back":[1]}"#
+    );
+}
+
+#[test]
+fn dialogue_graph_reads_the_old_entry_node_field() {
+    let dto: DialogueGraphDto = serde_json::from_str(r#"{"nodes":[],"entry_node":3}"#).unwrap();
+    check!(dto.entry_nodes == vec![3]);
+
+    let both: DialogueGraphDto =
+        serde_json::from_str(r#"{"nodes":[],"entry_node":3,"entry_nodes":[5,3]}"#).unwrap();
+    check!(both.entry_nodes == vec![5, 3]);
+    // With `entry_nodes` given, the old field does not change the order.
+    let newer: DialogueGraphDto =
+        serde_json::from_str(r#"{"nodes":[],"entry_node":7,"entry_nodes":[5]}"#).unwrap();
+    check!(newer.entry_nodes == vec![5]);
+    // An explicit empty list also wins over the old field.
+    let empty: DialogueGraphDto =
+        serde_json::from_str(r#"{"nodes":[],"entry_node":7,"entry_nodes":[]}"#).unwrap();
+    check!(empty.entry_nodes.is_empty());
+
+    let none: DialogueGraphDto = serde_json::from_str(r#"{"nodes":[]}"#).unwrap();
+    check!(none.entry_nodes.is_empty());
+
+    let json = serde_json::to_string(&DialogueGraphDto::<()> {
+        nodes: vec![],
+        entry_nodes: vec![1, 2],
+    })
+    .unwrap();
+    check!(json == r#"{"nodes":[],"entry_nodes":[1,2]}"#);
+}
+
+#[test]
+fn host_outcomes_roundtrip_through_the_dtos() {
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum Effect {
+        Goto(String),
+    }
+
+    let unit: Outcome = Outcome::Host(());
+    check!(serde_json::to_string(&OutcomeDto::from(&unit)).unwrap() == r#"{"host":null}"#);
+
+    let mut node = DialogueNode::<Effect>::typed(
+        1,
+        CharacterId::new(EntityId::new(1)),
+        DialogText::inline("Bye."),
+    );
+    node.outcomes_on_enter
+        .push(Outcome::Host(Effect::Goto("street".into())));
+    let mut option =
+        DialogueOption::typed(1, DialogText::inline("Go."), DialogTarget::End, node.id);
+    option
+        .outcomes
+        .push(Outcome::Host(Effect::Goto("hall".into())));
+    node.options.push(option);
+    let mut graph = DialogueGraph::typed();
+    graph.nodes.push(node);
+    graph.entry_nodes.push(DialogueNodeId::new(1));
+
+    let json = serde_json::to_string(&DialogueGraphDto::from(&graph)).unwrap();
+    check!(json.contains(r#"{"host":{"goto":"street"}}"#), "{json}");
+    let back: DialogueGraphDto<Effect> = serde_json::from_str(&json).unwrap();
+    check!(back.into_model() == graph);
+}
+
+#[test]
+fn with_modules_take_a_host_outcome_type() {
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    enum Effect {
+        Goto(String),
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct Content {
+        #[serde(with = "dramaturge_serde::dialogue_graph")]
+        graph: DialogueGraph<Effect>,
+        #[serde(with = "dramaturge_serde::outcome")]
+        on_leave: Outcome<Effect>,
+        #[serde(with = "dramaturge_serde::dialogue_graph")]
+        plain: DialogueGraph,
+    }
+
+    let mut node = DialogueNode::<Effect>::typed(
+        1,
+        CharacterId::new(EntityId::new(1)),
+        DialogText::inline("Bye."),
+    );
+    node.outcomes_on_enter
+        .push(Outcome::Host(Effect::Goto("street".into())));
+    let mut graph = DialogueGraph::typed();
+    graph.nodes.push(node);
+    let content = Content {
+        graph,
+        on_leave: Outcome::Host(Effect::Goto("hall".into())),
+        plain: DialogueGraph::new(),
+    };
+
+    let json = serde_json::to_string(&content).unwrap();
+    let back: Content = serde_json::from_str(&json).unwrap();
+    check!(back.graph == content.graph);
+    check!(back.on_leave == content.on_leave);
+    check!(back.plain == content.plain);
+}
+
+#[test]
+fn lines_and_next_in_the_node_dto() {
+    let mara = CharacterId::new(EntityId::new(1));
+    let player = CharacterId::new(EntityId::new(2));
+    let node = DialogueNode::new(1, mara, DialogText::inline("Sit."))
+        .with_line(player, DialogText::inline("Who are you?"))
+        .with_next(DialogTarget::node(2));
+    let json = serde_json::to_string(&DialogueNodeDto::from(&node)).unwrap();
+    check!(
+        json.ends_with(
+            r#""lines":[{"speaker":2,"text":{"inline":"Who are you?"}}],"next":{"node":2}}"#
+        ),
+        "{json}"
+    );
+    let back: DialogueNodeDto = serde_json::from_str(&json).unwrap();
+    check!(back.into_model() == node);
+
+    // A node without lines and next writes neither, and a DTO without them
+    // (written before 0.3) still loads.
+    let plain = DialogueNode::new(2, mara, DialogText::inline("Hi."));
+    let json = serde_json::to_string(&DialogueNodeDto::from(&plain)).unwrap();
+    check!(json == r#"{"id":2,"speaker":1,"text":{"inline":"Hi."}}"#);
+    let back: DialogueNodeDto = serde_json::from_str(&json).unwrap();
+    check!(back.into_model() == plain);
+}
+
+#[test]
+fn host_text_roundtrips_through_the_dtos() {
+    /// Host markup: a list of spans.
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum Span {
+        Plain(String),
+        Em(String),
+    }
+
+    let unit: DialogText = DialogText::Host(());
+    check!(serde_json::to_string(&DialogTextDto::from(&unit)).unwrap() == r#"{"host":null}"#);
+
+    let markup = vec![Span::Plain("Hello, ".into()), Span::Em("traveller".into())];
+    let mut node = DialogueNode::<(), Vec<Span>>::typed(
+        1,
+        CharacterId::new(EntityId::new(1)),
+        DialogText::host(markup.clone()),
+    );
+    node.options.push(DialogueOption::typed(
+        1,
+        DialogText::Fragments(vec![
+            TextFragment::with_mode(
+                FragmentMode::Cycle,
+                vec![
+                    DialogText::host(vec![Span::Plain("Bye.".into())]),
+                    DialogText::Inline("Later.".into()),
+                ],
+            )
+            .keyed("bye"),
+        ]),
+        DialogTarget::End,
+        node.id,
+    ));
+    let mut graph = DialogueGraph::typed().with_entry_node(node.id);
+    graph.nodes.push(node);
+
+    // The DTO carries the host text as it is.
+    let json = serde_json::to_string(&DialogueGraphDto::from(&graph)).unwrap();
+    check!(
+        json.contains(r#""text":{"host":[{"plain":"Hello, "},{"em":"traveller"}]}"#),
+        "{json}"
+    );
+    let back: DialogueGraphDto<(), Vec<Span>> = serde_json::from_str(&json).unwrap();
+    let back = back.into_model();
+    check!(back == graph);
+    check!(back.nodes[0].text.as_host() == Some(&markup));
+
+    // The `with` modules take a host text type.
+    #[derive(Serialize, Deserialize)]
+    struct Content {
+        #[serde(with = "dramaturge_serde::dialogue_graph")]
+        graph: DialogueGraph<(), Vec<Span>>,
+        #[serde(with = "dramaturge_serde::dialog_text")]
+        title: DialogText<Vec<Span>>,
+    }
+    let content = Content {
+        graph,
+        title: DialogText::host(markup),
+    };
+    let json = serde_json::to_string(&content).unwrap();
+    let back: Content = serde_json::from_str(&json).unwrap();
+    check!(back.graph == content.graph);
+    check!(back.title == content.title);
 }
 
 #[test]
@@ -478,6 +786,22 @@ fn with_module_embeds_state_in_host_struct() {
     let back: GameState = serde_json::from_str(&json).unwrap();
     check!(back.room == "shore");
     check!(back.dialog == game.dialog);
+}
+
+#[test]
+fn with_module_embeds_cursor_in_host_struct() {
+    #[derive(Serialize, Deserialize)]
+    struct Talk {
+        #[serde(with = "dramaturge_serde::dialog_cursor")]
+        cursor: DialogCursor,
+    }
+
+    let mut cursor = DialogCursor::new(DialogueNodeId::new(1));
+    cursor.follow(&DialogTarget::node(2));
+    let json = serde_json::to_string(&Talk { cursor }).unwrap();
+    let back: Talk = serde_json::from_str(&json).unwrap();
+    check!(back.cursor.current == DialogueNodeId::new(2));
+    check!(back.cursor.back == vec![DialogueNodeId::new(1)]);
 }
 
 #[test]
@@ -580,4 +904,112 @@ fn restore_reports_orphaned_keys() {
     let ghost2 = v2.entity("ghost").expect("orphan is interned");
     check!(ghost2 != player2);
     check!(restored.get_relationship(player2, ghost2, &RelationshipAxisId::new("fear")) == Some(3));
+}
+
+#[test]
+fn saved_cursor_remaps_current_and_back_by_key() {
+    let mut v1 = SymbolTable::new();
+    let hub = v1.intern_node("hub");
+    let a = v1.intern_node("a");
+    let b = v1.intern_node("b");
+    let mut cursor = DialogCursor::new(hub);
+    cursor.follow(&DialogTarget::Node(a));
+    cursor.follow(&DialogTarget::Node(b));
+    let json = serde_json::to_string(&SavedDialogCursor::new(&cursor, &v1)).unwrap();
+
+    // Content v2 reorders the nodes and removes `a`.
+    let mut v2 = SymbolTable::new();
+    let b2 = v2.intern_node("b");
+    v2.intern_node("intro");
+    let hub2 = v2.intern_node("hub");
+    let saved: SavedDialogCursor = serde_json::from_str(&json).unwrap();
+    let (restored, report) = saved.restore(&mut v2);
+
+    let a2 = v2.node("a").expect("orphan is interned");
+    check!(restored.current == b2);
+    check!(restored.back == vec![hub2, a2]);
+    check!(
+        report.orphaned
+            == vec![OrphanedKey {
+                kind: SymbolKind::Node,
+                key: "a".into(),
+            }]
+    );
+    // Raw ids changed, so the identity mapping would restore wrong nodes.
+    check!(b2 != b);
+    check!(hub2 != hub);
+}
+
+#[test]
+fn text_progress_from_before_named_pools_loads() {
+    // A save of 0.3.0-alpha.4: no `named` field.
+    let json = r#"{"fragments":[{"key":"mara.intro/0","shown":2}],"owners":[{"owner":"mara.intro","resolutions":2}]}"#;
+    let dto: TextProgressDto = serde_json::from_str(json).unwrap();
+    let p: TextProgress = dto.into_model();
+    check!(p.resolutions("mara.intro") == 2);
+    check!(p.fragment("mara.intro/0").map(|f| f.shown) == Some(2));
+    check!(p.named().count() == 0);
+    // A named pool with the same id as an owner does not read the owner count.
+    check!(p.named_resolutions("mara.intro", "mara.intro") == 0);
+}
+
+#[test]
+fn sticky_in_named_pool_survives_save() {
+    use dramaturge_runtime::{
+        DefaultConditionEvaluator, DefaultJudge, Query, SplitMix64, commit, select_named,
+    };
+    let fresh = Condition::FactExists {
+        scope: FactScope::World,
+        fact_id: FactId::new("ash_is_fresh"),
+    };
+    let pools = dramaturge_model::Pools::new().with(
+        Pool::<DialogTypes>::new("keeper_remark", Pick::Best)
+            .with_candidate(Candidate::leaf(DialogText::inline("Mind your step.")))
+            .with_candidate(
+                Candidate::new(
+                    ["I let it go out.", "Cold stove, cold supper.", "Go to bed."]
+                        .map(|s| Entry::Leaf(DialogText::inline(s)))
+                        .into(),
+                )
+                .mode(FragmentMode::Sticky)
+                .when(fresh),
+            ),
+    );
+    let mut state = DialogWorldState::new();
+    state.set_fact(FactScope::World, Fact::bool("ash_is_fresh", true));
+    let evaluator = DefaultConditionEvaluator::new();
+    let query = Query::new();
+    let say = |progress: &TextProgress, seed: u64| {
+        let judge = DefaultJudge::new(&evaluator, &state);
+        let mut rng = SplitMix64::new(seed);
+        let s = select_named(
+            "keeper_remark",
+            &pools,
+            "kitchen",
+            &query,
+            &judge,
+            progress,
+            &mut rng,
+        );
+        let text = s
+            .leaves()
+            .next()
+            .and_then(DialogText::as_inline)
+            .map(str::to_string);
+        let mut after = progress.clone();
+        commit(&s, &query, &mut after, &mut |_, _| {});
+        (text, after)
+    };
+    let (first, progress) = say(&TextProgress::new(), 11);
+    let json = serde_json::to_string(&TextProgressDto::from(&progress)).unwrap();
+    let loaded: TextProgress = serde_json::from_str::<TextProgressDto>(&json)
+        .unwrap()
+        .into_model();
+    check!(loaded == progress);
+    check!(loaded.named_resolutions("keeper_remark", "kitchen") == 1);
+    // Another seed: the sticky variant comes from the save, not the RNG.
+    for seed in 0..8 {
+        let (again, _) = say(&loaded, seed);
+        check!(again == first);
+    }
 }

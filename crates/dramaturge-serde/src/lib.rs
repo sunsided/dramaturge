@@ -7,28 +7,30 @@
 //!
 //! # YAML Loader
 //!
-//! With the `yaml` feature, load a [`DialogueGraph`] from a YAML file:
+//! With the `yaml` feature, load a [`DialogueGraph`] from a YAML file. The
+//! shape is the dialogue shape of `dramaturge-syntax` (`with`, `start`,
+//! `nodes` with `say`, `when`, `options` and `go`):
 //!
 //! ```ignore
-//! use dramaturge_serde::loader::YamlDialogueGraph;
+//! use dramaturge_serde::loader::load_yaml;
 //!
 //! let raw = std::fs::read_to_string("dialogue.yaml").unwrap();
-//! let loaded = YamlDialogueGraph::from_yaml(&raw)
-//!     .expect("invalid YAML")
-//!     .to_model()
-//!     .expect("invalid graph structure");
-//! let graph = loaded.graph;
+//! let loaded = load_yaml(&raw).expect("invalid dialogue");
+//! let graph = loaded.graph; // also loaded.symbols and loaded.warnings
 //! ```
 //!
-//! See `crates/dramaturge/examples/dialogue.yaml` for the full YAML format.
+//! See `crates/dramaturge/examples/dialogue.yaml` for a full dialogue, and
+//! `docs/migration-0.3-yaml.md` for the change from the 0.2 shape.
 //!
 //! # Model and State Serialization
 //!
 //! [`dto`] has a lossless serde DTO for every public model type and for
 //! `DialogWorldState`. Host structs use the `with` modules
-//! ([`world_state`], [`condition`], [`outcome`], [`dialogue_graph`],
-//! [`symbol_table`], [`text_progress`]). [`save::SavedWorldState`] stores keys next to the
-//! state so saves survive content changes.
+//! ([`world_state`], [`condition`], [`outcome`], [`dialog_text`],
+//! [`dialogue_graph`], [`symbol_table`], [`text_progress`],
+//! [`dialog_cursor`]). These store raw
+//! ids. [`save::SavedWorldState`] and [`save::SavedDialogCursor`] store keys
+//! next to the state or cursor so saves survive content changes.
 //!
 //! # Why a Separate Crate?
 //!
@@ -43,7 +45,10 @@ pub use serde;
 pub mod dto;
 pub mod save;
 mod with;
-pub use with::{condition, dialogue_graph, outcome, symbol_table, text_progress, world_state};
+pub use with::{
+    condition, dialog_cursor, dialog_text, dialogue_graph, outcome, symbol_table, text_progress,
+    world_state,
+};
 
 #[cfg(feature = "yaml")]
 #[cfg_attr(docsrs, doc(cfg(feature = "yaml")))]
