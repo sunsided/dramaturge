@@ -6,6 +6,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-08
+
 ### Fixed
 
 - The README links to examples, crate READMEs, docs and licenses are absolute GitHub URLs, so they resolve on crates.io instead of pointing at `crates/dramaturge/crates/...`.
@@ -492,7 +494,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 Initial release.
 
-[Unreleased]: https://github.com/sunsided/dramaturge/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/sunsided/dramaturge/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/sunsided/dramaturge/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.5...v0.3.0
 [0.3.0-alpha.5]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.4...v0.3.0-alpha.5
 [0.3.0-alpha.4]: https://github.com/sunsided/dramaturge/compare/v0.3.0-alpha.3...v0.3.0-alpha.4
