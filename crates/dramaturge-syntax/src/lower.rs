@@ -241,6 +241,10 @@ pub type LowerResult<C, X, E, L> = Result<
 /// The graph's entry nodes are the start nodes. A choice without `say`
 /// gets the default text of its hint. `back` lowers to
 /// `DialogTarget::Return`. Author notes (`M`) are not in the graph.
+///
+/// A lowered text whose fragment keys would share progress (see
+/// `DialogText::bad_key`) stops the lowering with [`LowerError::Check`]
+/// and [`IssueKind::BadKey`].
 pub fn lower<C, X, E, M, L: Lower<C, X, E>>(
     dialogue: &Dialogue<C, X, E, M>,
     symbols: &mut SymbolTable,
@@ -255,6 +259,10 @@ pub fn lower<C, X, E, M, L: Lower<C, X, E>>(
         path: place.path(dialogue),
         place,
         error,
+    };
+    let keys = |text: &DialogText<L::Text>, place: Place| match text.bad_key() {
+        Some(key) => Err(bad_key(place.path(dialogue), place, key)),
+        None => Ok(()),
     };
 
     let player = symbols.player();
@@ -297,6 +305,7 @@ pub fn lower<C, X, E, M, L: Lower<C, X, E>>(
         let text = host
             .text(&mut cx, &source.say)
             .map_err(|e| fail(Place::NodeSay(n), e))?;
+        keys(&text, Place::NodeSay(n))?;
         let mut node = DialogueNode::typed(node_id.0, CharacterId::new(speaker), text);
 
         for (l, line) in source.lines.iter().enumerate() {
@@ -308,6 +317,7 @@ pub fn lower<C, X, E, M, L: Lower<C, X, E>>(
             let text = host
                 .text(&mut cx, &line.say)
                 .map_err(|e| fail(Place::Line(n, l), e))?;
+            keys(&text, Place::Line(n, l))?;
             cx.speaker = speaker;
             node.lines
                 .push(DialogLine::new(CharacterId::new(who), text));
@@ -351,7 +361,10 @@ pub fn lower<C, X, E, M, L: Lower<C, X, E>>(
                 _ => false,
             };
             let text = match (said, &hint) {
-                (Some(text), _) if !empty(&text) => text,
+                (Some(text), _) if !empty(&text) => {
+                    keys(&text, Place::Option(n, o))?;
+                    text
+                }
                 (_, Some(hint)) => DialogText::Inline(hint.default_text()),
                 (_, None) => {
                     let place = Place::Option(n, o);
@@ -405,6 +418,20 @@ pub fn lower<C, X, E, M, L: Lower<C, X, E>>(
         graph,
         warnings: issues,
     })
+}
+
+/// The [`IssueKind::BadKey`] error for `key`.
+fn bad_key<E>(path: String, place: Place, key: &str) -> LowerError<E> {
+    LowerError::Check(vec![Issue {
+        severity: Severity::Error,
+        kind: IssueKind::BadKey,
+        place,
+        path,
+        message: format!(
+            "the key `{key}` is empty, digits only, has a `/` or repeats on its \
+             progress path, so it would share progress with another one"
+        ),
+    }])
 }
 
 type Outcomes<H> = Vec<Outcome<H>>;
@@ -606,6 +633,9 @@ pub type PoolResult<C, X, E, L> = Result<
 /// pool. An inline pool without an id takes the key of its candidate, or
 /// its index.
 ///
+/// A candidate or fragment key that would share progress (see
+/// `Pool::bad_key`) is [`LowerError::Check`] with [`IssueKind::BadKey`].
+///
 /// `E` is the effect payload of the host's [`Lower`] implementation. A
 /// pool has no effects; name `E` when `L` implements `Lower` for more than
 /// one payload set.
@@ -631,7 +661,11 @@ pub fn lower_pool<C, X, E, L: Lower<C, X, E>>(
         speaker: player,
         place: Place::Pool(String::new()),
     };
-    pool_with(pool, id, "", &mut cx, host)
+    let out = pool_with(pool, id, "", &mut cx, host)?;
+    match out.bad_key() {
+        Some(key) => Err(bad_key("one_of".into(), Place::Pool("one_of".into()), key)),
+        None => Ok(out),
+    }
 }
 
 fn pool_with<C, X, E, L: Lower<C, X, E>>(
@@ -683,9 +717,12 @@ fn pool_with<C, X, E, L: Lower<C, X, E>>(
             let entry = match variant {
                 Variant::Text(x) => {
                     cx.place = Place::Pool(at.clone());
-                    match host.text(cx, x).map_err(|e| fail(at, e))? {
+                    match host.text(cx, x).map_err(|e| fail(at.clone(), e))? {
                         DialogText::Pool(id) => Entry::Named(id),
-                        text => Entry::Leaf(text),
+                        text => match text.bad_key() {
+                            Some(key) => return Err(bad_key(at.clone(), Place::Pool(at), key)),
+                            None => Entry::Leaf(text),
+                        },
                     }
                 }
                 Variant::Pool(inner) => {
