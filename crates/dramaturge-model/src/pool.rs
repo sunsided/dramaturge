@@ -220,7 +220,7 @@ impl<X: TextTypes> Candidate<X> {
     /// separator of inline pool paths). Other keys share progress with
     /// another candidate.
     pub fn is_valid_key(key: &str) -> bool {
-        !key.contains('/') && !key.bytes().all(|b| b.is_ascii_digit())
+        !key.is_empty() && !key.contains('/') && !key.bytes().all(|b| b.is_ascii_digit())
     }
 
     /// Sets the progress key.
@@ -309,25 +309,38 @@ impl<X: TextTypes> Pool<X> {
     /// Returns the first candidate key, here or in an inline pool, that
     /// would share progress with another candidate: a key that fails
     /// [`Candidate::is_valid_key`], or a key that two candidates of one
-    /// pool have.
+    /// progress path have. The inline pools of one candidate share its
+    /// path, so their candidates must have distinct keys too.
     pub fn bad_key(&self) -> Option<&str> {
-        let mut seen = std::collections::BTreeSet::new();
-        for c in &self.candidates {
-            if let Some(key) = c.key.as_deref()
-                && (!Candidate::<X>::is_valid_key(key) || !seen.insert(key))
-            {
-                return Some(key);
-            }
-            for v in &c.variants {
-                if let Entry::Pool(inner) = v
-                    && let Some(key) = inner.bad_key()
-                {
-                    return Some(key);
-                }
-            }
-        }
-        None
+        bad_key(&mut self.candidates.iter())
     }
+}
+
+/// Returns the first bad key among `candidates`, which share one progress
+/// path: a pool, or every inline pool of one candidate.
+fn bad_key<'a, X: TextTypes + 'a>(
+    candidates: &mut dyn Iterator<Item = &'a Candidate<X>>,
+) -> Option<&'a str> {
+    let mut seen = std::collections::BTreeSet::new();
+    for c in candidates {
+        if let Some(key) = c.key.as_deref()
+            && (!Candidate::<X>::is_valid_key(key) || !seen.insert(key))
+        {
+            return Some(key);
+        }
+        let mut inner = c
+            .variants
+            .iter()
+            .filter_map(|v| match v {
+                Entry::Pool(inner) => Some(inner.candidates.iter()),
+                _ => None,
+            })
+            .flatten();
+        if let Some(key) = bad_key(&mut inner) {
+            return Some(key);
+        }
+    }
+    None
 }
 
 /// The named pools, by id.
@@ -633,6 +646,11 @@ mod tests {
         let nested = Pool::<X>::new("p", Pick::All)
             .with_candidate(Candidate::pool(pool(&["x", "x"])).keyed("a"));
         check!(nested.bad_key() == Some("x"));
+        // Sibling inline pools of one candidate share its progress path.
+        let siblings = Pool::<X>::new("p", Pick::All).with_candidate(
+            Candidate::new(vec![Entry::Pool(pool(&["x"])), Entry::Pool(pool(&["x"]))]).keyed("a"),
+        );
+        check!(siblings.bad_key() == Some("x"));
     }
 
     #[test]

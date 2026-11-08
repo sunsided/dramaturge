@@ -273,8 +273,17 @@ fn failed_pool_load_leaves_symbols_unchanged() {
         "id: p\none_of:\n  - { speaker: keeper, key: \"0\", text: a }\n",
         &mut symbols,
     );
-    check!(let Err(LoadError::BadKey(_)) = err);
+    check!(bad_key(err) == "0");
     check!(symbols == before);
+}
+
+/// The key of a [`IssueKind::BadKey`](dramaturge_syntax::IssueKind::BadKey) error.
+fn bad_key<T: std::fmt::Debug>(result: Result<T, LoadError>) -> String {
+    let Err(LoadError::Lower(dramaturge_serde::loader::LowerError::Check(issues))) = result else {
+        panic!("not a check error: {result:?}");
+    };
+    check!(issues[0].kind == dramaturge_syntax::IssueKind::BadKey);
+    issues[0].message.split('`').nth(1).unwrap().to_string()
 }
 
 #[test]
@@ -286,8 +295,32 @@ fn colliding_keys_are_errors() {
             "id: p\none_of:\n  - { key: a, mode: once, text: a }\n  - { key: a, mode: once, text: b }\n",
             "a",
         ),
+        // Sibling inline pools of one candidate share its progress path.
+        (
+            "id: p\none_of:\n  - key: c\n    mode: cycle\n    variants:\n      - one_of: [{ key: x, text: a }]\n      - one_of: [{ key: x, text: b }]\n",
+            "x",
+        ),
+        // A fragment list in a pool text follows the same rule.
+        ("id: p\none_of:\n  - text: [{ key: \"0\", text: a }]\n", "0"),
     ] {
-        let err = load_pool_yaml(yaml, &mut SymbolTable::new()).unwrap_err();
-        check!(err == LoadError::BadKey(key.to_string()), "{yaml}");
+        check!(
+            bad_key(load_pool_yaml(yaml, &mut SymbolTable::new())) == key,
+            "{yaml}"
+        );
+    }
+}
+
+#[test]
+fn colliding_fragment_keys_are_errors() {
+    let dialogue =
+        |say: &str| format!("with: npc\nstart: [a]\nnodes:\n  a:\n    say: {say}\n    next: end\n");
+    check!(load_yaml(&dialogue("[{ key: k, text: a }, { key: l, text: b }]")).is_ok());
+    for (say, key) in [
+        ("[{ key: \"0\", text: a }]", "0"),
+        ("[{ key: \"\", text: a }]", ""),
+        ("[{ key: a/b, text: a }]", "a/b"),
+        ("[{ key: k, text: a }, { key: k, text: b }]", "k"),
+    ] {
+        check!(bad_key(load_yaml(&dialogue(say))) == key, "{say}");
     }
 }

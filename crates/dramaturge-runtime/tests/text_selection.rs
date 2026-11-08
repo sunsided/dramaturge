@@ -749,6 +749,9 @@ fn named_pool_without_leaves_has_no_side_effects() {
     let s = select(&root, &pools, "c", &query, &judge, &progress, &mut rng);
     check!(s.is_empty());
     check!(s.steps.is_empty());
+    // The trace does not claim that the candidate showed.
+    check!(s.trace.rows[0].verdict == Verdict::NoLeaf);
+    check!(s.trace.rows[0].variant.is_none());
     commit(&s, &query, &mut progress, &mut world_learner(&mut state));
     check!(progress.fragments().count() == 0);
     check!(progress.named_resolutions("quiet", "c") == 0);
@@ -786,11 +789,18 @@ fn unopenable_candidate_does_not_draw() {
     check!(a.trace.rows[0].variant.is_none());
     check!(a.trace.rows[1].variant == b.trace.rows[0].variant);
     check!(r1.state() == r2.state());
+    // The surviving candidate did draw and show.
+    check!(r2.state() != SplitMix64::new(3).state());
+    for row in [&a.trace.rows[1], &b.trace.rows[0]] {
+        check!(row.verdict == Verdict::Shown);
+        check!(row.variant.is_some());
+    }
 }
 
 #[test]
-fn colliding_keys_never_show() {
-    // `0` is the key of the unkeyed candidate 0; `k` is there twice.
+fn colliding_keys_still_show() {
+    // The loaders reject these keys; a pool built in Rust with them still
+    // shows every candidate (the keys share progress).
     let once = |s: &str| Candidate::leaf(text(s)).mode(FragmentMode::Once);
     let pool: Pool<X> = Pool::new("p", Pick::All)
         .with_candidate(once("a"))
@@ -814,16 +824,5 @@ fn colliding_keys_never_show() {
         &mut rng,
     );
     let shown: Vec<_> = s.leaves().filter_map(DialogText::as_inline).collect();
-    check!(shown == ["a", "c"]);
-    let verdicts: Vec<_> = s.trace.rows.iter().map(|r| r.verdict).collect();
-    check!(
-        verdicts
-            == [
-                Verdict::Shown,
-                Verdict::BadKey,
-                Verdict::Shown,
-                Verdict::BadKey,
-                Verdict::BadKey
-            ]
-    );
+    check!(shown == ["a", "b", "c", "d", "e"]);
 }

@@ -15,6 +15,7 @@ impl GraphValidator {
         let mut issues = Vec::new();
         for pool in pools.iter() {
             self.check_pool(pool, &pool.id, pools, &mut issues);
+            bad_key(pool, &mut issues);
         }
         issues.retain(|issue| self.options().reports(issue.kind));
         issues
@@ -29,6 +30,7 @@ impl GraphValidator {
     ) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
         self.check_pool(pool, &pool.id, pools, &mut issues);
+        bad_key(pool, &mut issues);
         issues.retain(|issue| self.options().reports(issue.kind));
         issues
     }
@@ -110,6 +112,24 @@ impl GraphValidator {
     }
 }
 
+/// Reports the first bad key of `pool` and its inline pools.
+fn bad_key<X: TextTypes>(pool: &Pool<X>, issues: &mut Vec<ValidationIssue>) {
+    if let Some(key) = pool.bad_key() {
+        issues.push(
+            ValidationIssue::new(
+                ValidationIssueKind::BadKey,
+                ValidationSeverity::Error,
+                format!(
+                    "Pool `{}` has the key `{key}`, which is empty, digits only, has a `/` \
+                     or repeats on its progress path; it shares progress with another candidate",
+                    pool.id
+                ),
+            )
+            .with_path(pool.id.to_string()),
+        );
+    }
+}
+
 /// Returns `true` when one query can match both candidates: each tuple key
 /// is unset on one side or equal on both.
 fn can_meet<X: TextTypes>(a: &Candidate<X>, b: &Candidate<X>) -> bool {
@@ -146,6 +166,23 @@ mod tests {
 
     fn kinds(issues: &[ValidationIssue]) -> Vec<ValidationIssueKind> {
         issues.iter().map(|i| i.kind).collect()
+    }
+
+    #[test]
+    fn bad_keys_are_errors() {
+        let pools = Pools::new()
+            .with(Pool::new("ok", Pick::All).with_candidate(leaf("a").keyed("a")))
+            .with(
+                Pool::new("dup", Pick::All)
+                    .with_candidate(leaf("a").keyed("k"))
+                    .with_candidate(leaf("b").keyed("k")),
+            );
+        let issues = GraphValidator::new().validate_pools(&pools);
+        check!(kinds(&issues) == [ValidationIssueKind::BadKey]);
+        check!(issues[0].path.as_deref() == Some("dup"));
+        let one = Pool::new("p", Pick::All).with_candidate(leaf("a").keyed("0"));
+        let issues = GraphValidator::new().validate_pool(&one, &Pools::new());
+        check!(kinds(&issues) == [ValidationIssueKind::BadKey]);
     }
 
     #[test]

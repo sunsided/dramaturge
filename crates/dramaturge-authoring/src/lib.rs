@@ -53,6 +53,9 @@
 //!    ([`UnkeyedProgress`](ValidationIssueKind::UnkeyedProgress))
 //! 3. **Unknown pools** — a variant names a pool that is not in the pools
 //!    ([`UnknownPool`](ValidationIssueKind::UnknownPool))
+//! 4. **Bad keys** — a candidate key that is empty, digits only, has a
+//!    `/` or repeats on its progress path
+//!    ([`BadKey`](ValidationIssueKind::BadKey))
 //!
 //! The static check does not report a candidate that can never show: that
 //! needs the explored states.
@@ -161,6 +164,9 @@ pub enum ValidationIssueKind {
     /// A text pool names a pool (`Entry::Named`) that is not in the
     /// pools. (Error)
     UnknownPool,
+    /// A text pool candidate key would share progress with another
+    /// candidate (see `Pool::bad_key`). Reported once per pool. (Error)
+    BadKey,
 }
 
 /// Switches for [`GraphValidator`]: which kinds of issues to report.
