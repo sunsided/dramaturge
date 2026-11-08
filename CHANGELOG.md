@@ -14,6 +14,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 - `#[derive(DialogTag)]`, `FactValue` and `ConditionBuilder` work in a crate that depends only on `dramaturge`: they fall back to the new re-export `dramaturge::model` (all of `dramaturge-model`) instead of `::dramaturge_model`.
 - The `#[derive(DialogTag)]` example in the `dramaturge-macros` docs compiles and runs as a doctest; it derives `Debug`, `Clone`, `PartialEq`, `Eq` and `Hash`, which the `DialogTag` trait needs.
+- `dialogue!`: a negative number in a condition (`when gold >= -3;`) parses. The tokens become `gold >= - 3`, and the condition language now reads `- 3` as `-3`.
+- `condition::parse` returns an error for nesting of `(` and `not` deeper than 128 levels instead of overflowing the stack.
+- `condition::Expr::lower` returns a `Result`: an ordered compare or a relation with a value that is not a number, or a relation number out of the `i32` range, is an error instead of being coerced to `0` or truncated.
+- `dialogue!` points an error that lowering finds (an option with an empty label) at its option instead of at the first token, and names the missing dependency with an error instead of emitting an unresolved `::dramaturge_syntax` path.
+- The `NextLoop` check reports a loop that no entry node reaches as a warning, as `Cycle` does, instead of an error.
+- `.gitignore` ignores only the workspace `/target/` and `/ci/facade-only/target/`, so a `target` directory in a crate stays in the package.
 
 ## [0.3.0-alpha.5] - 2026-11-08
 

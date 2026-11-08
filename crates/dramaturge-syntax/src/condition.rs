@@ -300,13 +300,23 @@ fn lex(src: &str) -> Result<Vec<(Tok, Range<usize>)>, ParseError> {
                 continue;
             }
             b'-' | b'0'..=b'9' => {
-                let mut j = i + 1;
+                let neg = bytes[i] == b'-';
+                let mut d = i + usize::from(neg);
+                // `- 3` is `-3` too: Rust tokens (`dialogue!`) put a space
+                // after a lone `-`.
+                while neg && d < bytes.len() && matches!(bytes[d], b' ' | b'\t' | b'\n' | b'\r') {
+                    d += 1;
+                }
+                let mut j = d;
                 while j < bytes.len() && bytes[j].is_ascii_digit() {
                     j += 1;
                 }
-                let n = src[i..j]
-                    .parse()
-                    .map_err(|_| ParseError::new("not a number", i..j))?;
+                let n = if neg {
+                    format!("-{}", &src[d..j]).parse()
+                } else {
+                    src[d..j].parse()
+                }
+                .map_err(|_| ParseError::new("not a number", i..j))?;
                 out.push((Tok::Int(n), i..j));
                 i = j;
                 continue;
@@ -352,9 +362,26 @@ struct Parser<'a> {
     pos: usize,
     len: usize,
     _src: &'a str,
+    /// The open `(` and `not` around the current position.
+    depth: usize,
 }
 
+/// The deepest nesting of `(` and `not` that [`parse`] reads. A condition
+/// can come from untrusted text; deeper input would overflow the stack.
+const MAX_DEPTH: usize = 128;
+
 impl Parser<'_> {
+    fn enter(&mut self) -> Result<(), ParseError> {
+        self.depth += 1;
+        if self.depth > MAX_DEPTH {
+            return Err(ParseError::new(
+                format!("the condition is nested deeper than {MAX_DEPTH} levels"),
+                self.range(),
+            ));
+        }
+        Ok(())
+    }
+
     fn peek(&self) -> Option<&Tok> {
         self.toks.get(self.pos).map(|(t, _)| t)
     }
@@ -409,7 +436,10 @@ impl Parser<'_> {
     fn unary(&mut self) -> Result<Expr, ParseError> {
         if self.peek() == Some(&Tok::Not) {
             self.pos += 1;
-            return Ok(Expr::Not(Box::new(self.unary()?)));
+            self.enter()?;
+            let e = self.unary()?;
+            self.depth -= 1;
+            return Ok(Expr::Not(Box::new(e)));
         }
         self.atom()
     }
@@ -443,7 +473,9 @@ impl Parser<'_> {
         match self.peek() {
             Some(Tok::LParen) => {
                 self.pos += 1;
+                self.enter()?;
                 let e = self.or()?;
+                self.depth -= 1;
                 self.expect(Tok::RParen, "`)`")?;
                 return Ok(e);
             }
@@ -545,6 +577,7 @@ pub fn parse(src: &str) -> Result<Expr, ParseError> {
         pos: 0,
         len: src.len(),
         _src: src,
+        depth: 0,
     };
     let e = p.or()?;
     if p.pos < p.toks.len() {
@@ -559,13 +592,24 @@ pub fn parse(src: &str) -> Result<Expr, ParseError> {
 impl Expr {
     /// Makes the model condition. Entity keys (`remembers`, `relation`) go
     /// through [`Cx::entity`]; memory keys are interned.
-    pub fn lower(&self, cx: &mut Cx<'_>) -> Condition {
-        match self {
+    ///
+    /// # Errors
+    ///
+    /// A [`Expr::Compare`] that [`parse`] would reject: an ordered
+    /// operator or a relation with a value that is not a number, or a
+    /// relation with a number out of the `i32` range. The error has an
+    /// empty range, as an `Expr` has no source text.
+    pub fn lower(&self, cx: &mut Cx<'_>) -> Result<Condition, ParseError> {
+        Ok(match self {
             Expr::Bool(true) => Condition::Always,
             Expr::Bool(false) => Condition::Never,
-            Expr::Not(e) => Condition::Not(Box::new(e.lower(cx))),
-            Expr::And(es) => Condition::All(es.iter().map(|e| e.lower(cx)).collect()),
-            Expr::Or(es) => Condition::Any(es.iter().map(|e| e.lower(cx)).collect()),
+            Expr::Not(e) => Condition::Not(Box::new(e.lower(cx)?)),
+            Expr::And(es) => {
+                Condition::All(es.iter().map(|e| e.lower(cx)).collect::<Result<_, _>>()?)
+            }
+            Expr::Or(es) => {
+                Condition::Any(es.iter().map(|e| e.lower(cx)).collect::<Result<_, _>>()?)
+            }
             Expr::Truthy(fact) => Condition::FactEquals {
                 scope: fact.scope.to_model(),
                 fact_id: FactId::new(fact.name.as_str()),
@@ -581,13 +625,14 @@ impl Expr {
             },
             Expr::SeenBy(actor) => Condition::SeenBy(CharacterId::new(cx.entity(actor))),
             Expr::Compare { left, op, value } => match left {
-                Operand::Fact(fact) => fact_compare(fact, *op, value),
+                Operand::Fact(fact) => fact_compare(fact, *op, value)?,
                 Operand::Relation { axis, target } => {
-                    let target = target.as_deref().map_or(cx.speaker, |key| cx.entity(key));
                     let n = match value {
-                        Literal::Int(n) => *n as i32,
-                        _ => 0,
+                        Literal::Int(n) => i32::try_from(*n)
+                            .map_err(|_| ParseError::new("the number is too large", 0..0))?,
+                        _ => return Err(ParseError::new("expected a number", 0..0)),
                     };
+                    let target = target.as_deref().map_or(cx.speaker, |key| cx.entity(key));
                     let at = |least: bool, value: i32| {
                         let axis = RelationshipAxisId::new(axis.as_str());
                         if least {
@@ -619,11 +664,11 @@ impl Expr {
                     }
                 }
             },
-        }
+        })
     }
 }
 
-fn fact_compare(fact: &Fact, op: Op, value: &Literal) -> Condition {
+fn fact_compare(fact: &Fact, op: Op, value: &Literal) -> Result<Condition, ParseError> {
     let scope = fact.scope.to_model();
     let fact_id = FactId::new(fact.name.as_str());
     let equals = |value: &Literal| Condition::FactEquals {
@@ -637,9 +682,11 @@ fn fact_compare(fact: &Fact, op: Op, value: &Literal) -> Condition {
     };
     let n = match value {
         Literal::Int(n) => *n,
-        _ => 0,
+        // `==` and `!=` take any value and do not read `n`.
+        _ if matches!(op, Op::Eq | Op::Ne) => 0,
+        _ => return Err(ParseError::new("expected a number", 0..0)),
     };
-    match op {
+    Ok(match op {
         Op::Eq => equals(value),
         Op::Ne => Condition::Not(Box::new(equals(value))),
         Op::Ge => Condition::FactAtLeast {
@@ -669,12 +716,12 @@ fn fact_compare(fact: &Fact, op: Op, value: &Literal) -> Condition {
             },
             None => Condition::Never,
         },
-    }
+    })
 }
 
 /// Parses and lowers a condition in the default language.
 pub fn lower_str(src: &str, cx: &mut Cx<'_>) -> Result<Condition, ParseError> {
-    Ok(parse(src)?.lower(cx))
+    parse(src)?.lower(cx)
 }
 
 /// Returns the entity id of a key: `player` is the player
@@ -684,5 +731,60 @@ pub fn entity(symbols: &mut SymbolTable, key: &str) -> dramaturge_model::EntityI
         symbols.player()
     } else {
         symbols.intern_entity(key)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::check::Place;
+
+    /// `Cx` is `non_exhaustive`, so this test lives in the crate.
+    #[test]
+    fn lower_rejects_values_that_parse_rejects() {
+        let mut symbols = SymbolTable::new();
+        let player = symbols.player();
+        let mut cx = Cx {
+            symbols: &mut symbols,
+            player,
+            with: player,
+            speaker: player,
+            place: Place::Pool(String::new()),
+        };
+        let relation = |value| Expr::Compare {
+            left: Operand::Relation {
+                axis: "trust".into(),
+                target: None,
+            },
+            op: Op::Ge,
+            value,
+        };
+        let fact = |op, value| Expr::Compare {
+            left: Operand::Fact(Fact::parse("gold")),
+            op,
+            value,
+        };
+        assert!(relation(Literal::Int(i64::MAX)).lower(&mut cx).is_err());
+        assert!(relation(Literal::Bool(true)).lower(&mut cx).is_err());
+        assert!(relation(Literal::Text("x".into())).lower(&mut cx).is_err());
+        assert!(fact(Op::Ge, Literal::Bool(true)).lower(&mut cx).is_err());
+        assert!(
+            fact(Op::Lt, Literal::Text("x".into()))
+                .lower(&mut cx)
+                .is_err()
+        );
+        // Nested inside `not`/`and`, the error still comes out.
+        let nested = Expr::Not(Box::new(Expr::And(vec![
+            Expr::Bool(true),
+            relation(Literal::Bool(false)),
+        ])));
+        assert!(nested.lower(&mut cx).is_err());
+
+        assert!(relation(Literal::Int(3)).lower(&mut cx).is_ok());
+        assert!(
+            fact(Op::Eq, Literal::Text("x".into()))
+                .lower(&mut cx)
+                .is_ok()
+        );
     }
 }
