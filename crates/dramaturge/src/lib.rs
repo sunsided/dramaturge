@@ -90,6 +90,10 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+/// All domain types (the `dramaturge-model` crate). The derive macros
+/// reach the model through this path when it is the only dependency.
+pub use dramaturge_model as model;
+
 pub use dramaturge_model::{
     AlignmentAxis, AlignmentAxisId, AlignmentPole, AlignmentPoleId, AlignmentScore, Candidate,
     Character, CharacterId, CharacterKey, CharacterTrait, Condition, Confidence, CustomDialogTag,
