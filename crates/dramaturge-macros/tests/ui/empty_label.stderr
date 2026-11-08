@@ -1,0 +1,5 @@
+error: the option has an empty `say` and no `hint`
+ --> tests/ui/empty_label.rs:8:17
+  |
+8 |                 "" => end;
+  |                 ^^

@@ -1,5 +1,6 @@
 # Rust build artifacts
-target/
+/target/
+/ci/facade-only/target/
 Cargo.lock
 
 # Editor files
