@@ -20,7 +20,7 @@ dramaturge = { version = "0.3", features = ["macros", "yaml"] }
 # Only to check dialogues at authoring time (CI, editor, build step):
 dramaturge-authoring = "0.3"
 
-# Only to read dialogues from JSON (or another self-describing format):
+# Only to read dialogues from JSON:
 serde_json = "1"
 ```
 
