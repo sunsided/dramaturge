@@ -14,6 +14,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 - `#[derive(DialogTag)]`, `FactValue` and `ConditionBuilder` work in a crate that depends only on `dramaturge`: they fall back to the new re-export `dramaturge::model` (all of `dramaturge-model`) instead of `::dramaturge_model`.
 - The `#[derive(DialogTag)]` example in the `dramaturge-macros` docs compiles and runs as a doctest; it derives `Debug`, `Clone`, `PartialEq`, `Eq` and `Hash`, which the `DialogTag` trait needs.
+- **Breaking:** text pool candidate keys can no longer share progress with another candidate. A key that is empty, digits only (the implicit key of an unkeyed candidate), has a `/` (an inline pool path) or repeats in its pool is rejected: `load_pool_yaml` returns the new `LoadError::BadKey`, and the runtime gives such a candidate the new `Verdict::BadKey` and never shows it. `Candidate::is_valid_key` and `Pool::bad_key` check the rule.
+- A candidate whose pool (named or inline) resolves to no leaf records nothing on `commit`: no progress and no `learn`.
+- A candidate whose named pools cannot open does not draw from the RNG, and its trace row has no variant.
+- `add_relationship` saturates at the `i32` bounds instead of overflowing, as `Outcome::AddFact` does.
+- A failed `load_pool_yaml` leaves the caller's `SymbolTable` unchanged.
 
 ## [0.3.0-alpha.5] - 2026-11-08
 

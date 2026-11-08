@@ -169,7 +169,8 @@ impl<X: TextTypes> Entry<X> {
 #[non_exhaustive]
 pub struct Candidate<X: TextTypes> {
     /// The progress key. Without a key, the candidate's index is its key,
-    /// so a reorder moves its progress to another candidate.
+    /// so a reorder moves its progress to another candidate. A key must
+    /// pass [`Candidate::is_valid_key`] and be unique in its pool.
     pub key: Option<Arc<str>>,
     /// The speaker key. `None` matches every speaker (`*`).
     pub speaker: Option<X::Actor>,
@@ -212,6 +213,14 @@ impl<X: TextTypes> Candidate<X> {
     /// Creates a candidate that shows a named pool.
     pub fn named(id: impl Into<Arc<str>>) -> Self {
         Self::new(vec![Entry::named(id)])
+    }
+
+    /// Returns `true` when `key` can be a progress key: not empty, not
+    /// digits only (the key of an unkeyed candidate) and without a `/` (the
+    /// separator of inline pool paths). Other keys share progress with
+    /// another candidate.
+    pub fn is_valid_key(key: &str) -> bool {
+        !key.contains('/') && !key.bytes().all(|b| b.is_ascii_digit())
     }
 
     /// Sets the progress key.
@@ -295,6 +304,29 @@ impl<X: TextTypes> Pool<X> {
     pub fn with_candidate(mut self, candidate: Candidate<X>) -> Self {
         self.candidates.push(candidate);
         self
+    }
+
+    /// Returns the first candidate key, here or in an inline pool, that
+    /// would share progress with another candidate: a key that fails
+    /// [`Candidate::is_valid_key`], or a key that two candidates of one
+    /// pool have.
+    pub fn bad_key(&self) -> Option<&str> {
+        let mut seen = std::collections::BTreeSet::new();
+        for c in &self.candidates {
+            if let Some(key) = c.key.as_deref()
+                && (!Candidate::<X>::is_valid_key(key) || !seen.insert(key))
+            {
+                return Some(key);
+            }
+            for v in &c.variants {
+                if let Entry::Pool(inner) = v
+                    && let Some(key) = inner.bad_key()
+                {
+                    return Some(key);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -582,6 +614,25 @@ mod tests {
             .topic("stove".into())
             .when(fact("hot"));
         check!(c.score() == 3);
+    }
+
+    #[test]
+    fn bad_keys() {
+        type X = crate::DialogTypes;
+        let leaf = || Candidate::<X>::leaf(DialogText::inline("a"));
+        let pool = |keys: &[&str]| {
+            keys.iter().fold(Pool::<X>::new("p", Pick::All), |p, k| {
+                p.with_candidate(leaf().keyed(*k))
+            })
+        };
+        check!(pool(&["a", "b1", "01x"]).bad_key().is_none());
+        check!(pool(&["0"]).bad_key() == Some("0"));
+        check!(pool(&[""]).bad_key() == Some(""));
+        check!(pool(&["a/0"]).bad_key() == Some("a/0"));
+        check!(pool(&["a", "a"]).bad_key() == Some("a"));
+        let nested = Pool::<X>::new("p", Pick::All)
+            .with_candidate(Candidate::pool(pool(&["x", "x"])).keyed("a"));
+        check!(nested.bad_key() == Some("x"));
     }
 
     #[test]

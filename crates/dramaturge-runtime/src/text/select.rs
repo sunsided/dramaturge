@@ -353,6 +353,10 @@ pub enum Verdict {
     /// The candidate won, but its variant names a pool that is not in the
     /// [`Pools`].
     MissingPool,
+    /// The candidate key would share progress with another candidate: it
+    /// fails [`Candidate::is_valid_key`], or an earlier candidate of the
+    /// pool has it. The candidate never shows.
+    BadKey,
     /// The candidate won, but its variant names a named pool that is
     /// already open in this selection (a loop of named pools).
     Recursive,
@@ -375,6 +379,7 @@ impl Verdict {
             Verdict::Empty => "empty",
             Verdict::MissingPool => "missing pool",
             Verdict::Recursive => "recursive pool",
+            Verdict::BadKey => "bad key",
         }
     }
 }
@@ -631,7 +636,7 @@ where
 /// for those named pools; [`Selection::caller`] keeps it for [`commit`].
 ///
 /// `Shuffle` and `Sticky` draw from `rng`, and only for candidates that
-/// show. The same pool, query, state, progress and RNG state give the same
+/// win and have a variant that can open. The same pool, query, state, progress and RNG state give the same
 /// selection and the same trace. A preview passes a copy of the host RNG.
 pub fn select<'p, X, J, P, R>(
     pool: &'p Pool<X>,
@@ -798,6 +803,15 @@ where
         }
     }
 
+    /// Returns why `entry` cannot open here (a named pool that is missing
+    /// or already open) and its nested trace, or `None`.
+    fn closed(&self, entry: &Entry<X>) -> Option<(Verdict, Option<Box<Trace>>)> {
+        let Entry::Named(id) = entry else {
+            return None;
+        };
+        self.unresolvable(id).map(|v| (v, missing_trace(v, id)))
+    }
+
     /// Resolves the named pool `id`. Counts it when it showed a leaf.
     fn named(&mut self, id: &str) -> Result<Trace, Verdict> {
         if let Some(verdict) = self.unresolvable(id) {
@@ -825,13 +839,18 @@ where
     fn pool(&mut self, pool: &'p Pool<X>, path: &str, first: bool) -> Trace {
         let mut rows = Vec::with_capacity(pool.candidates.len());
         let mut eligible = Vec::new();
+        let mut keys = std::collections::BTreeSet::new();
         for (index, c) in pool.candidates.iter().enumerate() {
             let progress_key: Arc<str> = match &c.key {
                 Some(k) => format!("{path}/{k}").into(),
                 None => format!("{path}/{index}").into(),
             };
             let p = self.progress_of(&progress_key);
-            let verdict = if !self.query.matches(c) {
+            let verdict = if let Some(k) = c.key.as_deref()
+                && (!Candidate::<X>::is_valid_key(k) || !keys.insert(k))
+            {
+                Verdict::BadKey
+            } else if !self.query.matches(c) {
                 Verdict::TupleMismatch
             } else if !mode_allows(c.mode, p, first) {
                 Verdict::Exhausted
@@ -875,27 +894,30 @@ where
 
         for index in chosen {
             let c = &pool.candidates[index];
-            let row = &mut rows[index];
-            row.verdict = shown_verdict;
-            let key = row.progress_key.clone();
+            let key = rows[index].progress_key.clone();
             let mut p = self.progress_of(&key);
             let len = c.variants.len() as u32;
-            let variant = variant(c.mode, p, len, self.rng);
-            row.variant = Some((variant, len));
+            // Draw only when a variant can open: a candidate that cannot
+            // show leaves the RNG alone.
+            let variant = if c.variants.iter().any(|e| self.closed(e).is_none()) {
+                variant(c.mode, p, len, self.rng)
+            } else {
+                0
+            };
             // A named pool that cannot open shows nothing, so the candidate
             // gets no step: no progress, no count, no `learn`.
-            if let Entry::Named(id) = &c.variants[variant as usize]
-                && let Some(verdict) = self.unresolvable(id)
-            {
-                row.verdict = verdict;
-                row.nested = missing_trace(verdict, id);
+            if let Some((verdict, nested)) = self.closed(&c.variants[variant as usize]) {
+                rows[index].verdict = verdict;
+                rows[index].nested = nested;
                 continue;
             }
+            rows[index].verdict = shown_verdict;
+            rows[index].variant = Some((variant, len));
             p.shown = p.shown.saturating_add(1);
             if matches!(c.mode, FragmentMode::Shuffle | FragmentMode::Sticky) {
                 p.pick = Some(variant);
             }
-            self.overlay.insert(key.clone(), p);
+            let before = self.overlay.insert(key.clone(), p);
 
             let step = self.steps.len();
             let start = self.shown.len();
@@ -908,7 +930,7 @@ where
             });
             match &c.variants[variant as usize] {
                 Entry::Leaf(leaf) => self.shown.push(Shown {
-                    progress_key: key,
+                    progress_key: key.clone(),
                     step,
                     leaf,
                 }),
@@ -927,7 +949,17 @@ where
                 // know show nothing.
                 _ => {}
             }
-            self.steps[step].leaves.end = self.shown.len();
+            if self.shown.len() == start {
+                // A pool that resolved to no leaf: nothing showed, so the
+                // candidate (and its nested steps) record nothing.
+                self.steps.truncate(step);
+                match before {
+                    Some(old) => self.overlay.insert(key, old),
+                    None => self.overlay.remove(&key),
+                };
+            } else {
+                self.steps[step].leaves.end = self.shown.len();
+            }
         }
 
         Trace {

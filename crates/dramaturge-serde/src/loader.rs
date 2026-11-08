@@ -171,6 +171,9 @@ pub enum LoadError {
     Yaml(YamlError),
     /// The dialogue does not lower: a key, target or condition error.
     Lower(LowerError<ParseError>),
+    /// A candidate key of the pool would share progress with another
+    /// candidate (see [`Pool::bad_key`](dramaturge_model::Pool::bad_key)).
+    BadKey(String),
 }
 
 impl fmt::Display for LoadError {
@@ -178,6 +181,10 @@ impl fmt::Display for LoadError {
         match self {
             LoadError::Yaml(e) => e.fmt(f),
             LoadError::Lower(e) => e.fmt(f),
+            LoadError::BadKey(key) => write!(
+                f,
+                "candidate key `{key}` is empty, digits only, has a `/` or is not unique in its pool"
+            ),
         }
     }
 }
@@ -221,14 +228,23 @@ pub fn pool_to_yaml<C: Serialize, X: Serialize>(
 /// [`Pool<DialogTypes>`](dramaturge_model::Pool).
 ///
 /// Speaker keys and the actors of `seen_by(..)` go into `symbols`, so
-/// pass the symbol table of the dialogues that use the pool. The pool needs
-/// an `id`.
+/// pass the symbol table of the dialogues that use the pool. On an error,
+/// `symbols` is unchanged. The pool needs an `id`, and its candidate keys
+/// must pass [`Pool::bad_key`](dramaturge_model::Pool::bad_key).
 pub fn load_pool_yaml(
     yaml: &str,
     symbols: &mut dramaturge_model::SymbolTable,
 ) -> Result<dramaturge_model::Pool<dramaturge_model::DialogTypes>, LoadError> {
     let pool: TextPool = pool_from_yaml(yaml).map_err(LoadError::Yaml)?;
-    dramaturge_syntax::lower_pool_plain(&pool, symbols).map_err(LoadError::Lower)
+    // Lower into a copy: lowering interns keys before it can fail.
+    let mut scratch = symbols.clone();
+    let pool =
+        dramaturge_syntax::lower_pool_plain(&pool, &mut scratch).map_err(LoadError::Lower)?;
+    if let Some(key) = pool.bad_key() {
+        return Err(LoadError::BadKey(key.to_string()));
+    }
+    *symbols = scratch;
+    Ok(pool)
 }
 
 #[cfg(test)]

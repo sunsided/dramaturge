@@ -726,3 +726,104 @@ fn unopenable_named_pool_has_no_side_effects() {
             .is_none()
     );
 }
+
+#[test]
+fn named_pool_without_leaves_has_no_side_effects() {
+    // `quiet` exists but shows nothing, so the `Once` candidate that names
+    // it gets no progress, no count and no `learn`.
+    let pools: Pools<X> = Pools::new().with(
+        Pool::new("quiet", Pick::First)
+            .with_candidate(Candidate::leaf(text("never")).when(is("nope"))),
+    );
+    let root: Pool<X> = Pool::new("talk", Pick::First).with_candidate(
+        Candidate::named("quiet")
+            .mode(FragmentMode::Once)
+            .learn(Fact::bool("learned", true)),
+    );
+    let evaluator = DefaultConditionEvaluator::new();
+    let query = Query::new();
+    let mut state = DialogWorldState::new();
+    let mut progress = TextProgress::new();
+    let mut rng = SplitMix64::new(0);
+    let judge = DefaultJudge::new(&evaluator, &state);
+    let s = select(&root, &pools, "c", &query, &judge, &progress, &mut rng);
+    check!(s.is_empty());
+    check!(s.steps.is_empty());
+    commit(&s, &query, &mut progress, &mut world_learner(&mut state));
+    check!(progress.fragments().count() == 0);
+    check!(progress.named_resolutions("quiet", "c") == 0);
+    check!(
+        state
+            .get_fact(&FactScope::World, &FactId::new("learned"))
+            .is_none()
+    );
+}
+
+#[test]
+fn unopenable_candidate_does_not_draw() {
+    use dramaturge_model::Entry;
+    let shuffled = || {
+        Candidate::new(vec![Entry::Leaf(text("a")), Entry::Leaf(text("b"))])
+            .mode(FragmentMode::Shuffle)
+    };
+    let with_gap: Pool<X> = Pool::new("p", Pick::All)
+        .with_candidate(
+            Candidate::new(vec![Entry::named("nowhere"), Entry::named("gone")])
+                .mode(FragmentMode::Shuffle),
+        )
+        .with_candidate(shuffled());
+    let without: Pool<X> = Pool::new("p", Pick::All).with_candidate(shuffled());
+    let state = DialogWorldState::new();
+    let evaluator = DefaultConditionEvaluator::new();
+    let judge = DefaultJudge::new(&evaluator, &state);
+    let progress = TextProgress::new();
+    let pools = Pools::new();
+    let (mut r1, mut r2) = (SplitMix64::new(3), SplitMix64::new(3));
+    let q = Query::new();
+    let a = select(&with_gap, &pools, "c", &q, &judge, &progress, &mut r1);
+    let b = select(&without, &pools, "c", &q, &judge, &progress, &mut r2);
+    check!(a.trace.rows[0].verdict == Verdict::MissingPool);
+    check!(a.trace.rows[0].variant.is_none());
+    check!(a.trace.rows[1].variant == b.trace.rows[0].variant);
+    check!(r1.state() == r2.state());
+}
+
+#[test]
+fn colliding_keys_never_show() {
+    // `0` is the key of the unkeyed candidate 0; `k` is there twice.
+    let once = |s: &str| Candidate::leaf(text(s)).mode(FragmentMode::Once);
+    let pool: Pool<X> = Pool::new("p", Pick::All)
+        .with_candidate(once("a"))
+        .with_candidate(once("b").keyed("0"))
+        .with_candidate(once("c").keyed("k"))
+        .with_candidate(once("d").keyed("k"))
+        .with_candidate(once("e").keyed("x/0"));
+    let state = DialogWorldState::new();
+    let evaluator = DefaultConditionEvaluator::new();
+    let judge = DefaultJudge::new(&evaluator, &state);
+    let progress = TextProgress::new();
+    let mut rng = SplitMix64::new(0);
+    let pools = Pools::new();
+    let s = select(
+        &pool,
+        &pools,
+        "c",
+        &Query::new(),
+        &judge,
+        &progress,
+        &mut rng,
+    );
+    let shown: Vec<_> = s.leaves().filter_map(DialogText::as_inline).collect();
+    check!(shown == ["a", "c"]);
+    let verdicts: Vec<_> = s.trace.rows.iter().map(|r| r.verdict).collect();
+    check!(
+        verdicts
+            == [
+                Verdict::Shown,
+                Verdict::BadKey,
+                Verdict::Shown,
+                Verdict::BadKey,
+                Verdict::BadKey
+            ]
+    );
+}

@@ -259,3 +259,35 @@ fn pool_reference_in_a_pool_round_trips() {
     let lowered = dramaturge_syntax::lower_pool_plain(&again, &mut SymbolTable::new()).unwrap();
     check!(lowered.candidates[0].variants[0] == dramaturge_model::Entry::named("keeper_remark"));
 }
+
+#[test]
+fn failed_pool_load_leaves_symbols_unchanged() {
+    let mut symbols = SymbolTable::new();
+    symbols.player();
+    let before = symbols.clone();
+    // Lowering interns `keeper` before it finds the missing id.
+    let err = load_pool_yaml("one_of:\n  - { speaker: keeper, text: a }\n", &mut symbols);
+    check!(let Err(LoadError::Lower(_)) = err);
+    check!(symbols == before);
+    let err = load_pool_yaml(
+        "id: p\none_of:\n  - { speaker: keeper, key: \"0\", text: a }\n",
+        &mut symbols,
+    );
+    check!(let Err(LoadError::BadKey(_)) = err);
+    check!(symbols == before);
+}
+
+#[test]
+fn colliding_keys_are_errors() {
+    for (yaml, key) in [
+        ("id: p\none_of:\n  - { key: \"1\", text: a }\n", "1"),
+        ("id: p\none_of:\n  - { key: a/b, text: a }\n", "a/b"),
+        (
+            "id: p\none_of:\n  - { key: a, mode: once, text: a }\n  - { key: a, mode: once, text: b }\n",
+            "a",
+        ),
+    ] {
+        let err = load_pool_yaml(yaml, &mut SymbolTable::new()).unwrap_err();
+        check!(err == LoadError::BadKey(key.to_string()), "{yaml}");
+    }
+}
