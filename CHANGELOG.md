@@ -14,6 +14,17 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 - `#[derive(DialogTag)]`, `FactValue` and `ConditionBuilder` work in a crate that depends only on `dramaturge`: they fall back to the new re-export `dramaturge::model` (all of `dramaturge-model`) instead of `::dramaturge_model`.
 - The `#[derive(DialogTag)]` example in the `dramaturge-macros` docs compiles and runs as a doctest; it derives `Debug`, `Clone`, `PartialEq`, `Eq` and `Hash`, which the `DialogTag` trait needs.
+- **Breaking:** a text pool candidate key or a dialogue fragment key that would share progress with another one is now a load error. A key that is empty, digits only (the implicit key of an unkeyed entry), has a `/` (an inline pool path) or repeats on its progress path (one pool or fragment list, or all inline pools of one candidate) fails `lower`, `lower_pool` (so `load_yaml`, `load_pool_yaml` and `dialogue!`) with the new `IssueKind::BadKey`, and `GraphValidator::validate_pools`/`validate_pool` report the new `ValidationIssueKind::BadKey`. `Candidate::is_valid_key`, `Pool::bad_key` and `DialogText::bad_key` check the rule. The runtime does not check keys.
+- A candidate whose pool (named or inline) resolves to no leaf records nothing on `commit`: no progress and no `learn`. Its trace row has the new `Verdict::NoLeaf` and no variant.
+- A candidate whose named pools cannot open does not draw from the RNG, and its trace row has no variant.
+- `add_relationship` saturates at the `i32` bounds instead of overflowing, as `Outcome::AddFact` does.
+- A failed `load_pool_yaml` leaves the caller's `SymbolTable` unchanged.
+- `dialogue!`: a negative number in a condition (`when gold >= -3;`) parses. The tokens become `gold >= - 3`, and the condition language now reads `- 3` as `-3`.
+- `condition::parse` returns an error for nesting of `(` and `not` deeper than 128 levels instead of overflowing the stack.
+- `condition::Expr::lower` returns a `Result`: an ordered compare or a relation with a value that is not a number, or a relation number out of the `i32` range, is an error instead of being coerced to `0` or truncated.
+- `dialogue!` points an error that lowering finds (an option with an empty label) at its option instead of at the first token, and names the missing dependency with an error instead of emitting an unresolved `::dramaturge_syntax` path.
+- The `NextLoop` check reports a loop that no entry node reaches as a warning, as `Cycle` does, instead of an error.
+- `.gitignore` ignores only the workspace `/target/` and `/ci/facade-only/target/`, so a `target` directory in a crate stays in the package.
 
 ## [0.3.0-alpha.5] - 2026-11-08
 

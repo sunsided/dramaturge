@@ -187,12 +187,13 @@ impl DialogWorldState {
         delta: i32,
     ) {
         let start = self.relationship_default(&axis).unwrap_or(0);
-        *self
+        let score = self
             .relationships
             .entry((source, target))
             .or_default()
             .entry(axis)
-            .or_insert(start) += delta;
+            .or_insert(start);
+        *score = score.saturating_add(delta);
     }
 
     /// Sets a relationship score, tracked from now on.
@@ -622,6 +623,20 @@ mod tests {
                 .get_relationship(EntityId::new(9), b, &trust)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn add_relationship_saturates() {
+        use dramaturge_model::RelationshipAxisId;
+        let trust = RelationshipAxisId::new("trust");
+        let (a, b) = (EntityId::new(1), EntityId::new(2));
+        let mut state = DialogWorldState::new();
+        state.set_relationship_default(trust.clone(), i32::MAX - 1);
+        state.add_relationship(a, b, trust.clone(), 5);
+        check!(state.get_relationship(a, b, &trust) == Some(i32::MAX));
+        state.add_relationship(b, a, trust.clone(), i32::MIN);
+        state.add_relationship(b, a, trust.clone(), i32::MIN);
+        check!(state.get_relationship(b, a, &trust) == Some(i32::MIN));
     }
 
     #[test]

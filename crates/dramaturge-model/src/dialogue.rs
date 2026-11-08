@@ -225,6 +225,43 @@ impl<T> DialogText<T> {
         Self::Pool(id.into())
     }
 
+    /// Returns the first fragment key, here or in nested fragments, that
+    /// would share progress with another fragment, by the rule of
+    /// [`Pool::bad_key`](crate::Pool::bad_key): fragments are the
+    /// candidates of a pool. `None` for text without fragments.
+    pub fn bad_key(&self) -> Option<&str> {
+        fn first<'a, T: 'a>(
+            fragments: &mut dyn Iterator<Item = &'a TextFragment<T>>,
+        ) -> Option<&'a str> {
+            let mut seen = std::collections::BTreeSet::new();
+            for f in fragments {
+                if let Some(key) = f.key.as_deref()
+                    && (!crate::Candidate::<crate::DialogTypes>::is_valid_key(key)
+                        || !seen.insert(key))
+                {
+                    return Some(key);
+                }
+                // The nested lists of one fragment share its progress path.
+                let mut inner = f
+                    .variants
+                    .iter()
+                    .filter_map(|v| match v {
+                        DialogText::Fragments(inner) => Some(inner.iter()),
+                        _ => None,
+                    })
+                    .flatten();
+                if let Some(key) = first(&mut inner) {
+                    return Some(key);
+                }
+            }
+            None
+        }
+        match self {
+            DialogText::Fragments(fragments) => first(&mut fragments.iter()),
+            _ => None,
+        }
+    }
+
     /// Returns the inline text, or `None` for every other variant.
     pub fn as_inline(&self) -> Option<&str> {
         match self {
@@ -797,6 +834,26 @@ impl Default for DialogueGraph {
 mod tests {
     use super::*;
     use assert2::check;
+
+    #[test]
+    fn fragment_bad_keys() {
+        let keyed = |k: &str| {
+            let mut f = TextFragment::always(DialogText::Inline("a".into()));
+            f.key = Some(k.into());
+            f
+        };
+        let list =
+            |keys: &[&str]| DialogText::<()>::Fragments(keys.iter().map(|k| keyed(k)).collect());
+        check!(list(&["a", "b"]).bad_key().is_none());
+        check!(list(&["0"]).bad_key() == Some("0"));
+        check!(list(&[""]).bad_key() == Some(""));
+        check!(list(&["a/b"]).bad_key() == Some("a/b"));
+        check!(list(&["a", "a"]).bad_key() == Some("a"));
+        let siblings =
+            TextFragment::with_mode(FragmentMode::Cycle, vec![list(&["x"]), list(&["x"])]);
+        check!(DialogText::Fragments(vec![siblings]).bad_key() == Some("x"));
+        check!(DialogText::<()>::Inline("0".into()).bad_key().is_none());
+    }
 
     #[test]
     fn dialogue_node_id_construction() {

@@ -53,6 +53,9 @@
 //!    ([`UnkeyedProgress`](ValidationIssueKind::UnkeyedProgress))
 //! 3. **Unknown pools** — a variant names a pool that is not in the pools
 //!    ([`UnknownPool`](ValidationIssueKind::UnknownPool))
+//! 4. **Bad keys** — a candidate key that is empty, digits only, has a
+//!    `/` or repeats on its progress path
+//!    ([`BadKey`](ValidationIssueKind::BadKey))
 //!
 //! The static check does not report a candidate that can never show: that
 //! needs the explored states.
@@ -146,7 +149,7 @@ pub enum ValidationIssueKind {
     UnkeyedProgress,
     /// A node is part of a loop of `next` targets through nodes without
     /// options and without conditions: the talk never stops for a choice.
-    /// Reported once per node. (Error)
+    /// Reported once per node. (Error; Warning if no entry reaches the node)
     ///
     /// The check reports only loops that never stop, whatever the state.
     /// It does not report a loop through a node with options (they can all
@@ -161,6 +164,9 @@ pub enum ValidationIssueKind {
     /// A text pool names a pool (`Entry::Named`) that is not in the
     /// pools. (Error)
     UnknownPool,
+    /// A text pool candidate key would share progress with another
+    /// candidate (see `Pool::bad_key`). Reported once per pool. (Error)
+    BadKey,
 }
 
 /// Switches for [`GraphValidator`]: which kinds of issues to report.
@@ -708,11 +714,22 @@ impl GraphValidator {
             done.extend(path);
         }
 
+        if in_loop.is_empty() {
+            return;
+        }
+        // As with `Cycle`, a loop that `advance` can never enter is only a
+        // warning; `Unreachable`, `EntryNodeNotFound` or `NoEntryNode` says why.
+        let reachable = reachable_from_entries(graph, node_map);
         for node_id in in_loop {
+            let severity = if reachable.contains(&node_id) {
+                ValidationSeverity::Error
+            } else {
+                ValidationSeverity::Warning
+            };
             issues.push(
                 ValidationIssue::new(
                     ValidationIssueKind::NextLoop,
-                    ValidationSeverity::Error,
+                    severity,
                     format!(
                         "Node {} is part of a loop of next targets without a choice",
                         symbols.display_node(node_id)
@@ -1437,6 +1454,25 @@ mod tests {
         let option = make_option(1, DialogTarget::End, DialogueNodeId::new(3));
         g.nodes[2].options.push(option);
         check!(of_kind(&validator, &g, K::NextLoop).is_empty());
+    }
+
+    #[test]
+    fn unreachable_next_loops_are_warnings() {
+        use ValidationIssueKind as K;
+        let validator = GraphValidator::new();
+        // Entry 1 ends; 2 <-> 3 loop but can not be entered.
+        let g = next_graph(&[
+            (1, Some(DialogTarget::End)),
+            (2, Some(DialogTarget::node(3))),
+            (3, Some(DialogTarget::node(2))),
+        ]);
+        let loops = of_kind(&validator, &g, K::NextLoop);
+        check!(loops.len() == 2);
+        check!(
+            loops
+                .iter()
+                .all(|i| i.severity == ValidationSeverity::Warning)
+        );
     }
 
     #[test]

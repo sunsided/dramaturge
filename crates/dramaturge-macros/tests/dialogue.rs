@@ -91,6 +91,22 @@ fn dialogue_and_yaml_make_the_same_graph() {
 }
 
 #[test]
+fn negative_numbers_in_conditions() {
+    let loaded = dialogue! {
+        with mara start intro {
+            intro: "Hello." {
+                when gold >= -3 and relation(trust) > -2;
+                "Bye." => end;
+            }
+        }
+    };
+    let conditions = &loaded.graph.nodes[0].conditions;
+    assert!(let [Condition::All(parts)] = conditions.as_slice());
+    assert!(let Condition::FactAtLeast { value: -3, .. } = &parts[0]);
+    assert!(let Condition::RelationshipAtLeast { value: -1, .. } = &parts[1]);
+}
+
+#[test]
 fn compile_errors() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/ui/*.rs");

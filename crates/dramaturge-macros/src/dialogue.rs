@@ -6,7 +6,8 @@
 
 use dramaturge_syntax::tokens::Spanned;
 use dramaturge_syntax::{
-    Choice, Dialogue, Effect, LowerError, Node, Outcomes, Target, Text, Value, lower_plain,
+    Choice, Dialogue, Effect, LowerError, Node, Outcomes, Severity, Target, Text, Value,
+    lower_plain,
 };
 use proc_macro_crate::FoundCrate;
 use proc_macro2::{Span, TokenStream};
@@ -14,22 +15,25 @@ use quote::quote;
 
 /// The path of `dramaturge-syntax` in the calling crate: the crate itself,
 /// or `dramaturge::syntax` through the facade.
-fn syntax_path() -> TokenStream {
+fn syntax_path() -> syn::Result<TokenStream> {
     let ident = |name: &str| syn::Ident::new(name, Span::call_site());
     if let Ok(found) = proc_macro_crate::crate_name("dramaturge-syntax") {
-        return match found {
+        return Ok(match found {
             FoundCrate::Itself => quote!(crate),
             FoundCrate::Name(name) => {
                 let name = ident(&name);
                 quote!(::#name)
             }
-        };
+        });
     }
     if let Ok(FoundCrate::Name(name)) = proc_macro_crate::crate_name("dramaturge") {
         let name = ident(&name);
-        return quote!(::#name::syntax);
+        return Ok(quote!(::#name::syntax));
     }
-    quote!(::dramaturge_syntax)
+    Err(syn::Error::new(
+        Span::call_site(),
+        "dialogue! needs a dependency on `dramaturge` (feature `macros`) or `dramaturge-syntax`",
+    ))
 }
 
 pub fn expand(input: TokenStream) -> syn::Result<TokenStream> {
@@ -40,14 +44,26 @@ pub fn expand(input: TokenStream) -> syn::Result<TokenStream> {
     // Lower once at compile time. A condition that the default language can
     // not read fails here, at its tokens, and not at run time.
     if let Err(e) = lower_plain(&spanned.dialogue) {
-        let (place, message) = match e {
-            LowerError::Host { place, error, .. } => (Some(place), error.to_string()),
-            other => (None, other.to_string()),
+        let error = match e {
+            LowerError::Host { place, error, .. } => {
+                syn::Error::new(spanned.span(&place), error.to_string())
+            }
+            // Each issue has its place (an empty option label, which
+            // `check` does not see).
+            LowerError::Check(issues) => issues
+                .iter()
+                .filter(|i| i.severity == Severity::Error)
+                .map(|i| syn::Error::new(spanned.span(&i.place), &i.message))
+                .reduce(|mut all, e| {
+                    all.combine(e);
+                    all
+                })
+                .unwrap_or_else(|| syn::Error::new(spanned.span, "the dialogue does not lower")),
+            other => syn::Error::new(spanned.span, other.to_string()),
         };
-        let span = place.map_or(spanned.span, |p| spanned.span(&p));
-        return Err(syn::Error::new(span, message));
+        return Err(error);
     }
-    let p = syntax_path();
+    let p = syntax_path()?;
     let dialogue = dialogue_tokens(&p, &spanned.dialogue);
     Ok(quote! {
         {

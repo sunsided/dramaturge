@@ -38,6 +38,8 @@ fn facts_and_comparisons() {
     check!(lower("gold >= 10").0 == at_least(FactScope::World, 10));
     check!(lower("gold > 9").0 == at_least(FactScope::World, 10));
     check!(lower("player.gold >= -3").0 == at_least(FactScope::Player, -3));
+    check!(lower("player.gold >= - 3").0 == at_least(FactScope::Player, -3));
+    check!(lower("player.gold >= -\t3").0 == at_least(FactScope::Player, -3));
     assert!(let Condition::FactAtMost { value: 3, .. } = lower("gold < 4").0);
     assert!(let Condition::FactExists { scope: FactScope::Party, .. } = lower("exists(party.flag)").0);
     check!(lower("true").0 == Condition::Always);
@@ -138,4 +140,20 @@ fn seen_by_names_the_perceiver() {
     let keeper = symbols.entity("keeper").unwrap();
     check!(c == Condition::SeenBy(dramaturge_model::CharacterId::new(keeper)));
     check!(parse("seen_by(mara)").unwrap() == Expr::SeenBy("mara".into()));
+}
+
+#[test]
+fn deep_nesting_is_an_error_and_not_a_stack_overflow() {
+    let parens = format!("{}a{}", "(".repeat(100_000), ")".repeat(100_000));
+    let e = parse(&parens).unwrap_err();
+    check!(e.message.contains("nested deeper than 128"));
+    let nots = format!("{}a", "not ".repeat(100_000));
+    check!(parse(&nots).unwrap_err().message.contains("nested deeper"));
+    let bangs = format!("{}a", "!".repeat(100_000));
+    check!(parse(&bangs).is_err());
+
+    // 128 levels still parse.
+    check!(parse(&format!("{}a{}", "(".repeat(128), ")".repeat(128))).is_ok());
+    let mixed = format!("{}{}a{}", "not ".repeat(64), "(".repeat(64), ")".repeat(64));
+    check!(parse(&mixed).is_ok());
 }

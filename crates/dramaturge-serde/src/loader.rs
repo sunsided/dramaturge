@@ -221,14 +221,21 @@ pub fn pool_to_yaml<C: Serialize, X: Serialize>(
 /// [`Pool<DialogTypes>`](dramaturge_model::Pool).
 ///
 /// Speaker keys and the actors of `seen_by(..)` go into `symbols`, so
-/// pass the symbol table of the dialogues that use the pool. The pool needs
-/// an `id`.
+/// pass the symbol table of the dialogues that use the pool. On an error,
+/// `symbols` is unchanged. The pool needs an `id`, and its candidate keys
+/// must pass [`Pool::bad_key`](dramaturge_model::Pool::bad_key)
+/// ([`IssueKind::BadKey`](dramaturge_syntax::IssueKind::BadKey)).
 pub fn load_pool_yaml(
     yaml: &str,
     symbols: &mut dramaturge_model::SymbolTable,
 ) -> Result<dramaturge_model::Pool<dramaturge_model::DialogTypes>, LoadError> {
     let pool: TextPool = pool_from_yaml(yaml).map_err(LoadError::Yaml)?;
-    dramaturge_syntax::lower_pool_plain(&pool, symbols).map_err(LoadError::Lower)
+    // Lower into a copy: lowering interns keys before it can fail.
+    let mut scratch = symbols.clone();
+    let pool =
+        dramaturge_syntax::lower_pool_plain(&pool, &mut scratch).map_err(LoadError::Lower)?;
+    *symbols = scratch;
+    Ok(pool)
 }
 
 #[cfg(test)]
