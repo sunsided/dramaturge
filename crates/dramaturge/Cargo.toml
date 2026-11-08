@@ -1,7 +1,7 @@
 [package]
 name = "dramaturge"
 description = "A Rust toolkit for branching dialogue, character memory, and narrative state."
-readme = "../../README.md"
+readme = "README.md"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -40,6 +40,7 @@ dramaturge-syntax = { workspace = true, optional = true }
 [dev-dependencies]
 assert2 = { workspace = true }
 dramaturge-authoring = { workspace = true }
+serde_json = "1"
 
 [[example]]
 name = "the_broken_seal"

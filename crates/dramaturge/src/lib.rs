@@ -152,3 +152,12 @@ mod tests {
         let _: Intention = Intention::Persuade;
     }
 }
+
+/// Compiles and runs the Rust snippets of the workspace README as doctests.
+/// They need the features `macros` and `yaml`: run
+/// `cargo test -p dramaturge --all-features --doc` (CI does).
+/// `README.md` in this crate is a symlink to the workspace README, so the
+/// path also resolves in the packaged crate.
+#[cfg(all(doctest, feature = "macros", feature = "yaml"))]
+#[doc = include_str!("../README.md")]
+pub struct ReadmeDoctests;
