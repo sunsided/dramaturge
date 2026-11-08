@@ -21,6 +21,9 @@ dramaturge-serde = { version = "0.3", features = ["yaml"] }
 
 # Only to check dialogues at authoring time (CI, editor, build step):
 dramaturge-authoring = "0.3"
+
+# Only to read dialogues from JSON (or another self-describing format):
+serde_json = "1"
 ```
 
 No feature is on by default. The features of `dramaturge`:
@@ -42,7 +45,7 @@ The dialogue: Mara greets the player once (`intro`) and briefly after that (`aga
 
 ### `dialogue!` (feature `macros`)
 
-The macro checks the dialogue at compile time: unknown targets, duplicate keys and conditions it can not read are compile errors at the offending token.
+The macro checks the dialogue at compile time: unknown targets, duplicate keys and conditions it cannot read are compile errors at the offending token.
 
 ```rust
 use dramaturge::dialogue;
@@ -117,7 +120,9 @@ nodes:
 let loaded = dramaturge_serde::loader::load_yaml(yaml)?; // graph, symbols, warnings
 ```
 
-### JSON (feature `syntax`, any serde format)
+### JSON (feature `syntax`)
+
+The AST deserializes from self-describing serde formats (JSON, YAML, TOML), not from binary ones like bincode.
 
 ```json
 {
@@ -217,7 +222,7 @@ The full field reference is in the [`dramaturge-syntax` README](crates/dramaturg
 
 ## Text selection
 
-New in 0.3: a line can vary. In YAML, `say` takes a list of fragments with their own `when` and `mode` (`always`, `first_time`, `once`, `cycle`, `shuffle`, `sticky`), or `{ text: <pool id> }` to say a named text pool. A pool is an ordered list of candidates with a pick rule: `first` (the default), `all`, or `best` (the candidate with the most tests wins; a tie goes to file order). Candidates can have tuple keys (`speaker`, `topic`), a perceiver test (`seen_by`), and `learn` facts.
+New in 0.3: a line can vary. In YAML, `say` takes a list of fragments with their own `when` and `mode` (`always`, `first_time`, `once`, `cycle`, `shuffle`, `sticky`), or `{ text: <pool id> }` to say a named text pool. A pool is an ordered list of candidates with a pick rule: `first` (the default), `all`, or `best` (the highest score wins: the specificity of the candidate's condition plus one for each `speaker` or `topic` key; a tie goes to file order). Candidates can have tuple keys (`speaker`, `topic`), a perceiver test (`seen_by`), and `learn` facts.
 
 ```yaml
 id: keeper_replies
@@ -226,12 +231,14 @@ one_of:
   - { speaker: keeper, topic: stove, text: "Leave the stove alone." }
   - { speaker: keeper, text: "I keep the lock. That is all." }
   - "Nobody answers."
-  - when: stove.hot and seen_by(player)
+  - speaker: keeper
+    topic: stove
+    when: stove.hot and seen_by(player)
     text: "The ash on the grate is fresh."
     learn: [ash_is_fresh]
 ```
 
-`select` and `select_named` choose without side effects and return a `Selection` with a `Trace` that says why each candidate won or lost. `commit` then records the progress and the `learn` items:
+`select` and `select_named` choose without changing progress or world state (they only draw from the RNG for `shuffle` and `sticky`) and return a `Selection` with a `Trace` that says why each candidate won or lost. `commit` then records the progress and the `learn` items:
 
 ```rust
 use dramaturge::*;
@@ -239,18 +246,21 @@ use dramaturge::*;
 let mut symbols = SymbolTable::new();
 let pools = Pools::new().with(dramaturge_serde::loader::load_pool_yaml(yaml, &mut symbols)?);
 let keeper = CharacterId::new(symbols.entity("keeper").unwrap());
+let player = CharacterId::new(symbols.player());
 
 let evaluator = DefaultConditionEvaluator::new();
 let (mut state, mut progress, mut rng) = (DialogWorldState::new(), TextProgress::new(), SplitMix64::new(7));
+state.set_fact(FactScope::World, Fact::bool("stove.hot", true));
 
-let query = Query::new().speaker(keeper).topic("stove".into());
+// The player sees the hot stove: the last candidate has the highest score.
+let query = Query::new().speaker(keeper).topic("stove".into()).perceiver(player);
 let judge = DefaultJudge::new(&evaluator, &state);
 let selection = select_named("keeper_replies", &pools, "kitchen", &query, &judge, &progress, &mut rng);
 println!("{}", selection.trace);
-commit(&selection, &query, &mut progress, &mut world_learner(&mut state));
+commit(&selection, &query, &mut progress, &mut world_learner(&mut state)); // learns ash_is_fresh
 ```
 
-`GraphValidator::validate_pools` reports ties in `best` pools, unkeyed progress modes and unknown pool names. See the [`text_selection`](crates/dramaturge/examples/text_selection.rs) example.
+`dramaturge_authoring::GraphValidator::new().validate_pools(&pools)` reports ties in `best` pools, unkeyed progress modes and unknown pool names (see the [`dramaturge-authoring` README](crates/dramaturge-authoring/README.md)). The [`text_selection`](crates/dramaturge/examples/text_selection.rs) example builds pools in Rust instead of YAML.
 
 ## Running a dialogue
 
@@ -285,7 +295,7 @@ loop {
 }
 ```
 
-To keep dialogue state inside your own game state, implement `HasDialogWorldState`; to answer game-specific conditions and outcomes (`Condition::Custom`, `Outcome::Custom`), pass a `CustomHandler` to `DefaultConditionEvaluator::with_custom` and `DefaultOutcomeApplier::with_custom`. See the [`host_state`](crates/dramaturge/examples/host_state.rs) example.
+To keep dialogue state inside your own game state, implement `HasDialogWorldState`; to answer game-specific conditions and outcomes (`Condition::Custom`, `Outcome::Custom`), pass a `CustomHandler` to `DefaultConditionEvaluator::with_custom` and `DefaultOutcomeApplier::with_custom`, and give both to `DefaultRuntime::with_parts(evaluator, applier)` (`DefaultRuntime::new()` uses handlers that answer nothing). See the [`host_state`](crates/dramaturge/examples/host_state.rs) example.
 
 ### Validation
 
