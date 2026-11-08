@@ -708,8 +708,11 @@ impl GraphValidator {
             done.extend(path);
         }
 
+        if in_loop.is_empty() {
+            return;
+        }
         // As with `Cycle`, a loop that `advance` can never enter is only a
-        // warning; the `Unreachable` warning already says why.
+        // warning; `Unreachable`, `EntryNodeNotFound` or `NoEntryNode` says why.
         let reachable = reachable_from_entries(graph, node_map);
         for node_id in in_loop {
             let severity = if reachable.contains(&node_id) {

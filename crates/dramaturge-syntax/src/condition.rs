@@ -300,13 +300,23 @@ fn lex(src: &str) -> Result<Vec<(Tok, Range<usize>)>, ParseError> {
                 continue;
             }
             b'-' | b'0'..=b'9' => {
-                let mut j = i + 1;
+                let neg = bytes[i] == b'-';
+                let mut d = i + usize::from(neg);
+                // `- 3` is `-3` too: Rust tokens (`dialogue!`) put a space
+                // after a lone `-`.
+                while neg && d < bytes.len() && bytes[d] == b' ' {
+                    d += 1;
+                }
+                let mut j = d;
                 while j < bytes.len() && bytes[j].is_ascii_digit() {
                     j += 1;
                 }
-                let n = src[i..j]
-                    .parse()
-                    .map_err(|_| ParseError::new("not a number", i..j))?;
+                let n = if neg {
+                    format!("-{}", &src[d..j]).parse()
+                } else {
+                    src[d..j].parse()
+                }
+                .map_err(|_| ParseError::new("not a number", i..j))?;
                 out.push((Tok::Int(n), i..j));
                 i = j;
                 continue;

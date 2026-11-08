@@ -38,6 +38,7 @@ fn facts_and_comparisons() {
     check!(lower("gold >= 10").0 == at_least(FactScope::World, 10));
     check!(lower("gold > 9").0 == at_least(FactScope::World, 10));
     check!(lower("player.gold >= -3").0 == at_least(FactScope::Player, -3));
+    check!(lower("player.gold >= - 3").0 == at_least(FactScope::Player, -3));
     assert!(let Condition::FactAtMost { value: 3, .. } = lower("gold < 4").0);
     assert!(let Condition::FactExists { scope: FactScope::Party, .. } = lower("exists(party.flag)").0);
     check!(lower("true").0 == Condition::Always);

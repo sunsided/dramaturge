@@ -231,16 +231,7 @@ impl ConditionSource {
                     *glue = p.spacing() == Spacing::Joint;
                 }
                 TokenTree::Ident(i) => self.push(&i.to_string(), i.span(), glue),
-                TokenTree::Literal(l) => {
-                    let text = l.to_string();
-                    // `-3` is a `-` (alone) and a `3`; the condition
-                    // language has no subtraction, so `-` before a number
-                    // is always its sign.
-                    if self.text.ends_with('-') && text.starts_with(|c: char| c.is_ascii_digit()) {
-                        *glue = true;
-                    }
-                    self.push(&text, l.span(), glue);
-                }
+                TokenTree::Literal(l) => self.push(&l.to_string(), l.span(), glue),
             }
         }
     }
