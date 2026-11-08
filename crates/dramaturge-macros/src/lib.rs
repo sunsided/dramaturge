@@ -19,16 +19,23 @@
 //! to specify the axis and key for each tag. If a variant lacks the
 //! attribute, the axis or key defaults to an empty string.
 //!
-//! ```ignore
-//! use dramaturge_macros::DialogTag;
+//! The trait needs `Debug`, `Clone`, `PartialEq`, `Eq` and `Hash`, so derive
+//! them too.
 //!
-//! #[derive(DialogTag)]
+//! ```
+//! use dramaturge_macros::DialogTag;
+//! use dramaturge_model::DialogTag as _;
+//!
+//! #[derive(Debug, Clone, PartialEq, Eq, Hash, DialogTag)]
 //! enum MyTag {
 //!     #[tag(axis = "moral", key = "good")]
 //!     Good,
 //!     #[tag(axis = "moral", key = "evil")]
 //!     Evil,
 //! }
+//!
+//! assert_eq!(MyTag::Evil.axis(), "moral");
+//! assert_eq!(MyTag::Good.key(), "good");
 //! ```
 //!
 //! # `#[derive(FactValue)]`

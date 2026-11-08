@@ -6,6 +6,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `dramaturge::serde` re-exports `dramaturge-serde` (feature `serde` or `yaml`), so `dramaturge = { features = ["yaml"] }` alone gives `dramaturge::serde::loader::load_yaml`. The feature `yaml` now implies `serde`.
+
+### Fixed
+
+- The `#[derive(DialogTag)]` example in the `dramaturge-macros` docs compiles and runs as a doctest; it derives `Debug`, `Clone`, `PartialEq`, `Eq` and `Hash`, which the `DialogTag` trait needs.
+
 ## [0.3.0-alpha.5] - 2026-11-08
 
 ### Added

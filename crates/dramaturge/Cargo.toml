@@ -23,7 +23,7 @@ pre-release-replacements = [
 
 [features]
 serde = ["dep:dramaturge-serde"]
-yaml = ["dep:dramaturge-serde", "dramaturge-serde/yaml"]
+yaml = ["serde", "dramaturge-serde/yaml"]
 # The dialogue AST, its serde shape and its lowering (`dramaturge::syntax`).
 syntax = ["dep:dramaturge-syntax", "dramaturge-syntax/serde"]
 # The macros: `dialogue!` and the derives. Implies `syntax`, because the
