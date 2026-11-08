@@ -60,7 +60,7 @@
 //!   such nodes one after the other until a node offers a choice. See the
 //!   `exchange` example.
 //! - **One dialogue format** — write a dialogue as YAML (feature `yaml`,
-//!   `dramaturge_serde::loader::load_yaml`) or as Rust tokens with
+//!   `dramaturge::serialization::loader::load_yaml`) or as Rust tokens with
 //!   `dialogue!` (feature `macros`). Both read into the AST of
 //!   `dramaturge::syntax` (feature `syntax`) and make the same graph. A host
 //!   with its own conditions, text or effects lowers the AST through its
@@ -90,6 +90,10 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+/// All domain types (the `dramaturge-model` crate). The derive macros
+/// reach the model through this path when it is the only dependency.
+pub use dramaturge_model as model;
+
 pub use dramaturge_model::{
     AlignmentAxis, AlignmentAxisId, AlignmentPole, AlignmentPoleId, AlignmentScore, Candidate,
     Character, CharacterId, CharacterKey, CharacterTrait, Condition, Confidence, CustomDialogTag,
@@ -115,6 +119,12 @@ pub use dramaturge_runtime::{
 #[cfg(feature = "syntax")]
 #[cfg_attr(docsrs, doc(cfg(feature = "syntax")))]
 pub use dramaturge_syntax as syntax;
+
+/// The YAML loader and the serde shapes (the `dramaturge-serde` crate).
+#[cfg(feature = "serde")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
+// Not `serde`: after `use dramaturge::*` that would clash with the `serde` crate.
+pub use dramaturge_serde as serialization;
 
 /// The macros: [`dialogue!`] builds a dialogue graph from Rust tokens.
 #[cfg(feature = "macros")]
