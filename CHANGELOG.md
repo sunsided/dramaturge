@@ -6,6 +6,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A named text pool whose id has a `/` could share progress with an inline pool of another pool (pool `a/x`, key `k` against pool `a`, candidate `x`, inline key `k`). `Pool::is_valid_id` is the rule (not empty, no `/`); `lower_pool` (so `load_pool_yaml`) fails with the new `IssueKind::BadPoolId`, and `validate_pools` reports the new `ValidationIssueKind::BadPoolId`. The id of a root inline pool (an owner) may still have a `/`; the host keeps such ids out of its named pools' paths, for example by a prefix. (#103)
+
 ## [0.3.1] - 2026-11-08
 
 ### Fixed

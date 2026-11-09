@@ -311,6 +311,23 @@ fn colliding_keys_are_errors() {
 }
 
 #[test]
+fn bad_pool_ids_are_errors() {
+    for id in ["a/x", "\"\""] {
+        let yaml = format!("id: {id}\none_of:\n  - {{ key: k, text: a }}\n");
+        let result = load_pool_yaml(&yaml, &mut SymbolTable::new());
+        let Err(LoadError::Lower(dramaturge_serde::loader::LowerError::Check(issues))) = result
+        else {
+            panic!("not a check error for {id}: {result:?}");
+        };
+        assert!(issues.len() == 1, "{issues:?}");
+        check!(issues[0].kind == dramaturge_syntax::IssueKind::BadPoolId);
+        check!(issues[0].path == "id");
+        check!(issues[0].place == dramaturge_syntax::Place::Pool("id".into()));
+    }
+    check!(load_pool_yaml("id: room:shore\none_of: [a]\n", &mut SymbolTable::new()).is_ok());
+}
+
+#[test]
 fn colliding_fragment_keys_are_errors() {
     let dialogue =
         |say: &str| format!("with: npc\nstart: [a]\nnodes:\n  a:\n    say: {say}\n    next: end\n");

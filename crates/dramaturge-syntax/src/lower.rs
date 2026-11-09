@@ -633,8 +633,12 @@ pub type PoolResult<C, X, E, L> = Result<
 /// pool. An inline pool without an id takes the key of its candidate, or
 /// its index.
 ///
-/// A candidate or fragment key that would share progress (see
-/// `Pool::bad_key`) is [`LowerError::Check`] with [`IssueKind::BadKey`].
+/// This lowers a named pool, one that goes into `Pools` under its `id`;
+/// an owner pool of the host (an inline pool at the root of `select`) is
+/// not lowered here. A candidate or fragment key that would share
+/// progress (see `Pool::bad_key`) is [`LowerError::Check`] with
+/// [`IssueKind::BadKey`]; an id that is empty or has a `/` (see
+/// `Pool::is_valid_id`) is one with [`IssueKind::BadPoolId`].
 ///
 /// `E` is the effect payload of the host's [`Lower`] implementation. A
 /// pool has no effects; name `E` when `L` implements `Lower` for more than
@@ -653,6 +657,18 @@ pub fn lower_pool<C, X, E, L: Lower<C, X, E>>(
             message: "a named text pool needs an `id`".into(),
         }]));
     };
+    if !Pool::<DialogTypes<L::Text>>::is_valid_id(id) {
+        return Err(LowerError::Check(vec![Issue {
+            severity: Severity::Error,
+            kind: IssueKind::BadPoolId,
+            place: Place::Pool("id".into()),
+            path: "id".into(),
+            message: format!(
+                "the pool id `{id}` is empty or has a `/`; its progress could equal that of \
+                 an inline pool"
+            ),
+        }]));
+    }
     let player = symbols.player();
     let mut cx = Cx {
         symbols,

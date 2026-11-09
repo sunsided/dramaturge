@@ -291,6 +291,28 @@ pub struct Pool<X: TextTypes> {
 }
 
 impl<X: TextTypes> Pool<X> {
+    /// Returns `true` when `id` is a safe id for a named pool in [`Pools`]:
+    /// not empty and without a `/`. The candidates of a pool have the
+    /// progress paths `<id>/<key>`, and inline pools nest below their
+    /// candidate's path, so with a `/` in a named id two pools could write
+    /// one path (pool `a/x`, key `k` against pool `a`, candidate `x`,
+    /// inline key `k`).
+    ///
+    /// Nothing enforces it on construction: [`Pools::insert`] and
+    /// [`Pool::new`] take any id. `lower_pool` (dramaturge-syntax) and
+    /// `GraphValidator::validate_pools` (dramaturge-authoring) apply it;
+    /// a host that builds named pools in code applies it itself.
+    ///
+    /// A root inline pool (an owner, see `Count::Inline`) is not checked:
+    /// its id is the host's namespace and may hold `/`. The host then keeps
+    /// owner ids out of the paths of its named pools: an owner
+    /// `room:shore/presence` and a named pool `room:shore` with a candidate
+    /// `presence` would share progress. Prefixes that named pool ids never
+    /// have (for example `room:`) keep them apart.
+    pub fn is_valid_id(id: &str) -> bool {
+        !id.is_empty() && !id.contains('/')
+    }
+
     /// Creates an empty pool.
     pub fn new(id: impl Into<Arc<str>>, pick: Pick) -> Self {
         Self {
@@ -627,6 +649,15 @@ mod tests {
             .topic("stove".into())
             .when(fact("hot"));
         check!(c.score() == 3);
+    }
+
+    #[test]
+    fn pool_ids() {
+        type P = Pool<crate::DialogTypes>;
+        assert!(P::is_valid_id("keeper_replies"));
+        assert!(P::is_valid_id("room:shore"));
+        assert!(!P::is_valid_id(""));
+        assert!(!P::is_valid_id("a/x"));
     }
 
     #[test]
