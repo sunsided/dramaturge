@@ -55,7 +55,8 @@
 //!    ([`UnknownPool`](ValidationIssueKind::UnknownPool))
 //! 4. **Bad keys** — a candidate key that is empty, digits only, has a
 //!    `/` or repeats on its progress path
-//!    ([`BadKey`](ValidationIssueKind::BadKey))
+//!    ([`BadKey`](ValidationIssueKind::BadKey)), and a named pool id that
+//!    is empty or has a `/` ([`BadPoolId`](ValidationIssueKind::BadPoolId))
 //!
 //! The static check does not report a candidate that can never show: that
 //! needs the explored states.
@@ -167,6 +168,12 @@ pub enum ValidationIssueKind {
     /// A text pool candidate key would share progress with another
     /// candidate (see `Pool::bad_key`). Reported once per pool. (Error)
     BadKey,
+    /// A named pool's id is empty or has a `/` (see `Pool::is_valid_id`),
+    /// so its progress could equal that of an inline pool. Only
+    /// [`validate_pools`](GraphValidator::validate_pools) reports it; a
+    /// single pool from [`validate_pool`](GraphValidator::validate_pool)
+    /// may be an inline owner pool, whose id is the host's. (Error)
+    BadPoolId,
 }
 
 /// Switches for [`GraphValidator`]: which kinds of issues to report.

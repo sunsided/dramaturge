@@ -16,6 +16,20 @@ impl GraphValidator {
         for pool in pools.iter() {
             self.check_pool(pool, &pool.id, pools, &mut issues);
             bad_key(pool, &mut issues);
+            if !Pool::<X>::is_valid_id(&pool.id) {
+                issues.push(
+                    ValidationIssue::new(
+                        ValidationIssueKind::BadPoolId,
+                        ValidationSeverity::Error,
+                        format!(
+                            "The pool id `{}` is empty or has a `/`; its progress could equal \
+                             that of an inline pool",
+                            pool.id
+                        ),
+                    )
+                    .with_path(pool.id.to_string()),
+                );
+            }
         }
         issues.retain(|issue| self.options().reports(issue.kind));
         issues
@@ -183,6 +197,23 @@ mod tests {
         let one = Pool::new("p", Pick::All).with_candidate(leaf("a").keyed("0"));
         let issues = GraphValidator::new().validate_pool(&one, &Pools::new());
         check!(kinds(&issues) == [ValidationIssueKind::BadKey]);
+    }
+
+    #[test]
+    fn named_pool_ids_with_a_slash_are_errors() {
+        let pools = Pools::new()
+            .with(Pool::new("a", Pick::All).with_candidate(leaf("x").keyed("x")))
+            .with(Pool::new("a/x", Pick::All).with_candidate(leaf("k").keyed("k")));
+        let issues = GraphValidator::new().validate_pools(&pools);
+        check!(kinds(&issues) == [ValidationIssueKind::BadPoolId]);
+        check!(issues[0].path.as_deref() == Some("a/x"));
+        // An inline owner pool may have a `/` in its id.
+        let owner = Pool::new("room:shore/presence", Pick::All).with_candidate(leaf("a"));
+        check!(
+            GraphValidator::new()
+                .validate_pool(&owner, &Pools::new())
+                .is_empty()
+        );
     }
 
     #[test]

@@ -291,6 +291,17 @@ pub struct Pool<X: TextTypes> {
 }
 
 impl<X: TextTypes> Pool<X> {
+    /// Returns `true` when `id` can name a pool in [`Pools`]: not empty and
+    /// without a `/`. The candidates of a named pool have the progress paths
+    /// `<id>/<key>`, and with a `/` in the id that path could equal one of
+    /// an inline pool in another pool (pool `a/x`, key `k` against pool `a`,
+    /// candidate `x`, inline key `k`). The id of a root inline pool (an
+    /// owner, see `Count::Inline`) is the host's own namespace and may hold
+    /// `/`.
+    pub fn is_valid_id(id: &str) -> bool {
+        !id.is_empty() && !id.contains('/')
+    }
+
     /// Creates an empty pool.
     pub fn new(id: impl Into<Arc<str>>, pick: Pick) -> Self {
         Self {
@@ -627,6 +638,15 @@ mod tests {
             .topic("stove".into())
             .when(fact("hot"));
         check!(c.score() == 3);
+    }
+
+    #[test]
+    fn pool_ids() {
+        type P = Pool<crate::DialogTypes>;
+        assert!(P::is_valid_id("keeper_replies"));
+        assert!(P::is_valid_id("room:shore"));
+        assert!(!P::is_valid_id(""));
+        assert!(!P::is_valid_id("a/x"));
     }
 
     #[test]

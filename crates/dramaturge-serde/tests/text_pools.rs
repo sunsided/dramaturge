@@ -311,6 +311,19 @@ fn colliding_keys_are_errors() {
 }
 
 #[test]
+fn pool_ids_with_a_slash_are_errors() {
+    let result = load_pool_yaml(
+        "id: a/x\none_of:\n  - { key: k, text: a }\n",
+        &mut SymbolTable::new(),
+    );
+    let Err(LoadError::Lower(dramaturge_serde::loader::LowerError::Check(issues))) = result else {
+        panic!("not a check error: {result:?}");
+    };
+    check!(issues[0].kind == dramaturge_syntax::IssueKind::BadPoolId);
+    check!(load_pool_yaml("id: room:shore\none_of: [a]\n", &mut SymbolTable::new()).is_ok());
+}
+
+#[test]
 fn colliding_fragment_keys_are_errors() {
     let dialogue =
         |say: &str| format!("with: npc\nstart: [a]\nnodes:\n  a:\n    say: {say}\n    next: end\n");

@@ -634,7 +634,9 @@ pub type PoolResult<C, X, E, L> = Result<
 /// its index.
 ///
 /// A candidate or fragment key that would share progress (see
-/// `Pool::bad_key`) is [`LowerError::Check`] with [`IssueKind::BadKey`].
+/// `Pool::bad_key`) is [`LowerError::Check`] with [`IssueKind::BadKey`],
+/// and an id with a `/` (see `Pool::is_valid_id`) one with
+/// [`IssueKind::BadPoolId`].
 ///
 /// `E` is the effect payload of the host's [`Lower`] implementation. A
 /// pool has no effects; name `E` when `L` implements `Lower` for more than
@@ -653,6 +655,17 @@ pub fn lower_pool<C, X, E, L: Lower<C, X, E>>(
             message: "a named text pool needs an `id`".into(),
         }]));
     };
+    if !Pool::<DialogTypes<L::Text>>::is_valid_id(id) {
+        return Err(LowerError::Check(vec![Issue {
+            severity: Severity::Error,
+            kind: IssueKind::BadPoolId,
+            place: Place::Pool("id".into()),
+            path: "id".into(),
+            message: format!(
+                "the pool id `{id}` has a `/`; its progress could equal that of an inline pool"
+            ),
+        }]));
+    }
     let player = symbols.player();
     let mut cx = Cx {
         symbols,

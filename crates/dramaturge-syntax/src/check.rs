@@ -141,6 +141,10 @@ pub enum IssueKind {
     NoLabel,
     /// A named [`TextPool`](crate::TextPool) has no `id`.
     NoPoolId,
+    /// A named [`TextPool`](crate::TextPool) has an `id` that is empty or
+    /// has a `/` (see `dramaturge_model::Pool::is_valid_id`). Only
+    /// [`lower_pool`](crate::lower_pool) reports it.
+    BadPoolId,
     /// A pool candidate or text fragment key would share progress with
     /// another one (see `dramaturge_model::Pool::bad_key`). Only
     /// [`lower`](crate::lower()) and [`lower_pool`](crate::lower_pool)
