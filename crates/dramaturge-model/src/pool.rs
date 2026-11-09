@@ -305,10 +305,13 @@ impl<X: TextTypes> Pool<X> {
     ///
     /// A root inline pool (an owner, see `Count::Inline`) is not checked:
     /// its id is the host's namespace and may hold `/`. The host then keeps
-    /// owner ids out of the paths of its named pools: an owner
-    /// `room:shore/presence` and a named pool `room:shore` with a candidate
-    /// `presence` would share progress. Prefixes that named pool ids never
-    /// have (for example `room:`) keep them apart.
+    /// owner ids apart from its named pools: an owner id must not equal a
+    /// named pool id (owner `stove` and named pool `stove` both write
+    /// `stove/<key>`), nor start with one and a `/` (owner
+    /// `room:shore/presence` writes `room:shore/presence/<key>`, as named
+    /// pool `room:shore` does through its candidate `presence` and an inline
+    /// key). A prefix that named pool ids never have (for example `room:`)
+    /// keeps them apart.
     pub fn is_valid_id(id: &str) -> bool {
         !id.is_empty() && !id.contains('/')
     }
