@@ -307,11 +307,11 @@ impl<X: TextTypes> Pool<X> {
     /// its id is the host's namespace and may hold `/`. The host then keeps
     /// owner ids apart from its named pools: an owner id must not equal a
     /// named pool id (owner `stove` and named pool `stove` both write
-    /// `stove/<key>`), nor start with one and a `/` (owner
-    /// `room:shore/presence` writes `room:shore/presence/<key>`, as named
-    /// pool `room:shore` does through its candidate `presence` and an inline
-    /// key). A prefix that named pool ids never have (for example `room:`)
-    /// keeps them apart.
+    /// `stove/<key>`), nor start with one and a `/` (owner `shore/presence`
+    /// writes `shore/presence/<key>`, as named pool `shore` does through its
+    /// candidate `presence` and an inline key). A prefix on owner ids that
+    /// named pool ids never have keeps them apart: loremaster's owners are
+    /// `room:…` and `thing:…`, its named pools are plain ids.
     pub fn is_valid_id(id: &str) -> bool {
         !id.is_empty() && !id.contains('/')
     }
